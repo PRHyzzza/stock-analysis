@@ -19,6 +19,15 @@ let chart = null;
 let candleSeries = null;
 let volumeSeries = null;
 let markersPlugin = null;
+/** 30日高低价线引用 */
+let highPriceLine = null;
+let lowPriceLine = null;
+const extreme30 = ref({ high: null, low: null });
+
+/** 支撑/阻力线 */
+let srPriceLines = [];
+const srLevels = ref({ support: [], resistance: [] });
+
 /** 均线系列 */
 const maPeriods = [5, 10, 20, 30];
 const maColors = {
@@ -39,6 +48,69 @@ function computeMA(data, period) {
     result.push({ time: data[i].time, value: sum / period });
   }
   return result;
+}
+
+/** 计算支撑与阻力位 */
+function calcSupportResistance(candleData) {
+  if (candleData.length < 30) return { support: [], resistance: [] };
+
+  // 1. 寻找波段高点/低点
+  const swingHighs = [];
+  const swingLows = [];
+  const lookback = 3; // 左右各看 3 根
+
+  for (let i = lookback; i < candleData.length - lookback; i++) {
+    const segHigh = candleData.slice(i - lookback, i + lookback + 1);
+    const segLow = candleData.slice(i - lookback, i + lookback + 1);
+    const maxHigh = Math.max(...segHigh.map((c) => c.high));
+    const minLow = Math.min(...segLow.map((c) => c.low));
+
+    if (candleData[i].high === maxHigh) {
+      swingHighs.push(candleData[i].high);
+    }
+    if (candleData[i].low === minLow) {
+      swingLows.push(candleData[i].low);
+    }
+  }
+
+  // 2. 聚类：将相近的价格合并
+  function cluster(prices, thresholdRatio = 0.005) {
+    if (prices.length === 0) return [];
+    const sorted = [...prices].sort((a, b) => a - b);
+    const clusters = [[sorted[0]]];
+    for (let i = 1; i < sorted.length; i++) {
+      const avg = clusters[clusters.length - 1].reduce((s, v) => s + v, 0) / clusters[clusters.length - 1].length;
+      if (Math.abs(sorted[i] - avg) / avg <= thresholdRatio) {
+        clusters[clusters.length - 1].push(sorted[i]);
+      } else {
+        clusters.push([sorted[i]]);
+      }
+    }
+    // 返回 { price: 集群均价, strength: 出现次数 }
+    return clusters
+      .filter((c) => c.length >= 2) // 至少出现 2 次才有效
+      .map((c) => ({ price: c.reduce((s, v) => s + v, 0) / c.length, strength: c.length }))
+      .sort((a, b) => b.strength - a.strength);
+  }
+
+  const resistanceClusters = cluster(swingHighs, 0.005);
+  const supportClusters = cluster(swingLows, 0.005);
+
+  // 3. 筛选最强的 3 条，并且排除离当前价格太远的
+  const latestPrice = candleData[candleData.length - 1].close;
+  const priceRange = latestPrice * 0.25; // 上下 25% 范围
+
+  const topResistance = resistanceClusters
+    .filter((r) => r.price >= latestPrice && r.price - latestPrice <= priceRange)
+    .slice(0, 3)
+    .sort((a, b) => a.price - b.price); // 从低到高
+
+  const topSupport = supportClusters
+    .filter((s) => s.price <= latestPrice && latestPrice - s.price <= priceRange)
+    .slice(0, 3)
+    .sort((a, b) => b.price - a.price); // 从高到低
+
+  return { support: topSupport, resistance: topResistance };
 }
 
 function initChart() {
@@ -77,12 +149,12 @@ function initChart() {
   });
 
   candleSeries = chart.addSeries(CandlestickSeries, {
-    upColor: "#e74c3c",
-    downColor: "#27ae60",
-    borderUpColor: "#e74c3c",
-    borderDownColor: "#27ae60",
-    wickUpColor: "#e74c3c",
-    wickDownColor: "#27ae60",
+    upColor: "#27ae60",
+    downColor: "#e74c3c",
+    borderUpColor: "#27ae60",
+    borderDownColor: "#e74c3c",
+    wickUpColor: "#27ae60",
+    wickDownColor: "#e74c3c",
     priceFormat: {
       type: "price",
       precision: 2,
@@ -150,12 +222,82 @@ function updateChartData(newData) {
     volumeData.push({
       time,
       value: item.volume,
-      color: isUp ? "rgba(231, 76, 60, 0.4)" : "rgba(39, 174, 96, 0.4)",
+      color: isUp ? "rgba(39, 174, 96, 0.4)" : "rgba(231, 76, 60, 0.4)",
     });
   }
 
   candleSeries.setData(candleData);
   volumeSeries.setData(volumeData);
+
+  // 计算近 30 日高低并更新/创建价格线
+  const lookback = Math.min(30, candleData.length);
+  const recentCandles = candleData.slice(-lookback);
+  const high30 = Math.max(...recentCandles.map((c) => c.high));
+  const low30 = Math.min(...recentCandles.map((c) => c.low));
+  extreme30.value = { high: high30, low: low30 };
+
+  if (highPriceLine) {
+    highPriceLine.applyOptions({ price: high30 });
+  } else {
+    highPriceLine = candleSeries.createPriceLine({
+      price: high30,
+      color: "#e74c3c",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "30日高",
+    });
+  }
+  if (lowPriceLine) {
+    lowPriceLine.applyOptions({ price: low30 });
+  } else {
+    lowPriceLine = candleSeries.createPriceLine({
+      price: low30,
+      color: "#27ae60",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "30日低",
+    });
+  }
+
+  // 支撑与阻力
+  const { support, resistance } = calcSupportResistance(candleData);
+  srLevels.value = { support, resistance };
+
+  // 移除旧的支撑/阻力线
+  srPriceLines.forEach((line) => candleSeries.removePriceLine(line));
+  srPriceLines = [];
+
+  // 创建阻力线 (红色系)
+  resistance.forEach((r, i) => {
+    const opacity = 1 - i * 0.2; // 最强最亮
+    srPriceLines.push(
+      candleSeries.createPriceLine({
+        price: r.price,
+        color: `rgba(231, 76, 60, ${opacity})`,
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `阻力${i + 1}`,
+      })
+    );
+  });
+
+  // 创建支撑线 (绿色系)
+  support.forEach((s, i) => {
+    const opacity = 1 - i * 0.2;
+    srPriceLines.push(
+      candleSeries.createPriceLine({
+        price: s.price,
+        color: `rgba(39, 174, 96, ${opacity})`,
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `支撑${i + 1}`,
+      })
+    );
+  });
 
   // 更新均线数据
   const latestValues = {};
@@ -253,6 +395,9 @@ onUnmounted(() => {
     chart = null;
     candleSeries = null;
     volumeSeries = null;
+    highPriceLine = null;
+    lowPriceLine = null;
+    srPriceLines = [];
     Object.keys(maSeries).forEach((k) => delete maSeries[k]);
   }
 });

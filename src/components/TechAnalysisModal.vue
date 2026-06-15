@@ -137,9 +137,23 @@ const indicators = computed(() => {
   const maValues = calcMATrend(closePrices);
   const sortedMas = Object.entries(maValues).sort((a, b) => Number(a[0]) - Number(b[0]));
   const maTrend = sortedMas.length >= 2
-    ? (sortedMas[0][1] < sortedMas[sortedMas.length - 1][1] ? "多头 📈" : "空头 📉")
+    ? (sortedMas[0][1] > sortedMas[sortedMas.length - 1][1] ? "多头 📈" : "空头 📉")
     : null;
   const maTrendDetail = sortedMas.map(([p, v]) => `MA${p}: ${v.toFixed(2)}`).join("  ");
+
+  // 均线排列: 检查每条短期均线是否都大于/小于长期均线
+  const maAlignment = (() => {
+    if (sortedMas.length < 3) return null;
+    let allBullish = true;
+    let allBearish = true;
+    for (let i = 0; i < sortedMas.length - 1; i++) {
+      if (sortedMas[i][1] <= sortedMas[i + 1][1]) allBullish = false;
+      if (sortedMas[i][1] >= sortedMas[i + 1][1]) allBearish = false;
+    }
+    if (allBullish) return "多头排列 ✅";
+    if (allBearish) return "空头排列 ❌";
+    return "交叉缠绕 ⚡";
+  })();
 
   return {
     macd: latestMACD,
@@ -152,6 +166,7 @@ const indicators = computed(() => {
     maTrend,
     maTrendDetail,
     maValues,
+    maAlignment,
   };
 });
 
@@ -209,6 +224,12 @@ function fmtTrend(trend) {
                   </span>
                 </div>
                 <div class="tech-detail">{{ indicators.maTrendDetail }}</div>
+                <div class="tech-alignment">
+                  <span class="tech-label">排列形态</span>
+                  <span class="tech-value-lg" :class="indicators.maAlignment?.includes('多头排列') ? 'signal-up' : indicators.maAlignment?.includes('空头排列') ? 'signal-down' : 'signal-none'">
+                    {{ indicators.maAlignment || '--' }}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -514,6 +535,15 @@ function fmtTrend(trend) {
 }
 
 .tech-status {
+  border-top: 1px solid #e8ecf1;
+  padding-top: 12px;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tech-alignment {
   border-top: 1px solid #e8ecf1;
   padding-top: 12px;
   margin-top: 12px;
