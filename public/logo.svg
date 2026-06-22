@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <!-- K 线柱: 阴线 (跌=绿) -->
+  <rect x="4" y="12" width="4" height="16" rx="1" fill="#27ae60"/>
+  <rect x="5.5" y="6" width="1" height="8" rx="0.5" fill="#27ae60"/>
+
+  <!-- K 线柱: 阳线 (涨=红) -->
+  <rect x="14" y="4" width="4" height="20" rx="1" fill="#c0392b"/>
+  <rect x="15.5" y="22" width="1" height="6" rx="0.5" fill="#c0392b"/>
+
+  <!-- K 线柱: 小阳线 (涨=红) -->
+  <rect x="24" y="14" width="4" height="10" rx="1" fill="#c0392b"/>
+  <rect x="25.5" y="10" width="1" height="6" rx="0.5" fill="#c0392b"/>
+
+  <!-- 均线 overlays -->
+  <path d="M6 18 C10 14, 16 16, 18 10" stroke="#777b86" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  <path d="M7 21 C11 18, 17 19, 19 13" stroke="#a3a6af" stroke-width="1" fill="none" stroke-linecap="round"/>
+</svg>

@@ -1,4 +1,4 @@
-# 📈 股票分析 (Stock Analysis)
+# 📈 锐眼
 
 <p align="center">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-v2-FFC131?logo=tauri">
