@@ -1,15 +1,21 @@
 <script setup>
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import HotList from "./HotList.vue";
 
 const props = defineProps({
   watchlist: { type: Array, required: true },
   filteredWatchlist: { type: Array, required: true },
   selectedStock: { type: Object, default: null },
   searchQuery: { type: String, default: "" },
+  sidebarView: { type: String, default: "watchlist" },
 });
 
-const emit = defineEmits(["select-stock", "remove", "update:searchQuery", "add-stock"]);
+const emit = defineEmits(["select-stock", "remove", "update:searchQuery", "add-stock", "update:sidebarView"]);
+
+function switchTab(view) {
+  emit("update:sidebarView", view);
+}
 
 const searchResults = ref([]);
 const showResults = ref(false);
@@ -79,95 +85,124 @@ function onSearchFocus() {
 
 <template>
   <aside class="sidebar">
-    <div class="search-bar">
-      <span class="search-icon">🔍</span>
-      <input
-        :value="searchQuery"
-        type="text"
-        placeholder="搜索添加自选股..."
-        class="search-input"
-        @input="onSearchInput"
-        @focus="onSearchFocus"
-        @blur="onSearchBlur"
-      />
-      <!-- 搜索建议下拉 -->
-      <div v-if="showResults" class="search-dropdown">
-        <div v-if="searching" class="search-dropdown-item search-dropdown-hint">
-          <span class="search-spinner"></span>
-          <span>搜索中...</span>
-        </div>
-        <template v-else-if="searchResults.length > 0">
-          <div
-            v-for="result in searchResults"
-            :key="result.market + result.code"
-            class="search-dropdown-item"
-            :class="{ 'already-in': watchlist.some(s => s.code === result.code) }"
-            @mousedown.prevent="addStock(result)"
-          >
-            <div class="search-result-left">
-              <span class="search-result-name">{{ result.name }}</span>
-              <span class="search-result-code">{{ result.code }}</span>
-            </div>
-            <div class="search-result-right">
-              <span class="search-result-market">{{ result.market }}</span>
-              <span v-if="watchlist.some(s => s.code === result.code)" class="search-result-hint">已自选</span>
-              <span v-else class="search-result-add">+ 添加</span>
-            </div>
-          </div>
-        </template>
-        <div v-else-if="searchQuery.trim() && !searching" class="search-dropdown-item search-dropdown-hint">
-          未找到匹配的股票
-        </div>
-      </div>
+    <!-- 顶部 Tab 切换 -->
+    <div class="sidebar-tabs">
+      <button
+        class="sidebar-tab"
+        :class="{ active: sidebarView === 'watchlist' }"
+        @click="switchTab('watchlist')"
+      >
+        📋 自选股
+      </button>
+      <button
+        class="sidebar-tab"
+        :class="{ active: sidebarView === 'hotlist' }"
+        @click="switchTab('hotlist')"
+      >
+        🔥 热榜
+      </button>
     </div>
 
-    <div class="watchlist-section">
-      <div class="list-header">
-        <span class="list-title">自选股</span>
-        <span class="list-count">{{ filteredWatchlist.length }} 只</span>
-      </div>
-      <div class="stock-list">
-        <div
-          v-for="stock in filteredWatchlist"
-          :key="stock.code"
-          class="stock-item"
-          :class="{ active: selectedStock?.code === stock.code }"
-          @click="selectStock(stock)"
-        >
-          <div class="item-left">
-            <span class="item-name">{{ stock.name }}</span>
-            <span class="item-code">{{ stock.code }}</span>
+    <!-- 自选股视图 -->
+    <template v-if="sidebarView === 'watchlist'">
+      <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input
+          :value="searchQuery"
+          type="text"
+          placeholder="搜索添加自选股..."
+          class="search-input"
+          @input="onSearchInput"
+          @focus="onSearchFocus"
+          @blur="onSearchBlur"
+        />
+        <!-- 搜索建议下拉 -->
+        <div v-if="showResults" class="search-dropdown">
+          <div v-if="searching" class="search-dropdown-item search-dropdown-hint">
+            <span class="search-spinner"></span>
+            <span>搜索中...</span>
           </div>
-          <div class="item-right">
-            <span class="item-price" :class="stock.change >= 0 ? 'up' : 'down'">
-              ¥{{ stock.price.toFixed(2) }}
-            </span>
-            <span class="item-change" :class="stock.change >= 0 ? 'up' : 'down'">
-              {{ stock.changePct > 0 ? '+' : '' }}{{ stock.changePct.toFixed(2) }}%
-            </span>
-            <button
-              class="item-remove"
-              title="删除自选"
-              @click.stop="removeStock(stock.code)"
+          <template v-else-if="searchResults.length > 0">
+            <div
+              v-for="result in searchResults"
+              :key="result.market + result.code"
+              class="search-dropdown-item"
+              :class="{ 'already-in': watchlist.some(s => s.code === result.code) }"
+              @mousedown.prevent="addStock(result)"
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-              </svg>
-            </button>
+              <div class="search-result-left">
+                <span class="search-result-name">{{ result.name }}</span>
+                <span class="search-result-code">{{ result.code }}</span>
+              </div>
+              <div class="search-result-right">
+                <span class="search-result-market">{{ result.market }}</span>
+                <span v-if="watchlist.some(s => s.code === result.code)" class="search-result-hint">已自选</span>
+                <span v-else class="search-result-add">+ 添加</span>
+              </div>
+            </div>
+          </template>
+          <div v-else-if="searchQuery.trim() && !searching" class="search-dropdown-item search-dropdown-hint">
+            未找到匹配的股票
           </div>
         </div>
-        <div v-if="filteredWatchlist.length === 0" class="empty-state">
-          未找到匹配的股票
+      </div>
+
+      <div class="watchlist-section">
+        <div class="list-header">
+          <span class="list-title">自选股</span>
+          <span class="list-count">{{ filteredWatchlist.length }} 只</span>
+        </div>
+        <div class="stock-list">
+          <div
+            v-for="stock in filteredWatchlist"
+            :key="stock.code"
+            class="stock-item"
+            :class="{ active: selectedStock?.code === stock.code }"
+            @click="selectStock(stock)"
+          >
+            <div class="item-left">
+              <span class="item-name">{{ stock.name }}</span>
+              <span class="item-code">{{ stock.code }}</span>
+            </div>
+            <div class="item-right">
+              <span class="item-price" :class="stock.change >= 0 ? 'up' : 'down'">
+                ¥{{ stock.price.toFixed(2) }}
+              </span>
+              <span class="item-change" :class="stock.change >= 0 ? 'up' : 'down'">
+                {{ stock.changePct > 0 ? '+' : '' }}{{ stock.changePct.toFixed(2) }}%
+              </span>
+              <button
+                class="item-remove"
+                title="删除自选"
+                @click.stop="removeStock(stock.code)"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div v-if="filteredWatchlist.length === 0" class="empty-state">
+            未找到匹配的股票
+          </div>
         </div>
       </div>
-    </div>
+    </template>
+
+    <!-- 热榜视图 -->
+    <HotList
+      v-if="sidebarView === 'hotlist'"
+      :watchlist="watchlist"
+      @select-stock="(stock) => emit('select-stock', stock)"
+      @remove-stock="(code) => emit('remove', code)"
+    />
   </aside>
 </template>
 
 <style scoped>
 .sidebar {
-  width: 320px;
-  min-width: 320px;
+  width: 370px;
+  min-width: 370px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -468,5 +503,46 @@ function onSearchFocus() {
   padding: 40px 20px;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* ===== 侧边栏 Tab 切换 ===== */
+.sidebar-tabs {
+  display: flex;
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.sidebar-tab:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.sidebar-tab:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.sidebar-tab.active {
+  color: var(--text-primary);
+  background: #f0f2f8;
+}
+
+.sidebar-tab:hover:not(.active) {
+  color: var(--text-secondary);
+  background: #f8f9fc;
 }
 </style>

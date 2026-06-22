@@ -84,3 +84,23 @@ pub struct MoneyFlow {
     pub main_net_inflow: f64,  // 主力净流入（万元）
     pub main_net_pct: f64,     // 主力净占比 (%)
 }
+
+/// 热榜股票条目
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HotStockItem {
+    pub code: String,
+    pub name: String,
+    pub rate: String,            // 热度值
+    pub rise_and_fall: f64,      // 涨跌幅
+    pub hot_rank_chg: i64,       // 排名变化
+    pub order: i64,              // 排名序号
+    pub market: i64,             // 市场标识 17=SH, 33=SZ
+    pub tags: Vec<String>,       // 概念标签
+    pub popularity_tag: String,  // 人气标签
+}
+
+/// 热榜数据
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HotListData {
+    pub stock_list: Vec<HotStockItem>,
+}

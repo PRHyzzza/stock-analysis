@@ -1,10 +1,10 @@
 use crate::api::{
-    fetch_index_quote, fetch_industry_analysis,
+    fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
     fetch_industry_name, fetch_kline_data, fetch_money_flow, fetch_money_flow_eastmoney,
     fetch_search_results, fetch_stock_quote_from_tencent,
 };
 use crate::types::{
-    IndustryData, KlineItem, MarketIndex, MarketPerformance,
+    HotListData, IndustryData, KlineItem, MarketIndex, MarketPerformance,
     MoneyFlow, RevenueRanking, SearchResult, StockQuote,
 };
 
@@ -121,4 +121,10 @@ pub async fn get_stock_money_flow(code: String) -> Result<MoneyFlow, String> {
             return Err(e);
         }
     }
+}
+
+/// 获取热榜数据
+#[tauri::command]
+pub async fn get_hot_list() -> Result<HotListData, String> {
+    fetch_hot_list().await
 }

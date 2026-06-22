@@ -11,6 +11,9 @@ import { useKlineData } from "./composables/useKlineData";
 import { useMarketIndices } from "./composables/useMarketIndices";
 import { useMoneyFlow } from "./composables/useMoneyFlow";
 
+// ---- 侧边栏视图切换 ----
+const sidebarView = ref("watchlist");
+
 // ---- Composable state & actions ----
 const {
   watchlist, searchQuery, selectedStock, filteredWatchlist,
@@ -208,16 +211,18 @@ onUnmounted(() => {
 
     <!-- 主体区域: 左-列表 | 右-详情 -->
     <div class="main-layout">
-      <!-- 左侧：自选股列表 -->
+      <!-- 左侧：自选股列表 / 热榜 -->
       <StockList
         :watchlist="watchlist"
         :filtered-watchlist="filteredWatchlist"
         :selected-stock="selectedStock"
         :search-query="searchQuery"
+        :sidebar-view="sidebarView"
         @select-stock="selectStock"
         @remove="removeFromWatchlist"
         @add-stock="addStockFromSearch"
         @update:search-query="searchQuery = $event"
+        @update:sidebar-view="sidebarView = $event"
       />
 
       <!-- 右侧：详情面板 -->
