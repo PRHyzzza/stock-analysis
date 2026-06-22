@@ -13,7 +13,7 @@ const props = defineProps({
 const emit = defineEmits(["change-period"]);
 
 const periodNames = { day: "日 K", week: "周 K", month: "月 K" };
-const periodLabel = computed(() => `📊 ${periodNames[props.period] || "日 K"} 线`);
+const periodLabel = computed(() => `${periodNames[props.period] || "日 K"} 线`);
 
 const chartContainer = ref(null);
 let chart = null;
@@ -233,25 +233,25 @@ function initChart() {
     height: chartContainer.value.clientHeight,
     layout: {
       background: { type: ColorType.Solid, color: "#ffffff" },
-      textColor: "#6b7280",
+      textColor: "#777b86",
       fontSize: 11,
       attributionLogo: false,
     },
     grid: {
-      vertLines: { color: "#f3f4f6" },
-      horzLines: { color: "#f3f4f6" },
+      vertLines: { color: "rgba(163, 166, 175, 0.12)" },
+      horzLines: { color: "rgba(163, 166, 175, 0.12)" },
     },
     crosshair: {
       mode: 0,
-      vertLine: { color: "#9ca3af", width: 1, style: 2, labelBackgroundColor: "#374151" },
-      horzLine: { color: "#9ca3af", width: 1, style: 2, labelBackgroundColor: "#374151" },
+      vertLine: { color: "#8b8c8d", width: 1, style: 2, labelBackgroundColor: "#4c4c4c" },
+      horzLine: { color: "#8b8c8d", width: 1, style: 2, labelBackgroundColor: "#4c4c4c" },
     },
     rightPriceScale: {
-      borderColor: "#e5e7eb",
+      borderColor: "rgba(163, 166, 175, 0.2)",
       scaleMargins: { top: 0.05, bottom: 0.25 },
     },
     timeScale: {
-      borderColor: "#e5e7eb",
+      borderColor: "rgba(163, 166, 175, 0.2)",
       timeVisible: false,
       ticksVisible: true,
       fixLeftEdge: true,
@@ -524,11 +524,11 @@ onUnmounted(() => {
     <div class="kline-chart-wrap">
       <div ref="chartContainer" class="kline-chart"></div>
       <div v-if="loading" class="kline-loading">
-        <span class="kline-loading-icon">🔄</span>
+        <span class="kline-loading-icon">⟳</span>
         <span>加载 K 线数据中...</span>
       </div>
       <div v-else-if="!data || data.length === 0" class="kline-empty">
-        <span class="kline-empty-icon">📉</span>
+        <span class="kline-empty-icon">—</span>
         <p class="kline-empty-text">暂无 K 线数据</p>
       </div>
     </div>
@@ -536,6 +536,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* ===== Steep: Kline 图表区 ===== */
 .kline-wrapper {
   margin-bottom: 0;
   min-height: 0;
@@ -553,8 +554,9 @@ onUnmounted(() => {
 
 .kline-title {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.009em;
 }
 
 .kline-header-right {
@@ -563,35 +565,37 @@ onUnmounted(() => {
   gap: 14px;
 }
 
+/* Steep: period pill group */
 .kline-periods {
   display: flex;
-  background: var(--bg);
-  border-radius: 8px;
-  padding: 2px;
+  background: var(--fog);
+  border-radius: var(--radius-full);
+  padding: 3px;
   gap: 2px;
 }
 
 .period-btn {
-  padding: 4px 14px;
+  padding: 5px 14px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-full);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   transition: all 0.15s;
+  letter-spacing: -0.009em;
 }
 
 .period-btn:hover {
-  color: var(--text-primary);
+  color: var(--text-secondary);
 }
 
 .period-btn.active {
   background: var(--card-bg);
-  color: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px rgba(23, 25, 28, 0.04), 0 1px 3px rgba(23, 25, 28, 0.06);
 }
 
 .kline-legend {
@@ -609,14 +613,14 @@ onUnmounted(() => {
 }
 
 .legend-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 2px;
 }
 
 .ma-value {
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
@@ -625,8 +629,8 @@ onUnmounted(() => {
   width: 100%;
   min-height: 200px;
   flex: 1;
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
   overflow: hidden;
 }
 
@@ -642,7 +646,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: #fff;
+  background: var(--card-bg);
   color: var(--text-secondary);
   font-size: 14px;
 }
@@ -664,7 +668,7 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #fff;
+  background: var(--card-bg);
   color: var(--text-muted);
 }
 

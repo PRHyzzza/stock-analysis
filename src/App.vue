@@ -264,7 +264,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* ===== 全局布局 ===== */
+/* ===== Steep: 全局布局 ===== */
 .app {
   height: 100vh;
   display: flex;
@@ -273,7 +273,7 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* ===== 顶栏 ===== */
+/* ===== Steep: 顶栏 (marble header) ===== */
 .header {
   display: flex;
   align-items: center;
@@ -296,37 +296,33 @@ onUnmounted(() => {
   gap: 12px;
 }
 
+/* Steep: ghost-style refresh button — no fill, ink border */
 .btn-refresh {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 16px;
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
+  padding: 8px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s;
 }
 .btn-refresh:hover {
-  border-color: var(--text-muted);
-  color: var(--text-primary);
-  background: #f8f9fb;
+  border-color: var(--ink);
+  color: var(--ink);
+  background: transparent;
 }
 .btn-refresh:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .btn-refresh.loading .refresh-icon {
   animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 
 .header-center {
@@ -338,7 +334,7 @@ onUnmounted(() => {
 .market-indices {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 24px;
 }
 
 .index-item {
@@ -349,13 +345,15 @@ onUnmounted(() => {
 }
 
 .index-name {
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .index-value {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .index-change {
@@ -371,17 +369,17 @@ onUnmounted(() => {
 
 .index-divider {
   width: 1px;
-  height: 20px;
+  height: 16px;
   background: var(--border);
 }
 
-/* ===== 主体：左右布局 ===== */
+/* ===== Steep: 主体布局 — 舒适间距 ===== */
 .main-layout {
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 20px 32px;
+  padding: 24px 32px;
   gap: 24px;
 }
 </style>

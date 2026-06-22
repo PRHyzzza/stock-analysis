@@ -92,21 +92,26 @@ function onSearchFocus() {
         :class="{ active: sidebarView === 'watchlist' }"
         @click="switchTab('watchlist')"
       >
-        📋 自选股
+        自选股
       </button>
       <button
         class="sidebar-tab"
         :class="{ active: sidebarView === 'hotlist' }"
         @click="switchTab('hotlist')"
       >
-        🔥 热榜
+        热榜
       </button>
     </div>
 
     <!-- 自选股视图 -->
     <template v-if="sidebarView === 'watchlist'">
       <div class="search-bar">
-        <span class="search-icon">🔍</span>
+          <span class="search-icon">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M10 10l3.5 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </span>
         <input
           :value="searchQuery"
           type="text"
@@ -200,36 +205,70 @@ function onSearchFocus() {
 </template>
 
 <style scoped>
+/* ===== Steep: 侧边栏 ===== */
 .sidebar {
   width: 370px;
   min-width: 370px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Steep Tab: 无底色胶囊切换 */
+.sidebar-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--fog);
+  border-radius: var(--radius-full);
+  padding: 3px;
+}
+.sidebar-tab {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-muted);
+  transition: all 0.2s;
+  letter-spacing: -0.009em;
+}
+.sidebar-tab.active {
+  background: var(--card-bg);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px rgba(23, 25, 28, 0.04), 0 2px 6px rgba(23, 25, 28, 0.06);
+}
+.sidebar-tab:hover:not(.active) {
+  color: var(--text-secondary);
 }
 
 .search-bar {
   position: relative;
 }
 
+/* Steep: 搜索框 — 大圆角 16px */
 .search-icon {
   position: absolute;
-  left: 14px;
+  left: 16px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 15px;
-  opacity: 0.4;
+  font-size: 14px;
+  opacity: 0.35;
 }
 
 .search-input {
   width: 100%;
-  padding: 10px 14px 10px 38px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 13px;
+  padding: 11px 16px 11px 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 14px;
   font-family: inherit;
+  letter-spacing: -0.009em;
   background: var(--card-bg);
   color: var(--text-primary);
   outline: none;
@@ -237,18 +276,19 @@ function onSearchFocus() {
 }
 
 .search-input::placeholder {
-  color: var(--text-muted);
+  color: var(--dove);
 }
 
 .search-input:focus {
-  border-color: var(--text-primary);
-  box-shadow: 0 0 0 3px rgba(26, 26, 46, 0.06);
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px rgba(23, 25, 28, 0.06);
 }
 
+/* Steep: 自选股卡片 — 24px 圆角 */
 .watchlist-section {
   background: var(--card-bg);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -259,14 +299,15 @@ function onSearchFocus() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .list-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.009em;
 }
 
 .list-count {
@@ -286,18 +327,18 @@ function onSearchFocus() {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  padding: 11px 20px;
+  padding: 12px 22px;
   cursor: pointer;
   transition: background 0.12s;
   position: relative;
 }
 
 .stock-item:hover {
-  background: #f8f9fc;
+  background: var(--fog);
 }
 
 .stock-item.active {
-  background: #f0f2f8;
+  background: var(--apricot-wash);
 }
 
 .stock-item.active::before {
@@ -307,12 +348,12 @@ function onSearchFocus() {
   top: 4px;
   bottom: 4px;
   width: 3px;
-  background: var(--text-primary);
-  border-radius: 0 3px 3px 0;
+  background: var(--rust);
+  border-radius: 0 2px 2px 0;
 }
 
 .stock-item + .stock-item {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-light);
 }
 
 .item-left {
@@ -386,8 +427,8 @@ function onSearchFocus() {
 }
 
 .stock-item:hover .item-remove {
-  color: var(--text-muted);
-  background: var(--border);
+  color: var(--slate);
+  background: var(--fog);
 }
 
 .item-remove:hover {
@@ -395,17 +436,16 @@ function onSearchFocus() {
   background: var(--red-bg) !important;
 }
 
-/* ===== 搜索建议下拉 ===== */
+/* ===== Steep: 搜索建议下拉 ===== */
 .search-dropdown {
   position: absolute;
   top: 100%;
   left: 0;
   right: 0;
-  margin-top: 4px;
+  margin-top: 6px;
   background: var(--card-bg);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.14);
-  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
   z-index: 100;
   max-height: 280px;
   overflow-y: auto;
@@ -421,7 +461,7 @@ function onSearchFocus() {
 }
 
 .search-dropdown-item:hover {
-  background: #f0f2f8;
+  background: var(--fog);
 }
 
 .search-dropdown-item.already-in {
@@ -429,7 +469,7 @@ function onSearchFocus() {
 }
 
 .search-dropdown-item + .search-dropdown-item {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-light);
 }
 
 .search-dropdown-hint {
@@ -478,10 +518,11 @@ function onSearchFocus() {
   font-weight: 500;
 }
 
+/* Steep: add button — Rust 替代蓝色 */
 .search-result-add {
   font-size: 12px;
   font-weight: 600;
-  color: #3b82f6;
+  color: var(--rust);
 }
 
 .search-spinner {
@@ -492,10 +533,6 @@ function onSearchFocus() {
   border-top-color: var(--text-muted);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .empty-state {

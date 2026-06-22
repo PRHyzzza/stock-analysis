@@ -148,7 +148,7 @@ const sinceAddedPct = computed(() => {
       <!-- 主力资金流向 -->
       <div v-if="selectedStock" class="flow-section">
         <div class="flow-header">
-          <span class="flow-title">💰 主力资金</span>
+          <span class="flow-title">主力资金</span>
           <template v-if="moneyFlow">
             <span class="flow-text" :class="(moneyFlow.mainNetInflow ?? 0) >= 0 ? 'inflow' : 'outflow'">
               {{ fmtMoney(moneyFlow.mainNetInflow) }}
@@ -166,11 +166,18 @@ const sinceAddedPct = computed(() => {
 
       <div class="action-bar">
         <button class="btn btn-industry" @click="$emit('open-industry-modal')">
-          <span>🏭</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="8" width="3" height="6" rx="0.5"/>
+            <rect x="6.5" y="5.5" width="3" height="8.5" rx="0.5"/>
+            <rect x="11" y="3" width="3" height="11" rx="0.5"/>
+          </svg>
           <span>行业分析</span>
         </button>
         <button class="btn btn-tech" @click="$emit('open-tech-modal')">
-          <span>📐</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 14L14 2M2 14l4-1M2 14l1-4" stroke-linejoin="round"/>
+            <circle cx="12" cy="4" r="1" fill="currentColor"/>
+          </svg>
           <span>技术分析</span>
         </button>
         <button class="btn btn-sr" :class="{ active: showSR }" @click="handleToggleSR">
@@ -195,6 +202,7 @@ const sinceAddedPct = computed(() => {
 </template>
 
 <style scoped>
+/* ===== Steep: 详情区 ===== */
 .main-content {
   flex: 1;
   min-width: 0;
@@ -204,12 +212,12 @@ const sinceAddedPct = computed(() => {
   flex-direction: column;
 }
 
-/* ===== 详情卡片 ===== */
+/* ===== Steep: 详情卡片 — 24px 圆角 ===== */
 .detail-card {
   background: var(--card-bg);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 28px 32px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-card);
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -256,6 +264,7 @@ const sinceAddedPct = computed(() => {
 .stock-name {
   font-size: 22px;
   font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
 .stock-code {
@@ -374,7 +383,7 @@ const sinceAddedPct = computed(() => {
 
 /* ===== 主力资金流向 ===== */
 .flow-section {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .flow-header {
@@ -386,9 +395,10 @@ const sinceAddedPct = computed(() => {
 
 .flow-title {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
   flex-shrink: 0;
+  letter-spacing: -0.009em;
 }
 
 .flow-loading {
@@ -398,7 +408,7 @@ const sinceAddedPct = computed(() => {
 
 .flow-text {
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -408,94 +418,95 @@ const sinceAddedPct = computed(() => {
 }
 
 .flow-text.inflow,
-.flow-pct-text.inflow { color: #dc2626; }
+.flow-pct-text.inflow { color: var(--red); }
 .flow-text.outflow,
-.flow-pct-text.outflow { color: #16a34a; }
+.flow-pct-text.outflow { color: var(--green); }
 
-/* ===== 操作按钮 ===== */
+/* ===== Steep: 操作按钮 ===== */
 .action-bar {
   display: flex;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .btn {
-  padding: 10px 28px;
+  padding: 10px 24px;
   border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s;
+  letter-spacing: -0.009em;
 }
 
+/* Steep: Primary CTA — Rust fill, full round */
 .btn-industry {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: var(--rust);
   color: #fff;
-  box-shadow: 0 2px 6px rgba(59,130,246,0.25);
+  box-shadow: var(--shadow-card);
 }
-
 .btn-industry:hover {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  box-shadow: 0 4px 12px rgba(59,130,246,0.35);
+  background: #4a2215;
+  box-shadow: var(--shadow-elevated);
 }
 
+/* Steep: Secondary filled CTA — Ink fill */
 .btn-tech {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: linear-gradient(135deg, #0891b2, #06b6d4);
+  background: var(--ink);
   color: #fff;
-  box-shadow: 0 2px 6px rgba(6,182,212,0.25);
+  box-shadow: var(--shadow-card);
 }
-
 .btn-tech:hover {
-  background: linear-gradient(135deg, #06b6d4, #22d3ee);
-  box-shadow: 0 4px 12px rgba(6,182,212,0.35);
+  background: #2a2d30;
+  box-shadow: var(--shadow-elevated);
 }
 
+/* Steep: Ghost button — 1px ink border */
 .btn-ghost {
   background: transparent;
   color: var(--text-secondary);
-  border: 1.5px solid var(--border);
+  border: 1px solid var(--border);
   transition: all 0.15s;
 }
-
 .btn-ghost:hover {
-  border-color: var(--text-muted);
-  color: var(--text-primary);
+  border-color: var(--ink);
+  color: var(--ink);
 }
-
 .btn-ghost.in-watchlist {
   color: var(--green);
   border-color: var(--green);
 }
-
 .btn-ghost.in-watchlist:hover {
   color: var(--red);
   border-color: var(--red);
 }
 
+/* Steep: SR toggle — ghost style */
 .btn-sr {
   background: transparent;
   color: var(--text-secondary);
-  border: 1.5px solid var(--border);
+  border: 1px solid var(--border);
   transition: all 0.15s;
   display: flex;
   align-items: center;
   gap: 4px;
 }
 .btn-sr:hover {
-  border-color: var(--text-muted);
-  color: var(--text-primary);
+  border-color: var(--ink);
+  color: var(--ink);
 }
 .btn-sr.active {
-  background: #f3ebff;
-  border-color: #7c3aed;
-  color: #7c3aed;
+  background: var(--apricot-wash);
+  border-color: var(--rust);
+  color: var(--rust);
 }
 
 /* ===== K 线弹性填充 ===== */

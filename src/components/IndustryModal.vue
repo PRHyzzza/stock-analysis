@@ -26,9 +26,15 @@ function retryLoad() {
       <div class="modal-container">
         <div class="modal-header">
           <div class="modal-header-left">
-            <span class="industry-icon">🏭</span>
+            <span class="industry-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--rust)" stroke-width="1.5">
+              <rect x="3" y="10" width="4" height="7" rx="0.5"/>
+              <rect x="8" y="7" width="4" height="10" rx="0.5"/>
+              <rect x="13" y="4" width="4" height="13" rx="0.5"/>
+            </svg>
+          </span>
             <span class="modal-title">{{ data?.industry_name || '行业分析' }}</span>
-            <span class="industry-badge">行业分析</span>
+            <span class="industry-badge">行业</span>
           </div>
           <button class="modal-close" @click="closeModal">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -39,16 +45,16 @@ function retryLoad() {
 
         <div class="modal-body">
           <div v-if="loading" class="modal-loading">
-            <span class="kline-icon">🔄</span>
+            <span class="kline-icon">⟳</span>
             <span>加载行业数据中...</span>
           </div>
           <div v-else-if="error" class="modal-loading" style="cursor:pointer" @click="retryLoad">
-            <span class="kline-icon">⚠️</span>
+            <span class="kline-icon">!</span>
             <span>加载失败，点击重试</span>
           </div>
           <template v-else-if="data">
             <div v-if="data.market_performance?.length" class="industry-subsection">
-              <div class="sub-title">📈 市场表现</div>
+              <div class="sub-title">市场表现</div>
               <div class="perf-grid">
                 <div class="perf-item">
                   <span class="perf-label">今日</span>
@@ -76,7 +82,7 @@ function retryLoad() {
             </div>
 
             <div v-if="data.revenue_ranking?.length" class="industry-subsection">
-              <div class="sub-title">📊 营收分析（亿元）</div>
+              <div class="sub-title">营收分析（亿元）</div>
               <div class="comp-table">
                 <div class="comp-row comp-header">
                   <span class="comp-cell name">名称</span>
@@ -106,6 +112,7 @@ function retryLoad() {
 </template>
 
 <style scoped>
+/* ===== Steep: Modal — 24px radius, ink shadow ===== */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -114,27 +121,28 @@ function retryLoad() {
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(2px);
+  animation: fadeIn 0.15s ease;
 }
 
 .modal-container {
   background: var(--card-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   width: 780px;
   max-width: 92vw;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
+  animation: slideUp 0.2s ease;
 }
 
 .modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 24px;
-  border-bottom: 1px solid var(--border);
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
 }
 
@@ -150,15 +158,16 @@ function retryLoad() {
 
 .modal-title {
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: -0.009em;
 }
 
 .industry-badge {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   padding: 2px 10px;
-  border-radius: 4px;
-  background: var(--border);
+  border-radius: var(--radius-full);
+  background: var(--fog);
   color: var(--text-secondary);
 }
 
@@ -166,7 +175,7 @@ function retryLoad() {
   width: 34px;
   height: 34px;
   border: none;
-  border-radius: 8px;
+  border-radius: 50%;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -177,12 +186,12 @@ function retryLoad() {
 }
 
 .modal-close:hover {
-  background: var(--border);
-  color: var(--text-primary);
+  background: var(--fog);
+  color: var(--ink);
 }
 
 .modal-body {
-  padding: 20px 24px;
+  padding: 24px 28px;
   overflow-y: auto;
   flex: 1;
 }
@@ -206,11 +215,16 @@ function retryLoad() {
   margin-bottom: 24px;
 }
 
+.industry-subsection:last-child {
+  margin-bottom: 0;
+}
+
 .sub-title {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   margin-bottom: 12px;
   color: var(--text-primary);
+  letter-spacing: -0.009em;
 }
 
 /* 市场表现网格 */
@@ -221,9 +235,9 @@ function retryLoad() {
 }
 
 .perf-item {
-  background: var(--bg);
+  background: var(--fog);
   padding: 14px 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -237,7 +251,7 @@ function retryLoad() {
 
 .perf-value {
   font-size: 20px;
-  font-weight: 800;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -264,10 +278,10 @@ function retryLoad() {
 .perf-vs-value.up { color: var(--red); }
 .perf-vs-value.down { color: var(--green); }
 
-/* 行业对比表格 */
+/* Steep: 行业对比表格 — 无边线靠表面区分 */
 .comp-table {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
@@ -278,16 +292,21 @@ function retryLoad() {
 }
 
 .comp-row + .comp-row {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-light);
 }
 
+/* Steep: active row — Apricot Wash 代替蓝色 */
 .comp-row.highlighted {
-  background: #f0f2f8;
+  background: var(--apricot-wash);
+}
+.comp-row.highlighted .comp-cell.name {
+  color: var(--rust);
+  font-weight: 700;
 }
 
 .comp-header {
-  background: var(--bg);
-  font-weight: 600;
+  background: var(--fog);
+  font-weight: 500;
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -310,27 +329,28 @@ function retryLoad() {
 .comp-cell.num.up { color: var(--red); }
 .comp-cell.num.down { color: var(--green); }
 
-/* 前三名标注 */
+/* Steep: rank badges — Rust 系配色 */
 .rank-badge {
   display: inline-block;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: 4px;
   margin-right: 6px;
   vertical-align: middle;
 }
 .rank-badge.rank-1 {
-  background: #fce4b3;
-  color: #b8860b;
+  background: var(--apricot-wash);
+  color: var(--rust);
 }
 .rank-badge.rank-2 {
-  background: #e8e8e8;
-  color: #666;
+  background: var(--fog);
+  color: var(--text-secondary);
 }
 .rank-badge.rank-3 {
-  background: #f0d5b0;
-  color: #8b5e3c;
+  background: var(--apricot-wash);
+  color: var(--rust);
+  opacity: 0.7;
 }
 
 .comp-cell.rank {

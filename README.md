@@ -53,54 +53,6 @@ pnpm tauri build
 
 构建产物位于 `src-tauri/target/release/bundle/`，包括 NSIS 安装包（Windows）或 DMG（macOS）。
 
-### 其他脚本
-
-| 命令               | 说明                    |
-|-------------------|------------------------|
-| `pnpm dev`        | 仅启动 Vite 前端（无 Tauri） |
-| `pnpm build`      | Vite 前端构建            |
-| `pnpm preview`    | 预览 Vite 构建产物        |
-
-## 🔌 数据源
-
-| 数据类型     | 数据来源                                                    | 协议/编码     |
-|-------------|------------------------------------------------------------|--------------|
-| 实时行情     | 腾讯财经 `qt.gtimg.cn/q=sh600519`                           | HTTP, GBK    |
-| K 线数据     | 东方财富 `push2.eastmoney.com/api/qt/stock/kline/get`       | HTTP, JSON   |
-| 资金流向     | 东方财富 `push2.eastmoney.com`（实时）/ `push2his`（历史回退） | HTTP, JSONP  |
-| 股票搜索     | 腾讯智能搜索 `smartbox.gtimg.cn/s`                          | HTTP, GBK    |
-| 行业分析     | 东方财富 HSF10 `emweb.securities.eastmoney.com`             | HTTP, JSON   |
-| 行业名称     | 东方财富行情页 `quote.eastmoney.com`                         | HTTP, GBK    |
-| 大盘指数     | 腾讯财经 `qt.gtimg.cn/q=sh000001,sz399001,...`              | HTTP, GBK    |
-
-## ⚙️ 配置
-
-### Tauri 配置
-
-编辑 `src-tauri/tauri.conf.json` 可修改：
-
-| 配置项         | 说明                          |
-|--------------|-------------------------------|
-| `productName`| 应用名称                      |
-| `identifier` | 应用标识符（反向域名格式）       |
-| `windows[0].width/height` | 默认窗口大小    |
-| `bundle`     | 打包配置（NSIS/Wix/DMG 等）    |
-
-## 📝 注意事项
-
-1. **Tauri v2 架构**：所有 HTTP 请求由 Rust 后端发起，前端通过 `@tauri-apps/api/core` 的 `invoke()` 调用后端命令
-2. **资金流向双数据源**：腾讯 `ff_*` 接口已不可用，代码自动回退到东方财富 push2 实时接口（push2his 做二级备选）
-3. **GBK 编码**：腾讯财经和东方财富行情页使用 GBK 编码，Rust 端通过 `encoding_rs` crate 解码
-4. **推送权限**：Tauri v2 需在 `capabilities/default.json` 中声明 API 权限
-5. **颜色规范**：遵循 A 股红涨绿跌配色标准
-6. **ESM 兼容**：前端完全使用 ES Module，构建依赖 `esbuild`
-
-## 🧪 已知限制
-
-- 部分冷门股票在两个资金流向数据源均无数据
-- 东方财富 push2 偶发连接重置（reqwest 已内置重试处理）
-- 行业分析仅对沪深 A 股有效（需 `SH`/`SZ` 前缀转换）
-
 ## 📄 许可证
 
 MIT © 2025

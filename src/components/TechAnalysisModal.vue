@@ -153,17 +153,17 @@ const indicators = computed(() => {
   // KDJ 超买超卖
   const kdjStatus = latestKDJ
     ? (latestKDJ.k > 80 || latestKDJ.d > 80 || latestKDJ.j > 100
-        ? "超买 ⚠️"
+        ? "超买"
         : latestKDJ.k < 20 || latestKDJ.d < 20 || latestKDJ.j < 0
-          ? "超卖 🔔"
-          : "正常 ✓")
+          ? "超卖"
+          : "正常")
     : null;
 
   // MA 趋势
   const maValues = calcMATrend(closePrices);
   const sortedMas = Object.entries(maValues).sort((a, b) => Number(a[0]) - Number(b[0]));
   const maTrend = sortedMas.length >= 2
-    ? (sortedMas[0][1] > sortedMas[sortedMas.length - 1][1] ? "多头 📈" : "空头 📉")
+    ? (sortedMas[0][1] > sortedMas[sortedMas.length - 1][1] ? "多头" : "空头")
     : null;
   const maTrendDetail = sortedMas.map(([p, v]) => `MA${p}: ${v.toFixed(2)}`).join("  ");
 
@@ -176,9 +176,9 @@ const indicators = computed(() => {
       if (sortedMas[i][1] <= sortedMas[i + 1][1]) allBullish = false;
       if (sortedMas[i][1] >= sortedMas[i + 1][1]) allBearish = false;
     }
-    if (allBullish) return "多头排列 ✅";
-    if (allBearish) return "空头排列 ❌";
-    return "交叉缠绕 ⚡";
+    if (allBullish) return "多头排列";
+    if (allBearish) return "空头排列";
+    return "交叉缠绕";
   })();
 
   return {
@@ -222,9 +222,14 @@ function fmtTrend(trend) {
       <div class="modal-container">
         <div class="modal-header">
           <div class="modal-header-left">
-            <span class="tech-icon">📐</span>
+            <span class="tech-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--ink)" stroke-width="1.5">
+              <path d="M3 17L17 3M3 17l4-1M3 17l1-4" stroke-linejoin="round"/>
+              <circle cx="15" cy="5" r="1.5" fill="var(--ink)"/>
+            </svg>
+          </span>
             <span class="modal-title">技术分析</span>
-            <span class="industry-badge">{{ stockName || '技术面' }}</span>
+            <span class="industry-badge">{{ stockName || '技术分析' }}</span>
           </div>
           <button class="modal-close" @click="closeModal">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -235,14 +240,14 @@ function fmtTrend(trend) {
 
         <div class="modal-body">
           <div v-if="!indicators" class="modal-loading">
-            <span class="kline-icon">📉</span>
+            <span class="kline-icon">—</span>
             <span>K 线数据不足，无法分析（至少需要 26 个交易日）</span>
           </div>
 
           <template v-else>
             <!-- 均线趋势 -->
             <div class="tech-section">
-              <div class="tech-section-title">📊 均线趋势</div>
+              <div class="tech-section-title">均线趋势</div>
               <div class="tech-card">
                 <div class="tech-row">
                   <span class="tech-label">趋势判断</span>
@@ -262,7 +267,7 @@ function fmtTrend(trend) {
 
             <!-- MACD -->
             <div class="tech-section">
-              <div class="tech-section-title">📈 MACD</div>
+              <div class="tech-section-title">MACD</div>
               <div class="tech-card">
                 <div class="tech-grid">
                   <div class="tech-item">
@@ -291,7 +296,7 @@ function fmtTrend(trend) {
 
             <!-- KDJ -->
             <div class="tech-section">
-              <div class="tech-section-title">📉 KDJ</div>
+              <div class="tech-section-title">KDJ</div>
               <div class="tech-card">
                 <div class="tech-grid">
                   <div class="tech-item">
@@ -324,7 +329,7 @@ function fmtTrend(trend) {
 
             <!-- WR -->
             <div class="tech-section">
-              <div class="tech-section-title">📉 WR (Williams %R)</div>
+              <div class="tech-section-title">WR (Williams %R)</div>
               <div class="tech-card">
                 <div class="tech-row">
                   <span class="tech-label">WR(14)</span>
@@ -340,7 +345,7 @@ function fmtTrend(trend) {
 
             <!-- RSI -->
             <div class="tech-section">
-              <div class="tech-section-title">📊 RSI (相对强弱)</div>
+              <div class="tech-section-title">RSI (相对强弱)</div>
               <div class="tech-card">
                 <div class="tech-row">
                   <span class="tech-label">RSI(14)</span>
@@ -361,6 +366,7 @@ function fmtTrend(trend) {
 </template>
 
 <style scoped>
+/* ===== Steep: 技术分析 Modal ===== */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -369,39 +375,28 @@ function fmtTrend(trend) {
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
   animation: fadeIn 0.15s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .modal-container {
   background: var(--card-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   width: 520px;
   max-width: 92vw;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
   animation: slideUp 0.2s ease;
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 .modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 24px;
-  border-bottom: 1px solid var(--border);
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
 }
 
@@ -417,19 +412,18 @@ function fmtTrend(trend) {
 
 .modal-title {
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: 0.3px;
+  letter-spacing: -0.009em;
 }
 
 .industry-badge {
   font-size: 11px;
   padding: 3px 10px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
-  color: #4f46e5;
-  font-weight: 600;
-  letter-spacing: 0.2px;
+  border-radius: var(--radius-full);
+  background: var(--fog);
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .modal-close {
@@ -445,12 +439,12 @@ function fmtTrend(trend) {
   transition: all 0.15s;
 }
 .modal-close:hover {
-  background: #f3f4f6;
-  color: var(--text-primary);
+  background: var(--fog);
+  color: var(--ink);
 }
 
 .modal-body {
-  padding: 20px 24px 24px;
+  padding: 24px 28px;
   overflow-y: auto;
   flex: 1;
 }
@@ -469,7 +463,7 @@ function fmtTrend(trend) {
   opacity: 0.6;
 }
 
-/* ===== 区块 ===== */
+/* ===== Steep: 区块 ===== */
 .tech-section {
   margin-bottom: 20px;
 }
@@ -479,37 +473,30 @@ function fmtTrend(trend) {
 
 .tech-section-title {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 10px;
   padding-left: 12px;
   position: relative;
-  letter-spacing: 0.3px;
+  letter-spacing: -0.009em;
 }
 .tech-section-title::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 2px;
-  bottom: 2px;
+  top: 3px;
+  bottom: 3px;
   width: 3px;
   border-radius: 2px;
+  background: var(--rust);
 }
-.tech-section:nth-child(1) .tech-section-title::before { background: linear-gradient(180deg, #f59e0b, #f97316); }
-.tech-section:nth-child(2) .tech-section-title::before { background: linear-gradient(180deg, #3b82f6, #6366f1); }
-.tech-section:nth-child(3) .tech-section-title::before { background: linear-gradient(180deg, #8b5cf6, #a855f7); }
-.tech-section:nth-child(4) .tech-section-title::before { background: linear-gradient(180deg, #06b6d4, #0891b2); }
 
 .tech-card {
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: var(--fog);
   border-radius: 12px;
   padding: 16px 18px;
-  border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border-light);
   transition: box-shadow 0.15s;
-}
-.tech-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .tech-row {
@@ -521,7 +508,7 @@ function fmtTrend(trend) {
 .tech-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  gap: 6px;
   margin-bottom: 14px;
 }
 
@@ -530,16 +517,14 @@ function fmtTrend(trend) {
   flex-direction: column;
   gap: 3px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--card-bg);
   border-radius: 8px;
 }
 
 .tech-label {
   font-size: 11px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-weight: 500;
-  letter-spacing: 0.2px;
-  text-transform: uppercase;
 }
 
 .tech-value {
@@ -559,8 +544,8 @@ function fmtTrend(trend) {
 .tech-detail {
   margin-top: 10px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 6px;
+  background: var(--card-bg);
+  border-radius: 8px;
   font-size: 12px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
@@ -568,26 +553,10 @@ function fmtTrend(trend) {
   word-break: break-all;
 }
 
-.tech-signal {
-  border-top: 1px solid #e8ecf1;
-  padding-top: 12px;
-  margin-top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.tech-status {
-  border-top: 1px solid #e8ecf1;
-  padding-top: 12px;
-  margin-top: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
+.tech-signal,
+.tech-status,
 .tech-alignment {
-  border-top: 1px solid #e8ecf1;
+  border-top: 1px solid var(--border-light);
   padding-top: 12px;
   margin-top: 12px;
   display: flex;
@@ -595,35 +564,35 @@ function fmtTrend(trend) {
   justify-content: space-between;
 }
 
-/* ===== 信号标签 ===== */
+/* ===== Steep: 信号标签 — Rust tone ===== */
 .signal-up {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 3px 14px;
-  border-radius: 20px;
-  background: #fef0ef;
-  color: #dc2626;
-  font-weight: 700;
-  font-size: 15px;
+  border-radius: var(--radius-full);
+  background: var(--red-bg);
+  color: var(--red);
+  font-weight: 600;
+  font-size: 14px;
 }
 .signal-down {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 3px 14px;
-  border-radius: 20px;
-  background: #eafaf1;
-  color: #16a34a;
-  font-weight: 700;
-  font-size: 15px;
+  border-radius: var(--radius-full);
+  background: var(--green-bg);
+  color: var(--green);
+  font-weight: 600;
+  font-size: 14px;
 }
 .signal-none {
   color: var(--text-muted);
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: 500;
+  font-size: 14px;
 }
 
-.up { color: #dc2626; }
-.down { color: #16a34a; }
+.up { color: var(--red); }
+.down { color: var(--green); }
 </style>

@@ -90,7 +90,7 @@ onUnmounted(() => {
 <template>
   <div class="hotlist-section">
     <div class="list-header">
-      <span class="list-title">🔥 热榜</span>
+      <span class="list-title">热榜</span>
       <button class="hot-refresh-btn" :class="{ loading }" @click="loadHotList" :disabled="loading">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M2 8a6 6 0 0 1 10.47-4M14 8a6 6 0 0 1-10.47 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -106,7 +106,7 @@ onUnmounted(() => {
       </div>
 
       <div v-else-if="error" class="hot-error">
-        <span>⚠️ {{ error }}</span>
+        <span>{{ error }}</span>
       </div>
 
       <template v-else>
@@ -153,10 +153,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* ===== Steep: 热榜 ===== */
 .hotlist-section {
   background: var(--card-bg);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -167,14 +168,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 16px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .list-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.009em;
 }
 
 .hot-refresh-btn {
@@ -191,8 +193,8 @@ onUnmounted(() => {
   transition: all 0.15s;
 }
 .hot-refresh-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+  color: var(--ink);
+  border-color: var(--ink);
 }
 .hot-refresh-btn:disabled {
   opacity: 0.5;
@@ -200,11 +202,6 @@ onUnmounted(() => {
 }
 .hot-refresh-btn.loading svg {
   animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 
 .stock-list {
@@ -219,34 +216,34 @@ onUnmounted(() => {
   grid-template-columns: 32px 1fr auto;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
+  padding: 12px 20px;
   cursor: pointer;
   transition: background 0.12s;
   position: relative;
 }
 
 .stock-item:hover {
-  background: #f8f9fc;
+  background: var(--fog);
 }
 
 .stock-item.active {
-  background: #f0f2f8;
+  background: var(--apricot-wash);
 }
 
 .stock-item.in-watchlist {
-  background: #faf5ff;
+  background: rgba(93, 42, 26, 0.04);
 }
 
 .stock-item.in-watchlist .item-name {
-  color: #7c3aed;
+  color: var(--rust);
 }
 
 .stock-item.in-watchlist .hot-rank-num {
-  color: #7c3aed;
+  color: var(--rust);
 }
 
 .stock-item.in-watchlist.active {
-  background: #f3ebff;
+  background: var(--apricot-wash);
 }
 
 .stock-item.active::before {
@@ -256,12 +253,12 @@ onUnmounted(() => {
   top: 4px;
   bottom: 4px;
   width: 3px;
-  background: var(--text-primary);
-  border-radius: 0 3px 3px 0;
+  background: var(--rust);
+  border-radius: 0 2px 2px 0;
 }
 
 .stock-item + .stock-item {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-light);
 }
 
 /* 排名列 */
@@ -280,7 +277,7 @@ onUnmounted(() => {
 }
 
 .hot-rank-num.rank-top {
-  color: #e74c3c;
+  color: var(--rust);
   font-size: 15px;
 }
 
@@ -323,12 +320,12 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .market-sh {
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: var(--sky-wash);
+  color: #2563eb;
 }
 .market-sz {
-  background: #fff3e0;
-  color: #e65100;
+  background: var(--apricot-wash);
+  color: var(--rust);
 }
 
 /* 标签行 */
@@ -343,8 +340,8 @@ onUnmounted(() => {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #eef2ff;
-  color: #4f46e5;
+  background: var(--fog);
+  color: var(--text-secondary);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -353,8 +350,8 @@ onUnmounted(() => {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #fef3c7;
-  color: #b45309;
+  background: var(--apricot-wash);
+  color: var(--rust);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -395,8 +392,8 @@ onUnmounted(() => {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.rank-up { color: #dc2626; }
-.rank-down { color: #16a34a; }
+.rank-up { color: var(--red); }
+.rank-down { color: var(--green); }
 .rank-flat { color: var(--text-muted); }
 
 /* 加载 & 错误 & 空状态 */
