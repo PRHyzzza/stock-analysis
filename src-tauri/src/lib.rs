@@ -22,7 +22,6 @@ pub fn run() {
             commands::get_market_indices,
             commands::search_stocks,
             commands::get_stock_money_flow,
-            commands::get_ai_analysis,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

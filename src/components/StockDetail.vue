@@ -30,7 +30,6 @@ const emit = defineEmits([
   "toggle-watchlist",
   "change-kline-period",
   "open-industry-modal",
-  "open-ai-modal",
   "open-tech-modal",
 ]);
 
@@ -163,10 +162,6 @@ const sinceAddedPct = computed(() => {
         <button class="btn btn-tech" @click="$emit('open-tech-modal')">
           <span>📐</span>
           <span>技术分析</span>
-        </button>
-        <button class="btn btn-ai" @click="$emit('open-ai-modal')">
-          <span>🤖</span>
-          <span>AI 分析</span>
         </button>
         <button
           class="btn btn-ghost"

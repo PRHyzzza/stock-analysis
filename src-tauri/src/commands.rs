@@ -1,5 +1,5 @@
 use crate::api::{
-    fetch_deepseek_ai_analysis, fetch_index_quote, fetch_industry_analysis,
+    fetch_index_quote, fetch_industry_analysis,
     fetch_industry_name, fetch_kline_data, fetch_money_flow, fetch_money_flow_eastmoney,
     fetch_search_results, fetch_stock_quote_from_tencent,
 };
@@ -84,60 +84,7 @@ pub async fn get_stock_quote(code: String) -> Result<StockQuote, String> {
     fetch_stock_quote_from_tencent(&code).await
 }
 
-/// 调用 DeepSeek API 进行股票 AI 分析（含全部辅助数据）
-#[tauri::command]
-pub async fn get_ai_analysis(
-    api_key: String,
-    stock_code: String,
-    stock_name: String,
-    price: f64,
-    change: f64,
-    change_pct: f64,
-    high: f64,
-    low: f64,
-    open: f64,
-    prev_close: f64,
-    volume: f64,
-    turnover: f64,
-    turnover_rate: f64,
-    pe: f64,
-    amplitude: f64,
-    // 新增：资金流向
-    main_net_inflow: f64,
-    main_net_pct: f64,
-    // 新增：K 线数据 JSON
-    kline_data_json: String,
-    // 新增：行业数据
-    industry_name: String,
-    industry_data_json: String,
-    // 新增：大盘指数 JSON
-    market_indices_json: String,
-) -> Result<String, String> {
-    fetch_deepseek_ai_analysis(
-        &api_key,
-        &stock_code,
-        &stock_name,
-        price,
-        change,
-        change_pct,
-        high,
-        low,
-        open,
-        prev_close,
-        volume,
-        turnover,
-        turnover_rate,
-        pe,
-        amplitude,
-        main_net_inflow,
-        main_net_pct,
-        &kline_data_json,
-        &industry_name,
-        &industry_data_json,
-        &market_indices_json,
-    )
-    .await
-}
+
 
 /// 获取大盘指数实时行情（上证/深证/创业板/沪深300/科创50/中证500）
 #[tauri::command]

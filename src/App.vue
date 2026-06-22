@@ -3,13 +3,11 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import StockList from "./components/StockList.vue";
 import StockDetail from "./components/StockDetail.vue";
 import IndustryModal from "./components/IndustryModal.vue";
-import AiAnalysisModal from "./components/AiAnalysisModal.vue";
 import TechAnalysisModal from "./components/TechAnalysisModal.vue";
 import { useWatchlist } from "./composables/useWatchlist";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
 import { useIndustryData } from "./composables/useIndustryData";
 import { useKlineData } from "./composables/useKlineData";
-import { useAiAnalysis } from "./composables/useAiAnalysis";
 import { useMarketIndices } from "./composables/useMarketIndices";
 import { useMoneyFlow } from "./composables/useMoneyFlow";
 
@@ -31,14 +29,6 @@ const {
   klineData, klineLoading, klinePeriod,
   loadKlineData, changeKlinePeriod: rawChangePeriod,
 } = useKlineData();
-
-const {
-  aiLoading, aiResult, aiError, showAiModal,
-  apiKey, showApiKeyInput,
-  runAiAnalysis: rawRunAi, cancelAiAnalysis,
-  openAiModal, closeAiModal,
-  handleSaveApiKey, handleClearApiKey,
-} = useAiAnalysis();
 
 // ---- 技术分析弹窗 ----
 const showTechModal = ref(false);
@@ -70,8 +60,6 @@ const watchlistMarkers = computed(() => {
 
 function selectStock(stock) {
   rawSelectStock(stock);
-  aiResult.value = "";
-  aiError.value = "";
   loadIndustryData(stock);
   loadQuote(stock).then((quote) => {
     if (quote) updateWatchlistQuote(stock.code, quote);
@@ -92,26 +80,8 @@ function onIndustryModalOpen() {
   }
 }
 
-function onRunAiAnalysis() {
-  // Use a fresh ref to trigger reactivity
-  aiResult.value = "";
-  aiError.value = "";
-  rawRunAi(selectedStock.value, {
-    moneyFlow: moneyFlow.value,
-    klineData: klineData.value,
-    industryData: industryData.value,
-    industryName: industryData.value?.industryName ?? "",
-    indices: indices.value,
-  });
-}
-
 function onRemoveFromWatchlist(code) {
   removeFromWatchlist(code);
-  if (!selectedStock.value) {
-    aiResult.value = "";
-    aiError.value = "";
-    cancelAiAnalysis();
-  }
 }
 
 /** 从搜索结果添加自选 */
@@ -156,9 +126,7 @@ async function handleManualRefresh() {
 function onKeydown(e) {
   if (e.key === "Escape") {
     closeIndustryModal();
-    closeAiModal();
     closeTechModal();
-    cancelAiAnalysis();
   }
 }
 
@@ -202,7 +170,6 @@ onUnmounted(() => {
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
-  cancelAiAnalysis();
 });
 </script>
 
@@ -266,7 +233,6 @@ onUnmounted(() => {
         @toggle-watchlist="toggleWatchlist"
         @change-kline-period="changeKlinePeriod"
         @open-industry-modal="onIndustryModalOpen"
-        @open-ai-modal="openAiModal"
         @open-tech-modal="openTechModal"
       />
     </div>
@@ -280,20 +246,6 @@ onUnmounted(() => {
       :selected-stock="selectedStock"
       @close="closeIndustryModal"
       @retry="industryData ? null : loadIndustryData(selectedStock)"
-    />
-
-    <!-- AI 分析弹窗 -->
-    <AiAnalysisModal
-      :show="showAiModal"
-      :loading="aiLoading"
-      :result="aiResult"
-      :error="aiError"
-      :api-key="apiKey"
-      :show-api-key-input="showApiKeyInput"
-      @close="closeAiModal"
-      @run-analysis="onRunAiAnalysis"
-      @save-api-key="handleSaveApiKey"
-      @clear-api-key="handleClearApiKey"
     />
 
     <!-- 技术分析弹窗 -->

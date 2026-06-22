@@ -8,7 +8,7 @@
   <img alt="License" src="https://img.shields.io/badge/License-MIT-yellow">
 </p>
 
-基于 **Tauri v2 + Vue 3 + Rust** 构建的桌面端 A 股分析工具，支持实时行情、K 线图表、行业分析、AI 智能解读及主力资金流向追踪。
+基于 **Tauri v2 + Vue 3 + Rust** 构建的桌面端 A 股分析工具，支持实时行情、K 线图表、行业分析及主力资金流向追踪。
 
 ## ✨ 功能特性
 
@@ -16,7 +16,6 @@
 - **📉 K 线图表** — 日 K / 周 K / 月 K 交互式蜡烛图，MA5/10/20/30 均线叠加，基于 [lightweight-charts](https://github.com/tradingview/lightweight-charts) v5，支持鼠标拖拽缩放
 - **💰 主力资金流向** — 实时主力净流入/流出追踪（双数据源自动回退：东方财富 push2 实时 → push2his 历史）
 - **🏭 行业分析** — 行业内个股对比、营收排名、市场表现（相对沪深 300 超额收益），数据源：东方财富 HSF10
-- **🤖 AI 分析** — 借助 DeepSeek API 对个股进行技术面 + 基本面综合解读，支持自定义 API Key
 - **📐 技术分析** — MACD、KDJ、WR 三大技术指标弹窗
 - **🔍 股票搜索** — 支持代码或名称拼音模糊搜索，数据源：腾讯智能搜索
 - **📋 自选股** — 可自由增删的自选股列表，localStorage 持久化，默认预置 7 只热门 A 股
@@ -33,7 +32,6 @@
 | 构建工具  | **Vite 6** + **pnpm**                                 |
 | 后端语言  | **Rust**（reqwest + tokio + serde + regex）            |
 | 样式方案  | Scoped CSS + CSS 自定义属性主题                        |
-| AI 接口   | **DeepSeek API**（兼容 OpenAI SDK 格式）               |
 | 包管理    | **pnpm**                                               |
 
 ## 📁 项目结构
@@ -50,7 +48,6 @@ stock-analysis/
 │   │   ├── StockDetail.vue           # 右侧面板：行情详情 + 操作按钮
 │   │   ├── KlineChart.vue            # K 线图（蜡烛图 + 均线 + 周期切换）
 │   │   ├── IndustryModal.vue         # 行业分析弹窗
-│   │   ├── AiAnalysisModal.vue       # AI 分析弹窗（Markdown 渲染）
 │   │   └── TechAnalysisModal.vue     # 技术指标弹窗（MACD/KDJ/WR）
 │   ├── composables/                  # 状态逻辑（组合式函数）
 │   │   ├── useWatchlist.js           # 自选股状态 + localStorage 持久化
@@ -58,8 +55,7 @@ stock-analysis/
 │   │   ├── useKlineData.js           # K 线数据加载 + 周期切换
 │   │   ├── useMoneyFlow.js           # 资金流向数据加载
 │   │   ├── useMarketIndices.js       # 大盘指数定时加载
-│   │   ├── useIndustryData.js        # 行业分析 + 弹窗控制
-│   │   └── useAiAnalysis.js          # AI 分析（API Key 管理 + 请求）
+│   │   └── useIndustryData.js        # 行业分析 + 弹窗控制
 │   └── utils/
 │       └── format.js                 # 格式化工具（signChar 符号前缀）
 ├── src-tauri/                        # Rust 后端
@@ -72,8 +68,8 @@ stock-analysis/
 │   └── src/
 │       ├── main.rs                   # 桌面端入口（仅 Windows）
 │       ├── lib.rs                    # Tauri 插件注册 + 命令注册入口
-│       ├── api.rs                    # HTTP API 客户端（腾讯/东方财富/DeepSeek）
-│       ├── commands.rs               # Tauri 命令处理器（7 条命令）
+│       ├── api.rs                    # HTTP API 客户端（腾讯/东方财富）
+│       ├── commands.rs               # Tauri 命令处理器（6 条命令）
 │       ├── helpers.rs                # 工具函数（股票代码格式转换等）
 │       └── types.rs                  # 数据结构定义（serde 序列化）
 ├── index.html                        # Vite HTML 入口
@@ -131,7 +127,6 @@ pnpm tauri build
 | 股票搜索     | 腾讯智能搜索 `smartbox.gtimg.cn/s`                          | HTTP, GBK    |
 | 行业分析     | 东方财富 HSF10 `emweb.securities.eastmoney.com`             | HTTP, JSON   |
 | 行业名称     | 东方财富行情页 `quote.eastmoney.com`                         | HTTP, GBK    |
-| AI 分析     | DeepSeek API（`api.deepseek.com/chat/completions`）         | HTTP, JSON   |
 | 大盘指数     | 腾讯财经 `qt.gtimg.cn/q=sh000001,sz399001,...`              | HTTP, GBK    |
 
 ## 🔧 架构 & 通信
@@ -152,7 +147,7 @@ pnpm tauri build
                                      │
                     ┌────────────────┼────────────────┐
                     ▼                ▼                ▼
-             腾讯财经 API     东方财富 API      DeepSeek API
+             腾讯财经 API     东方财富 API
 ```
 
 前后端通过 Tauri IPC（`invoke`/`#[tauri::command]`）通信，Rust 后端统一处理所有 HTTP 外呼，前端不直接请求第三方接口。
@@ -170,10 +165,6 @@ pnpm tauri build
 | `windows[0].width/height` | 默认窗口大小    |
 | `bundle`     | 打包配置（NSIS/Wix/DMG 等）    |
 
-### AI 分析配置
-
-首次使用 AI 分析时，可在弹窗中输入 **DeepSeek API Key**，Key 将保存在浏览器 `localStorage` 中（`DEEPSEEK_API_KEY`），后续使用无需重复输入。
-
 ## 📝 注意事项
 
 1. **Tauri v2 架构**：所有 HTTP 请求由 Rust 后端发起，前端通过 `@tauri-apps/api/core` 的 `invoke()` 调用后端命令
@@ -188,7 +179,6 @@ pnpm tauri build
 - 部分冷门股票在两个资金流向数据源均无数据
 - 东方财富 push2 偶发连接重置（reqwest 已内置重试处理）
 - 行业分析仅对沪深 A 股有效（需 `SH`/`SZ` 前缀转换）
-- AI 分析需要用户自行提供 DeepSeek API Key
 
 ## 📄 许可证
 
