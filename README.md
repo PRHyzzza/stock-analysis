@@ -22,62 +22,6 @@
 - **🔄 自动刷新** — 行情 30 秒、指数 60 秒、K 线 120 秒自动更新
 - **🎨 红涨绿跌** — 遵循 A 股配色标准，涨红色跌绿色
 
-## 🏗 技术栈
-
-| 层级      | 技术                                                  |
-|----------|-------------------------------------------------------|
-| 前端框架  | **Vue 3**（Composition API + `<script setup>` SFC）    |
-| 桌面框架  | **Tauri v2**（Rust 后端 + 系统原生 WebView）            |
-| 图表库    | **lightweight-charts** v5（TradingView 出品）          |
-| 构建工具  | **Vite 6** + **pnpm**                                 |
-| 后端语言  | **Rust**（reqwest + tokio + serde + regex）            |
-| 样式方案  | Scoped CSS + CSS 自定义属性主题                        |
-| 包管理    | **pnpm**                                               |
-
-## 📁 项目结构
-
-```
-stock-analysis/
-├── src/                              # Vue 3 前端
-│   ├── App.vue                       # 根组件（编排调度所有 composable）
-│   ├── main.js                       # Vue 应用入口
-│   ├── assets/
-│   │   └── main.css                  # 全局样式 + CSS 变量主题
-│   ├── components/
-│   │   ├── StockList.vue             # 左侧面板：自选股列表 + 搜索
-│   │   ├── StockDetail.vue           # 右侧面板：行情详情 + 操作按钮
-│   │   ├── KlineChart.vue            # K 线图（蜡烛图 + 均线 + 周期切换）
-│   │   ├── IndustryModal.vue         # 行业分析弹窗
-│   │   └── TechAnalysisModal.vue     # 技术指标弹窗（MACD/KDJ/WR）
-│   ├── composables/                  # 状态逻辑（组合式函数）
-│   │   ├── useWatchlist.js           # 自选股状态 + localStorage 持久化
-│   │   ├── useQuoteLoader.js         # 实时行情定时加载
-│   │   ├── useKlineData.js           # K 线数据加载 + 周期切换
-│   │   ├── useMoneyFlow.js           # 资金流向数据加载
-│   │   ├── useMarketIndices.js       # 大盘指数定时加载
-│   │   └── useIndustryData.js        # 行业分析 + 弹窗控制
-│   └── utils/
-│       └── format.js                 # 格式化工具（signChar 符号前缀）
-├── src-tauri/                        # Rust 后端
-│   ├── Cargo.toml                    # Rust 依赖清单
-│   ├── tauri.conf.json               # Tauri 应用配置
-│   ├── build.rs                      # Tauri 构建脚本
-│   ├── capabilities/
-│   │   └── default.json              # Tauri v2 权限声明
-│   ├── icons/                        # 应用图标
-│   └── src/
-│       ├── main.rs                   # 桌面端入口（仅 Windows）
-│       ├── lib.rs                    # Tauri 插件注册 + 命令注册入口
-│       ├── api.rs                    # HTTP API 客户端（腾讯/东方财富）
-│       ├── commands.rs               # Tauri 命令处理器（6 条命令）
-│       ├── helpers.rs                # 工具函数（股票代码格式转换等）
-│       └── types.rs                  # 数据结构定义（serde 序列化）
-├── index.html                        # Vite HTML 入口
-├── vite.config.js                    # Vite 配置（Tauri 适配）
-├── package.json                      # 前端依赖 + 脚本
-└── pnpm-workspace.yaml               # pnpm 工作区配置
-```
-
 ## 🚀 快速开始
 
 ### 环境要求
@@ -128,29 +72,6 @@ pnpm tauri build
 | 行业分析     | 东方财富 HSF10 `emweb.securities.eastmoney.com`             | HTTP, JSON   |
 | 行业名称     | 东方财富行情页 `quote.eastmoney.com`                         | HTTP, GBK    |
 | 大盘指数     | 腾讯财经 `qt.gtimg.cn/q=sh000001,sz399001,...`              | HTTP, GBK    |
-
-## 🔧 架构 & 通信
-
-```
-┌─────────────────────────────────────────────────┐
-│                   Tauri App                       │
-│  ┌───────────────────────┐  ┌──────────────────┐  │
-│  │   Vue 3 前端           │  │   Rust 后端       │  │
-│  │                       │  │                  │  │
-│  │  composables/         │  │  commands.rs     │  │
-│  │    ↓ invoke()         │  │    ↓             │  │
-│  │  @tauri-apps/api/core │◄─►│  api.rs          │  │
-│  │                       │  │    ↓             │  │
-│  │  lightweight-charts   │  │  reqwest HTTP    │  │
-│  └───────────────────────┘  └──────┬───────────┘  │
-└────────────────────────────────────┼──────────────┘
-                                     │
-                    ┌────────────────┼────────────────┐
-                    ▼                ▼                ▼
-             腾讯财经 API     东方财富 API
-```
-
-前后端通过 Tauri IPC（`invoke`/`#[tauri::command]`）通信，Rust 后端统一处理所有 HTTP 外呼，前端不直接请求第三方接口。
 
 ## ⚙️ 配置
 
