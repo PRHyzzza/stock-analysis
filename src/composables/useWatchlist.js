@@ -4,13 +4,7 @@ const STORAGE_KEY = "stock-analysis-watchlist";
 
 /** 默认股票池 */
 const DEFAULT_STOCKS = [
-  { code: "600519", name: "贵州茅台", price: 1888.00, change: 43.20, changePct: 2.34 },
   { code: "300750", name: "宁德时代", price: 256.80, change: -3.12, changePct: -1.20 },
-  { code: "600036", name: "招商银行", price: 36.50, change: 0.20, changePct: 0.55 },
-  { code: "300059", name: "东方财富", price: 15.20, change: 0.56, changePct: 3.82 },
-  { code: "601318", name: "中国平安", price: 52.30, change: -0.40, changePct: -0.76 },
-  { code: "000858", name: "五粮液", price: 168.50, change: -2.10, changePct: -1.23 },
-  { code: "002415", name: "海康威视", price: 35.88, change: 0.68, changePct: 1.93 },
 ];
 
 function loadWatchlist() {

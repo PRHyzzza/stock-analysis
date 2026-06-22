@@ -1,7 +1,7 @@
 <script setup>
 import KlineChart from "./KlineChart.vue";
 import { signChar } from "../utils/format";
-import { computed } from "vue";
+import { ref, computed } from "vue";
 
 function fmtMoney(v) {
   if (v == null) return "--";
@@ -32,6 +32,14 @@ const emit = defineEmits([
   "open-industry-modal",
   "open-tech-modal",
 ]);
+
+const showSR = ref(false);
+const klineChartRef = ref(null);
+
+function handleToggleSR() {
+  showSR.value = !showSR.value;
+  klineChartRef.value?.toggleSR();
+}
 
 function isInWatchlist(code) {
   return props.watchlist.some((s) => s.code === code);
@@ -90,10 +98,12 @@ const sinceAddedPct = computed(() => {
       <!-- K 线图 -->
       <div class="kline-flex-wrap">
         <KlineChart
+          ref="klineChartRef"
           :data="klineData"
           :loading="klineLoading"
           :period="klinePeriod"
           :markers="watchlistMarkers"
+          :show-sr="showSR"
           @change-period="emit('change-kline-period', $event)"
         />
       </div>
@@ -162,6 +172,15 @@ const sinceAddedPct = computed(() => {
         <button class="btn btn-tech" @click="$emit('open-tech-modal')">
           <span>📐</span>
           <span>技术分析</span>
+        </button>
+        <button class="btn btn-sr" :class="{ active: showSR }" @click="handleToggleSR">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="4" cy="4" r="1.5" fill="#27ae60"/>
+            <circle cx="12" cy="8" r="1.5" fill="#e74c3c"/>
+            <circle cx="7" cy="12" r="1.5" fill="#7c3aed"/>
+          </svg>
+          <span>支撑/阻力</span>
         </button>
         <button
           class="btn btn-ghost"
@@ -424,20 +443,6 @@ const sinceAddedPct = computed(() => {
   box-shadow: 0 4px 12px rgba(59,130,246,0.35);
 }
 
-.btn-ai {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: linear-gradient(135deg, #1a1a2e, #2d2d4a);
-  color: #fff;
-  box-shadow: 0 2px 6px rgba(26,26,46,0.25);
-}
-
-.btn-ai:hover {
-  background: linear-gradient(135deg, #2d2d4a, #3d3d5a);
-  box-shadow: 0 4px 12px rgba(26,26,46,0.35);
-}
-
 .btn-tech {
   display: flex;
   align-items: center;
@@ -472,6 +477,25 @@ const sinceAddedPct = computed(() => {
 .btn-ghost.in-watchlist:hover {
   color: var(--red);
   border-color: var(--red);
+}
+
+.btn-sr {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1.5px solid var(--border);
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-sr:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+.btn-sr.active {
+  background: #f3ebff;
+  border-color: #7c3aed;
+  color: #7c3aed;
 }
 
 /* ===== K 线弹性填充 ===== */

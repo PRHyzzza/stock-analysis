@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
+import { ref, computed, onMounted, onUpdated, onUnmounted, watch, nextTick } from "vue";
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
 
 const props = defineProps({
@@ -7,6 +7,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   period: { type: String, default: "day" },
   markers: { type: Array, default: () => [] },
+  showSR: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["change-period"]);
@@ -22,11 +23,95 @@ let markersPlugin = null;
 /** 30日高低价线引用 */
 let highPriceLine = null;
 let lowPriceLine = null;
-const extreme30 = ref({ high: null, low: null });
 
 /** 支撑/阻力线 */
 let srPriceLines = [];
 const srLevels = ref({ support: [], resistance: [] });
+
+/** 内部状态：是否显示支撑/阻力线（由父组件通过暴露的方法控制） */
+let _srVisible = false;
+
+/** 由父组件调用：切换支撑/阻力线显示 */
+function toggleSR() {
+  _srVisible = !_srVisible;
+  // 清理旧线
+  srPriceLines.forEach((line) => { try { candleSeries?.removePriceLine(line); } catch (e) {} });
+  srPriceLines = [];
+  if (_srVisible) {
+    if (!candleSeries) {
+      nextTick(() => {
+        if (candleSeries) renderSupportResistance();
+      });
+      return;
+    }
+    renderSupportResistance();
+  }
+}
+
+/** 在更新数据后，如果 SR 已开启则重新渲染 */
+function refreshSRIfVisible() {
+  if (_srVisible && candleSeries) {
+    srPriceLines.forEach((line) => { try { candleSeries?.removePriceLine(line); } catch (e) {} });
+    srPriceLines = [];
+    renderSupportResistance();
+  }
+}
+
+defineExpose({ toggleSR });
+
+/** 响应 showSR 变化（备用方案） */
+watch(() => props.showSR, (val) => {
+  if (val !== _srVisible) {
+    toggleSR();
+  }
+}, { immediate: false, flush: 'sync' });
+
+/** 渲染支撑/阻力线到图表 */
+function renderSupportResistance() {
+  try {
+    if (!candleSeries) return;
+
+    // 移除旧的支撑/阻力线
+    srPriceLines.forEach((line) => { try { candleSeries?.removePriceLine(line); } catch (e) {} });
+    srPriceLines = [];
+
+    const { support, resistance } = srLevels.value;
+
+    // 创建阻力线 (红色系)
+    resistance.forEach((r, i) => {
+      const opacity = 1 - i * 0.2;
+      const label = r.fib ? `阻力(${(r.fib * 100).toFixed(0)}%)` : `阻力${i + 1}`;
+      srPriceLines.push(
+        candleSeries.createPriceLine({
+          price: r.price,
+          color: `rgba(231, 76, 60, ${opacity})`,
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: label,
+        })
+      );
+    });
+
+    // 创建支撑线 (绿色系)
+    support.forEach((s, i) => {
+      const opacity = 1 - i * 0.2;
+      const label = s.fib ? `支撑(${(s.fib * 100).toFixed(0)}%)` : `支撑${i + 1}`;
+      srPriceLines.push(
+        candleSeries.createPriceLine({
+          price: s.price,
+          color: `rgba(39, 174, 96, ${opacity})`,
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: label,
+        })
+      );
+    });
+  } catch (_err) {
+    // 忽略渲染错误
+  }
+}
 
 /** 均线系列 */
 const maPeriods = [5, 10, 20, 30];
@@ -50,30 +135,27 @@ function computeMA(data, period) {
   return result;
 }
 
-/** 计算支撑与阻力位 */
+/** 计算支撑与阻力位 — 聚类 + 斐波那契补充 */
 function calcSupportResistance(candleData) {
   if (candleData.length < 30) return { support: [], resistance: [] };
+
+  const latestPrice = candleData[candleData.length - 1].close;
+  const lookback = 3;
 
   // 1. 寻找波段高点/低点
   const swingHighs = [];
   const swingLows = [];
-  const lookback = 3; // 左右各看 3 根
 
   for (let i = lookback; i < candleData.length - lookback; i++) {
-    const segHigh = candleData.slice(i - lookback, i + lookback + 1);
-    const segLow = candleData.slice(i - lookback, i + lookback + 1);
-    const maxHigh = Math.max(...segHigh.map((c) => c.high));
-    const minLow = Math.min(...segLow.map((c) => c.low));
+    const seg = candleData.slice(i - lookback, i + lookback + 1);
+    const maxHigh = Math.max(...seg.map((c) => c.high));
+    const minLow = Math.min(...seg.map((c) => c.low));
 
-    if (candleData[i].high === maxHigh) {
-      swingHighs.push(candleData[i].high);
-    }
-    if (candleData[i].low === minLow) {
-      swingLows.push(candleData[i].low);
-    }
+    if (candleData[i].high === maxHigh) swingHighs.push(candleData[i].high);
+    if (candleData[i].low === minLow) swingLows.push(candleData[i].low);
   }
 
-  // 2. 聚类：将相近的价格合并
+  // 2. 聚类合并相近价格（含单点）
   function cluster(prices, thresholdRatio = 0.005) {
     if (prices.length === 0) return [];
     const sorted = [...prices].sort((a, b) => a - b);
@@ -86,29 +168,59 @@ function calcSupportResistance(candleData) {
         clusters.push([sorted[i]]);
       }
     }
-    // 返回 { price: 集群均价, strength: 出现次数 }
-    return clusters
-      .filter((c) => c.length >= 2) // 至少出现 2 次才有效
-      .map((c) => ({ price: c.reduce((s, v) => s + v, 0) / c.length, strength: c.length }))
-      .sort((a, b) => b.strength - a.strength);
+    // 所有聚类（含单点）都参与，单点 strength=1
+    return clusters.map((c) => ({
+      price: c.reduce((s, v) => s + v, 0) / c.length,
+      strength: c.length,
+    })).sort((a, b) => b.strength - a.strength);
   }
 
   const resistanceClusters = cluster(swingHighs, 0.005);
   const supportClusters = cluster(swingLows, 0.005);
 
-  // 3. 筛选最强的 3 条，并且排除离当前价格太远的
-  const latestPrice = candleData[candleData.length - 1].close;
-  const priceRange = latestPrice * 0.25; // 上下 25% 范围
+  const priceRange = latestPrice * 0.25;
 
-  const topResistance = resistanceClusters
+  let topResistance = resistanceClusters
     .filter((r) => r.price >= latestPrice && r.price - latestPrice <= priceRange)
     .slice(0, 3)
-    .sort((a, b) => a.price - b.price); // 从低到高
+    .sort((a, b) => a.price - b.price);
 
-  const topSupport = supportClusters
+  let topSupport = supportClusters
     .filter((s) => s.price <= latestPrice && latestPrice - s.price <= priceRange)
     .slice(0, 3)
-    .sort((a, b) => b.price - a.price); // 从高到低
+    .sort((a, b) => b.price - a.price);
+
+  // 3. 斐波那契补充 — 不再要求 candleData.length >= 60
+  const total = topResistance.length + topSupport.length;
+  if (total < 3) {
+    const recent = candleData.slice(-60);
+    const fibHigh = Math.max(...recent.map((c) => c.high));
+    const fibLow = Math.min(...recent.map((c) => c.low));
+    const diff = fibHigh - fibLow;
+
+    if (diff > 0.001) {
+      const fibRatios = [0.236, 0.382, 0.5, 0.618, 0.786];
+      const fibLevels = fibRatios.map((r) => ({ price: fibHigh - diff * r, ratio: r }));
+
+      const needR = Math.max(0, 3 - topResistance.length);
+      const needS = Math.max(0, 3 - topSupport.length);
+
+      const fibResistances = fibLevels
+        .filter((f) => f.price > latestPrice)
+        .sort((a, b) => a.price - b.price)
+        .slice(0, needR)
+        .map((f) => ({ price: f.price, strength: 0, fib: f.ratio }));
+
+      const fibSupports = fibLevels
+        .filter((f) => f.price < latestPrice)
+        .sort((a, b) => b.price - a.price)
+        .slice(0, needS)
+        .map((f) => ({ price: f.price, strength: 0, fib: f.ratio }));
+
+      topResistance = [...topResistance, ...fibResistances].slice(0, 3);
+      topSupport = [...topSupport, ...fibSupports].slice(0, 3);
+    }
+  }
 
   return { support: topSupport, resistance: topResistance };
 }
@@ -200,7 +312,6 @@ function initChart() {
 
 function updateChartData(newData) {
   if (!candleSeries || !volumeSeries || !newData || newData.length === 0) {
-    console.warn("[KlineChart] No data to update:", { candleSeries: !!candleSeries, volumeSeries: !!volumeSeries, dataLen: newData?.length });
     return;
   }
 
@@ -234,7 +345,6 @@ function updateChartData(newData) {
   const recentCandles = candleData.slice(-lookback);
   const high30 = Math.max(...recentCandles.map((c) => c.high));
   const low30 = Math.min(...recentCandles.map((c) => c.low));
-  extreme30.value = { high: high30, low: low30 };
 
   if (highPriceLine) {
     highPriceLine.applyOptions({ price: high30 });
@@ -261,43 +371,10 @@ function updateChartData(newData) {
     });
   }
 
-  // 支撑与阻力
+  // 支撑与阻力 — 保存数据，数据更新后重新渲染
   const { support, resistance } = calcSupportResistance(candleData);
   srLevels.value = { support, resistance };
-
-  // 移除旧的支撑/阻力线
-  srPriceLines.forEach((line) => candleSeries.removePriceLine(line));
-  srPriceLines = [];
-
-  // 创建阻力线 (红色系)
-  resistance.forEach((r, i) => {
-    const opacity = 1 - i * 0.2; // 最强最亮
-    srPriceLines.push(
-      candleSeries.createPriceLine({
-        price: r.price,
-        color: `rgba(231, 76, 60, ${opacity})`,
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: `阻力${i + 1}`,
-      })
-    );
-  });
-
-  // 创建支撑线 (绿色系)
-  support.forEach((s, i) => {
-    const opacity = 1 - i * 0.2;
-    srPriceLines.push(
-      candleSeries.createPriceLine({
-        price: s.price,
-        color: `rgba(39, 174, 96, ${opacity})`,
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: `支撑${i + 1}`,
-      })
-    );
-  });
+  refreshSRIfVisible();
 
   // 更新均线数据
   const latestValues = {};
@@ -386,6 +463,17 @@ onMounted(() => {
       updateChartData(props.data);
     }
   });
+});
+
+/** 备份：每次组件更新后检查是否需要渲染 SR 线 */
+onUpdated(() => {
+  if (!candleSeries) return;
+  if (_srVisible && srPriceLines.length === 0) {
+    renderSupportResistance();
+  } else if (!_srVisible && srPriceLines.length > 0) {
+    srPriceLines.forEach((line) => { try { candleSeries?.removePriceLine(line); } catch (e) {} });
+    srPriceLines = [];
+  }
 });
 
 onUnmounted(() => {
@@ -524,14 +612,6 @@ onUnmounted(() => {
   width: 10px;
   height: 10px;
   border-radius: 2px;
-}
-
-.legend-dot.up {
-  background: var(--red);
-}
-
-.legend-dot.down {
-  background: var(--green);
 }
 
 .ma-value {

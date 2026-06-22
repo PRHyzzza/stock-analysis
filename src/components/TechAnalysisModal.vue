@@ -92,6 +92,28 @@ function calcWR(data, n = 14) {
   return result;
 }
 
+/** RSI: 返回 [值, ...]，使用 Wilder 平滑法，周期默认 14 */
+function calcRSI(closePrices, period = 14) {
+  if (closePrices.length < period + 1) return [];
+  const gains = [];
+  const losses = [];
+  for (let i = 1; i < closePrices.length; i++) {
+    const diff = closePrices[i] - closePrices[i - 1];
+    gains.push(diff > 0 ? diff : 0);
+    losses.push(diff < 0 ? -diff : 0);
+  }
+  // Wilder 平滑: 首均值用简单平均，之后用平滑
+  let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const rsi = [avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss))];
+  for (let i = period; i < gains.length; i++) {
+    avgGain = (avgGain * (period - 1) + gains[i]) / period;
+    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+    rsi.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
+  }
+  return rsi;
+}
+
 /** 判断交叉信号 */
 function getCrossSignal(arr, key1, key2, lookback = 3) {
   if (arr.length < lookback + 1) return null;
@@ -106,7 +128,7 @@ function getCrossSignal(arr, key1, key2, lookback = 3) {
 
 // ---- 计算结果 ----
 const indicators = computed(() => {
-  if (!props.klineData || props.klineData.length < 10) return null;
+  if (!props.klineData || props.klineData.length < 26) return null;
 
   const closePrices = props.klineData.map((d) => d.close);
 
@@ -119,6 +141,10 @@ const indicators = computed(() => {
   // WR
   const wrData = calcWR(props.klineData);
   const latestWR = wrData.filter((v) => v !== null).slice(-1)[0] ?? null;
+
+  // RSI
+  const rsiData = calcRSI(closePrices);
+  const latestRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1] : null;
 
   // KDJ
   const kdjData = calcKDJ(props.klineData);
@@ -167,6 +193,7 @@ const indicators = computed(() => {
     maTrendDetail,
     maValues,
     maAlignment,
+    rsi: latestRSI,
   };
 });
 
@@ -307,6 +334,22 @@ function fmtTrend(trend) {
                 </div>
                 <div class="tech-detail">
                   超买: ≥ -20 &nbsp;|&nbsp; 超卖: ≤ -80
+                </div>
+              </div>
+            </div>
+
+            <!-- RSI -->
+            <div class="tech-section">
+              <div class="tech-section-title">📊 RSI (相对强弱)</div>
+              <div class="tech-card">
+                <div class="tech-row">
+                  <span class="tech-label">RSI(14)</span>
+                  <span class="tech-value-lg" :class="(indicators.rsi ?? 50) > 70 ? 'signal-down' : (indicators.rsi ?? 50) < 30 ? 'signal-up' : ''">
+                    {{ indicators.rsi != null ? fmt(indicators.rsi) : '--' }}
+                  </span>
+                </div>
+                <div class="tech-detail">
+                  超买: ≥ 70 &nbsp;|&nbsp; 超卖: ≤ 30 &nbsp;|&nbsp; 当前: <span :class="(indicators.rsi ?? 50) > 70 ? 'signal-down' : (indicators.rsi ?? 50) < 30 ? 'signal-up' : ''">{{ indicators.rsi != null ? fmt(indicators.rsi) : '--' }}</span>
                 </div>
               </div>
             </div>
