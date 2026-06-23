@@ -104,3 +104,6 @@ pub struct HotStockItem {
 pub struct HotListData {
     pub stock_list: Vec<HotStockItem>,
 }
+
+/// 问财选股单条数据（使用 HashMap 保持字段灵活性，因字段名含动态日期后缀）
+pub type IwencaiStockItem = std::collections::HashMap<String, serde_json::Value>;

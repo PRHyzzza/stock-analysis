@@ -101,6 +101,29 @@ function onSearchFocus() {
       >
         热榜
       </button>
+      <button
+        class="sidebar-tab"
+        :class="{ active: sidebarView === 'screener' }"
+        @click="switchTab('screener')"
+      >
+        选股
+      </button>
+    </div>
+
+    <!-- 选股视图 — 侧栏只保留 Tab，右侧展示完整表格 -->
+    <div v-if="sidebarView === 'screener'" class="screener-sidebar-hint">
+      <div class="screener-sidebar-content">
+        <div class="screener-sidebar-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <p class="screener-sidebar-text">选股结果</p>
+        <p class="screener-sidebar-sub">点击股票可查看详情</p>
+      </div>
     </div>
 
     <!-- 自选股视图 -->
@@ -581,5 +604,42 @@ function onSearchFocus() {
 .sidebar-tab:hover:not(.active) {
   color: var(--text-secondary);
   background: #f8f9fc;
+}
+
+/* ===== 选股侧栏提示 ===== */
+.screener-sidebar-hint {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.screener-sidebar-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.screener-sidebar-icon {
+  color: var(--dove);
+  opacity: 0.5;
+}
+
+.screener-sidebar-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.screener-sidebar-sub {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 </style>

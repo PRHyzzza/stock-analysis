@@ -23,6 +23,7 @@ pub fn run() {
             commands::search_stocks,
             commands::get_stock_money_flow,
             commands::get_hot_list,
+            commands::get_iwencai_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
