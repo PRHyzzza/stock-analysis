@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import StockList from "./components/StockList.vue";
 import StockDetail from "./components/StockDetail.vue";
-import IwencaiScreen from "./components/IwencaiScreen.vue";
 import IndustryModal from "./components/IndustryModal.vue";
 import TechAnalysisModal from "./components/TechAnalysisModal.vue";
 import { useWatchlist } from "./composables/useWatchlist";
@@ -84,10 +83,6 @@ function onIndustryModalOpen() {
   }
 }
 
-function onRemoveFromWatchlist(code) {
-  removeFromWatchlist(code);
-}
-
 /** 从搜索结果添加自选 */
 function addStockFromSearch(result) {
   if (isInWatchlist(result.code)) return;
@@ -124,53 +119,6 @@ async function handleManualRefresh() {
     selectedStock.value ? loadMoneyFlow(selectedStock.value) : Promise.resolve(),
   ]);
   refreshing.value = false;
-}
-
-/** 从选股结果加入自选（不跳转） */
-function onScreenerAddWatchlist(info) {
-  if (isInWatchlist(info.code)) return;
-  const stock = {
-    code: info.code,
-    name: info.name,
-    price: info.price || 0,
-    change: info.change || 0,
-    changePct: info.changePct || 0,
-    open: 0, high: 0, low: 0, prevClose: 0,
-    volume: 0, turnover: 0, turnoverRate: 0,
-    pe: 0, amplitude: 0,
-  };
-  addToWatchlist(stock);
-}
-
-/** 从选股结果跳转到自选股详情 */
-function onScreenerSelectStock(result) {
-  // 如果已在自选股中，直接选中
-  if (isInWatchlist(result.code)) {
-    const existing = watchlist.value.find((s) => s.code === result.code);
-    if (existing) selectStock(existing);
-    sidebarView.value = "watchlist";
-    return;
-  }
-  // 不在自选股中，先加入再选中
-  const stock = {
-    code: result.code,
-    name: result.name,
-    price: result.price || 0,
-    change: result.change || 0,
-    changePct: result.changePct || 0,
-    open: 0,
-    high: 0,
-    low: 0,
-    prevClose: 0,
-    volume: 0,
-    turnover: 0,
-    turnoverRate: 0,
-    pe: 0,
-    amplitude: 0,
-  };
-  addToWatchlist(stock);
-  selectStock(stock);
-  sidebarView.value = "watchlist";
 }
 
 // ESC 键关闭弹窗
@@ -228,8 +176,6 @@ onUnmounted(() => {
   <div class="app">
     <!-- 顶栏 -->
     <header class="header">
-      <div class="header-left">
-      </div>
       <div class="header-center">
         <div class="market-indices">
           <template v-for="(idx, i) in indices" :key="idx.code">
@@ -273,17 +219,8 @@ onUnmounted(() => {
         @update:sidebar-view="sidebarView = $event"
       />
 
-      <!-- 右侧：选股结果 -->
-      <IwencaiScreen
-        v-if="sidebarView === 'screener'"
-        :is-in-watchlist="isInWatchlist"
-        @select-stock="onScreenerSelectStock"
-        @add-watchlist="onScreenerAddWatchlist"
-      />
-
       <!-- 右侧：详情面板 -->
       <StockDetail
-        v-else
         :selected-stock="selectedStock"
         :watchlist="watchlist"
         :kline-data="klineData"
@@ -341,10 +278,6 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   position: relative;
-}
-
-.header-left {
-  min-width: 0;
 }
 
 .header-right {
