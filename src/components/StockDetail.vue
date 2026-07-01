@@ -31,6 +31,7 @@ const emit = defineEmits([
   "change-kline-period",
   "open-industry-modal",
   "open-tech-modal",
+  "open-ai-modal",
 ]);
 
 const showSR = ref(false);
@@ -188,6 +189,12 @@ const sinceAddedPct = computed(() => {
             <circle cx="7" cy="12" r="1.5" fill="#7c3aed"/>
           </svg>
           <span>支撑/阻力</span>
+        </button>
+        <button class="btn btn-ai" @click="$emit('open-ai-modal')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" stroke="currentColor" stroke-width="0.5"/>
+          </svg>
+          <span>AI 分析</span>
         </button>
         <button
           class="btn btn-ghost"
@@ -507,6 +514,22 @@ const sinceAddedPct = computed(() => {
   background: var(--apricot-wash);
   border-color: var(--rust);
   color: var(--rust);
+}
+
+/* Steep: AI 分析按钮 — 星形图标 + Rust 色 */
+.btn-ai {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--apricot-wash);
+  color: var(--rust);
+  border: 1px solid var(--rust);
+  box-shadow: var(--shadow-card);
+}
+.btn-ai:hover {
+  background: var(--rust);
+  color: #fff;
+  box-shadow: var(--shadow-elevated);
 }
 
 /* ===== K 线弹性填充 ===== */

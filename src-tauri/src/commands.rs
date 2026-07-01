@@ -1,7 +1,7 @@
 use crate::api::{
-    fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
+    call_llm as call_llm_api, fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
     fetch_industry_name, fetch_kline_data, fetch_money_flow,
-    fetch_money_flow_eastmoney, fetch_search_results, fetch_stock_quote_from_tencent,
+    fetch_money_flow_eastmoney, fetch_search_results, fetch_stock_quote,
 };
 use crate::types::{
     HotListData, IndustryData, KlineItem, MarketIndex, MarketPerformance,
@@ -81,7 +81,7 @@ pub async fn get_stock_kline(code: String, period: String) -> Result<Vec<KlineIt
 /// 获取个股实时行情
 #[tauri::command]
 pub async fn get_stock_quote(code: String) -> Result<StockQuote, String> {
-    fetch_stock_quote_from_tencent(&code).await
+    fetch_stock_quote(&code).await
 }
 
 
@@ -127,5 +127,16 @@ pub async fn get_stock_money_flow(code: String) -> Result<MoneyFlow, String> {
 #[tauri::command]
 pub async fn get_hot_list() -> Result<HotListData, String> {
     fetch_hot_list().await
+}
+
+/// 调用 LLM（兼容 DeepSeek / OpenAI）
+#[tauri::command]
+pub async fn call_llm(
+    api_key: String,
+    model: String,
+    messages: serde_json::Value,
+    tools: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    call_llm_api(&api_key, &model, &messages, &tools).await
 }
 

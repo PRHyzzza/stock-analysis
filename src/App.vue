@@ -4,6 +4,7 @@ import StockList from "./components/StockList.vue";
 import StockDetail from "./components/StockDetail.vue";
 import IndustryModal from "./components/IndustryModal.vue";
 import TechAnalysisModal from "./components/TechAnalysisModal.vue";
+import AiAnalysisModal from "./components/AiAnalysisModal.vue";
 import { useWatchlist } from "./composables/useWatchlist";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
 import { useIndustryData } from "./composables/useIndustryData";
@@ -37,6 +38,19 @@ const {
 const showTechModal = ref(false);
 function openTechModal() { showTechModal.value = true; }
 function closeTechModal() { showTechModal.value = false; }
+
+// ---- AI 分析弹窗 ----
+const showAiModal = ref(false);
+function openAiModal() {
+  showAiModal.value = true;
+  // 确保切换 AI 弹窗时数据已加载
+  if (selectedStock.value && !klineData.value && !klineLoading.value) {
+    loadKlineData(selectedStock.value);
+    loadMoneyFlow(selectedStock.value);
+    loadIndustryData(selectedStock.value);
+  }
+}
+function closeAiModal() { showAiModal.value = false; }
 
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
@@ -126,6 +140,7 @@ function onKeydown(e) {
   if (e.key === "Escape") {
     closeIndustryModal();
     closeTechModal();
+    closeAiModal();
   }
 }
 
@@ -233,6 +248,7 @@ onUnmounted(() => {
         @change-kline-period="changeKlinePeriod"
         @open-industry-modal="onIndustryModalOpen"
         @open-tech-modal="openTechModal"
+        @open-ai-modal="openAiModal"
       />
     </div>
 
@@ -253,6 +269,17 @@ onUnmounted(() => {
       :kline-data="klineData"
       :stock-name="selectedStock?.name ?? ''"
       @close="closeTechModal"
+    />
+
+    <!-- AI 分析弹窗 -->
+    <AiAnalysisModal
+      :show="showAiModal"
+      :selected-stock="selectedStock"
+      :kline-data="klineData"
+      :money-flow="moneyFlow"
+      :industry-data="industryData"
+      :indices="indices"
+      @close="closeAiModal"
     />
   </div>
 </template>

@@ -261,12 +261,12 @@ function initChart() {
   });
 
   candleSeries = chart.addSeries(CandlestickSeries, {
-    upColor: "#27ae60",
-    downColor: "#e74c3c",
-    borderUpColor: "#27ae60",
-    borderDownColor: "#e74c3c",
-    wickUpColor: "#27ae60",
-    wickDownColor: "#e74c3c",
+    upColor: "#e74c3c",
+    downColor: "#27ae60",
+    borderUpColor: "#e74c3c",
+    borderDownColor: "#27ae60",
+    wickUpColor: "#e74c3c",
+    wickDownColor: "#27ae60",
     priceFormat: {
       type: "price",
       precision: 2,
@@ -328,12 +328,12 @@ function updateChartData(newData) {
       close: item.close,
     });
 
-    // 根据涨跌决定成交量颜色
+    // 根据涨跌决定成交量颜色 (A股: 红涨绿跌)
     const isUp = item.close >= item.open;
     volumeData.push({
       time,
       value: item.volume,
-      color: isUp ? "rgba(39, 174, 96, 0.4)" : "rgba(231, 76, 60, 0.4)",
+      color: isUp ? "rgba(231, 76, 60, 0.4)" : "rgba(39, 174, 96, 0.4)",
     });
   }
 

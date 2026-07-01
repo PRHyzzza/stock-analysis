@@ -6,7 +6,7 @@
 //   api       - API client functions (Tencent, East Money)
 //   commands  - Tauri command handlers
 
-pub mod api;
+mod api;
 pub mod commands;
 pub mod helpers;
 pub mod types;
@@ -23,6 +23,7 @@ pub fn run() {
             commands::search_stocks,
             commands::get_stock_money_flow,
             commands::get_hot_list,
+            commands::call_llm,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,13 @@
 <script setup>
 import { computed } from "vue";
+import {
+  calcMACD,
+  calcKDJ,
+  calcWR,
+  calcRSI,
+  calcMATrend,
+  getCrossSignal,
+} from "../composables/useTechIndicators";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -11,119 +19,6 @@ const emit = defineEmits(["close"]);
 
 function closeModal() {
   emit("close");
-}
-
-// ---- 技术指标计算 ----
-
-/** EMA 计算 */
-function ema(data, period) {
-  const result = [];
-  const k = 2 / (period + 1);
-  let prev = data[0];
-  result.push(prev);
-  for (let i = 1; i < data.length; i++) {
-    const val = data[i] * k + prev * (1 - k);
-    result.push(val);
-    prev = val;
-  }
-  return result;
-}
-
-/** MACD: 返回 [{ dif, dea, macd }, ...] */
-function calcMACD(closePrices) {
-  if (closePrices.length < 26) return [];
-  const ema12 = ema(closePrices, 12);
-  const ema26 = ema(closePrices, 26);
-  const dif = ema12.map((v, i) => v - ema26[i]);
-  const dea = ema(dif, 9);
-  const macd = dif.map((v, i) => 2 * (v - dea[i]));
-  return dif.map((v, i) => ({ dif: v, dea: dea[i], macd: macd[i] }));
-}
-
-/** KDJ: 返回 [{ k, d, j }, ...] */
-function calcKDJ(data, n = 9) {
-  if (data.length < n) return [];
-  const rsv = [];
-  for (let i = 0; i < data.length; i++) {
-    if (i < n - 1) { rsv.push(50); continue; }
-    const slice = data.slice(i - n + 1, i + 1);
-    const high = Math.max(...slice.map((s) => s.high));
-    const low = Math.min(...slice.map((s) => s.low));
-    const close = data[i].close;
-    rsv.push(high === low ? 50 : ((close - low) / (high - low)) * 100);
-  }
-  let k = 50, d = 50;
-  return rsv.map((v) => {
-    k = (2 / 3) * k + (1 / 3) * v;
-    d = (2 / 3) * d + (1 / 3) * k;
-    const j = 3 * k - 2 * d;
-    return { k, d, j };
-  });
-}
-
-/** 均线趋势: 比较最新 N 个周期的均线斜率 */
-function calcMATrend(closePrices) {
-  if (closePrices.length < 5) return {};
-  const mas = {};
-  [5, 10, 20, 30].forEach((p) => {
-    if (closePrices.length < p) return;
-    let sum = 0;
-    for (let i = closePrices.length - p; i < closePrices.length; i++) {
-      sum += closePrices[i];
-    }
-    mas[p] = sum / p;
-  });
-  return mas;
-}
-
-/** WR (Williams %R): 返回最近值 */
-function calcWR(data, n = 14) {
-  if (data.length < n) return [];
-  const result = [];
-  for (let i = 0; i < data.length; i++) {
-    if (i < n - 1) { result.push(null); continue; }
-    const slice = data.slice(i - n + 1, i + 1);
-    const high = Math.max(...slice.map((s) => s.high));
-    const low = Math.min(...slice.map((s) => s.low));
-    const close = data[i].close;
-    const wr = high === low ? -50 : ((high - close) / (high - low)) * -100;
-    result.push(wr);
-  }
-  return result;
-}
-
-/** RSI: 返回 [值, ...]，使用 Wilder 平滑法，周期默认 14 */
-function calcRSI(closePrices, period = 14) {
-  if (closePrices.length < period + 1) return [];
-  const gains = [];
-  const losses = [];
-  for (let i = 1; i < closePrices.length; i++) {
-    const diff = closePrices[i] - closePrices[i - 1];
-    gains.push(diff > 0 ? diff : 0);
-    losses.push(diff < 0 ? -diff : 0);
-  }
-  // Wilder 平滑: 首均值用简单平均，之后用平滑
-  let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  const rsi = [avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss))];
-  for (let i = period; i < gains.length; i++) {
-    avgGain = (avgGain * (period - 1) + gains[i]) / period;
-    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
-    rsi.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
-  }
-  return rsi;
-}
-
-/** 判断交叉信号 */
-function getCrossSignal(arr, key1, key2, lookback = 3) {
-  if (arr.length < lookback + 1) return null;
-  const prev = arr[arr.length - lookback];
-  const curr = arr[arr.length - 1];
-  const prevDiff = prev[key1] - prev[key2];
-  const currDiff = curr[key1] - curr[key2];
-  if (prevDiff <= 0 && currDiff > 0) return "金叉 ↑";
-  if (prevDiff >= 0 && currDiff < 0) return "死叉 ↓";
-  return null;
 }
 
 // ---- 计算结果 ----
