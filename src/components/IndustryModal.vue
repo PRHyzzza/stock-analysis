@@ -278,7 +278,7 @@ function retryLoad() {
 .perf-vs-value.up { color: var(--red); }
 .perf-vs-value.down { color: var(--green); }
 
-/* Steep: 行业对比表格 — 无边线靠表面区分 */
+/* Steep: 行业表格 — 无边线靠表面区分 */
 .comp-table {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);

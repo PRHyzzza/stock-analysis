@@ -3,6 +3,13 @@
  * AiChatMessages — 对话消息列表（含欢迎屏 + 打字动画）
  */
 import { ref, nextTick, watch } from "vue";
+import { marked } from "marked";
+
+// 配置 marked
+marked.setOptions({
+  breaks: true,       // 换行 => <br>
+  gfm: true,          // GitHub 风格 Markdown（表格、任务列表等）
+});
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
@@ -39,20 +46,9 @@ function scrollToBottom() {
 
 function renderMarkdown(text) {
   if (!text) return "";
-  let html = text
-    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-      const escaped = escapeHtml(code.trim());
-      return `<pre><code>${escaped}</code></pre>`;
-    })
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/^[-*]\s(.+)$/gm, "<li>$1</li>")
-    .replace(/\n/g, "<br>");
-  return html;
-}
-
-function escapeHtml(str) {
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const raw = marked.parse(text);
+  // marked 默认已做 HTML 转义，确保输出安全
+  return raw;
 }
 
 defineExpose({ scrollToBottom });
@@ -69,8 +65,9 @@ defineExpose({ scrollToBottom });
       </div>
       <p class="welcome-title">锐眼 AI 分析助手</p>
       <p class="welcome-desc">
-        选中一只股票，然后问我关于它的分析问题。
-        <br />我会自动调用工具获取实时数据，给你多维度的专业分析。
+        选中一只 A 股个股，然后问我关于它的分析问题。
+        <br />我会自动调用东方财富/Tencent 数据源获取实时行情，
+        给你多维度的专业分析。
       </p>
       <div class="welcome-suggestions" v-if="selectedStock">
         <button
@@ -87,9 +84,9 @@ defineExpose({ scrollToBottom });
         </button>
         <button
           class="suggestion-chip"
-          @click="emit('suggestion', `${selectedStock.name}在行业中的表现怎么样？`)"
+          @click="emit('suggestion', `${selectedStock.name}今日的走势分析如何？`)"
         >
-          🏭 行业对比
+          📉 今日走势
         </button>
         <button
           class="suggestion-chip"
@@ -277,15 +274,92 @@ defineExpose({ scrollToBottom });
   font-weight: 600;
 }
 
-.ai-msg .msg-text :deep(li) {
-  list-style: none;
-  padding-left: 4px;
-  margin: 2px 0;
+.ai-msg .msg-text :deep(ul),
+.ai-msg .msg-text :deep(ol) {
+  margin: 0.75rem 0;
+  padding-left: 20px;
 }
 
-.ai-msg .msg-text :deep(li::before) {
-  content: "• ";
+.ai-msg .msg-text :deep(li) {
+  margin: 0.3rem 0;
+}
+
+.ai-msg .msg-text :deep(blockquote) {
+  border-left: 3px solid rgba(39, 174, 96, 0.4);
+  padding-left: 12px;
+  margin: 0.75rem 0;
+  color: var(--text-muted);
+}
+
+.ai-msg .msg-text :deep(h1),
+.ai-msg .msg-text :deep(h2),
+.ai-msg .msg-text :deep(h3),
+.ai-msg .msg-text :deep(h4) {
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-msg .msg-text :deep(h1) { font-size: 1.25rem; }
+.ai-msg .msg-text :deep(h2) { font-size: 1.15rem; }
+.ai-msg .msg-text :deep(h3) { font-size: 1.05rem; }
+.ai-msg .msg-text :deep(h4) { font-size: 1rem; }
+
+.ai-msg .msg-text :deep(p) {
+  margin: 0.5rem 0;
+}
+
+.ai-msg .msg-text :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.ai-msg .msg-text :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.ai-msg .msg-text :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+
+.ai-msg .msg-text :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 13px;
+}
+
+.ai-msg .msg-text :deep(th),
+.ai-msg .msg-text :deep(td) {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.ai-msg .msg-text :deep(th) {
+  font-weight: 600;
+  background: var(--fog);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ai-msg .msg-text :deep(td) {
+  color: var(--text-primary);
+}
+
+.ai-msg .msg-text :deep(tbody tr:hover) {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.ai-msg .msg-text :deep(a) {
   color: var(--rust);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-msg .msg-text :deep(a:hover) {
+  opacity: 0.8;
 }
 
 .typing-indicator {
