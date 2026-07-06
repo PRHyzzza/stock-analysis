@@ -1,10 +1,10 @@
 use crate::api::{
     call_llm as call_llm_api, fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
-    fetch_industry_name, fetch_kline_data, fetch_money_flow,
+    fetch_industry_name, fetch_intraday_data, fetch_kline_data, fetch_money_flow,
     fetch_money_flow_eastmoney, fetch_search_results, fetch_stock_quote,
 };
 use crate::types::{
-    HotListData, IndustryData, KlineItem, MarketIndex, MarketPerformance,
+    HotListData, IndustryData, IntradayData, KlineItem, MarketIndex, MarketPerformance,
     MoneyFlow, RevenueRanking, SearchResult, StockQuote,
 };
 
@@ -76,6 +76,12 @@ pub async fn get_stock_industry(code: String) -> Result<IndustryData, String> {
 #[tauri::command]
 pub async fn get_stock_kline(code: String, period: String) -> Result<Vec<KlineItem>, String> {
     fetch_kline_data(&code, &period).await
+}
+
+/// 获取个股分时数据
+#[tauri::command]
+pub async fn get_stock_intraday(code: String) -> Result<IntradayData, String> {
+    fetch_intraday_data(&code).await
 }
 
 /// 获取个股实时行情

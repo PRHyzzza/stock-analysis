@@ -1,5 +1,6 @@
 <script setup>
 import KlineChart from "./KlineChart.vue";
+import IntradayChart from "./IntradayChart.vue";
 import { signChar } from "../utils/format";
 import { ref, computed } from "vue";
 
@@ -21,6 +22,8 @@ const props = defineProps({
   klineData: { type: Array, default: null },
   klineLoading: { type: Boolean, default: false },
   klinePeriod: { type: String, default: "day" },
+  intradayData: { type: Object, default: null },
+  intradayLoading: { type: Boolean, default: false },
   moneyFlow: { type: Object, default: null },
   moneyFlowLoading: { type: Boolean, default: false },
   watchlistMarkers: { type: Array, default: () => [] },
@@ -32,14 +35,24 @@ const emit = defineEmits([
   "open-industry-modal",
   "open-tech-modal",
   "open-ai-modal",
+  "load-intraday",
 ]);
 
+const chartMode = ref("intraday"); // "kline" | "intraday"
 const showSR = ref(false);
 const klineChartRef = ref(null);
 
 function handleToggleSR() {
   showSR.value = !showSR.value;
   klineChartRef.value?.toggleSR();
+}
+
+function switchChartMode(mode) {
+  if (mode === chartMode.value) return;
+  chartMode.value = mode;
+  if (mode === "intraday") {
+    emit("load-intraday");
+  }
 }
 
 function isInWatchlist(code) {
@@ -96,8 +109,22 @@ const sinceAddedPct = computed(() => {
         </div>
       </div>
 
+      <!-- 图表切换标签 -->
+      <div class="chart-tabs">
+        <button
+          class="chart-tab"
+          :class="{ active: chartMode === 'kline' }"
+          @click="switchChartMode('kline')"
+        >K 线</button>
+        <button
+          class="chart-tab"
+          :class="{ active: chartMode === 'intraday' }"
+          @click="switchChartMode('intraday')"
+        >分时</button>
+      </div>
+
       <!-- K 线图 -->
-      <div class="kline-flex-wrap">
+      <div v-show="chartMode === 'kline'" class="kline-flex-wrap">
         <KlineChart
           ref="klineChartRef"
           :data="klineData"
@@ -106,6 +133,14 @@ const sinceAddedPct = computed(() => {
           :markers="watchlistMarkers"
           :show-sr="showSR"
           @change-period="emit('change-kline-period', $event)"
+        />
+      </div>
+
+      <!-- 分时图 -->
+      <div v-show="chartMode === 'intraday'" class="kline-flex-wrap">
+        <IntradayChart
+          :data="intradayData"
+          :loading="intradayLoading"
         />
       </div>
 
@@ -530,6 +565,41 @@ const sinceAddedPct = computed(() => {
   background: var(--rust);
   color: #fff;
   box-shadow: var(--shadow-elevated);
+}
+
+/* ===== 图表切换标签 ===== */
+.chart-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 3px;
+  width: fit-content;
+}
+
+.chart-tab {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: -0.01em;
+}
+
+.chart-tab.active {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.chart-tab:hover:not(.active) {
+  color: var(--text-secondary);
 }
 
 /* ===== K 线弹性填充 ===== */

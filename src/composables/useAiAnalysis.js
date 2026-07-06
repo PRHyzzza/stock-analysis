@@ -12,6 +12,25 @@ const TOOLS = getMergedTools();
 // ============ 构建系统提示词 ============
 
 /**
+ * 计算移动平均线
+ * @param {Array} data - K 线数据 [{ close }]
+ * @param {number} period - 周期
+ * @returns {Array} [{ time, value }]
+ */
+function computeMA(data, period) {
+  const result = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) continue;
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      sum += data[j].close;
+    }
+    result.push({ time: data[i].date || data[i].time, value: Math.round((sum / period) * 100) / 100 });
+  }
+  return result;
+}
+
+/**
  * 将预加载数据序列化为上下文字符串
  */
 function serializeContext(contextData) {
@@ -20,7 +39,16 @@ function serializeContext(contextData) {
 
   if (contextData.klineData && Array.isArray(contextData.klineData) && contextData.klineData.length > 0) {
     const recent = contextData.klineData.slice(-30);
+    const maPeriods = [5, 10, 20, 30, 60];
+    const maData = {};
+    for (const p of maPeriods) {
+      if (contextData.klineData.length >= p) {
+        const maValues = computeMA(contextData.klineData, p);
+        maData[`MA${p}`] = maValues.slice(-30);
+      }
+    }
     parts.push(`## 预加载 K 线数据（最近 ${recent.length} 根日K，已包含在上下文中无需重新调用工具）\n${JSON.stringify(recent, null, 2)}`);
+    parts.push(`## 预计算移动平均线（MA）\n${JSON.stringify(maData, null, 2)}\n（说明：以上为系统预计算的 MA5/MA10/MA20/MA30/MA60 值，你可以直接使用，无需自己计算。）`);
   }
 
   if (contextData.moneyFlow) {

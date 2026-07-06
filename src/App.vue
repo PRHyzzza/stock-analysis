@@ -11,6 +11,7 @@ import { useIndustryData } from "./composables/useIndustryData";
 import { useKlineData } from "./composables/useKlineData";
 import { useMarketIndices } from "./composables/useMarketIndices";
 import { useMoneyFlow } from "./composables/useMoneyFlow";
+import { useIntradayData } from "./composables/useIntradayData";
 
 // ---- 侧边栏视图切换 ----
 const sidebarView = ref("watchlist");
@@ -54,6 +55,7 @@ function closeAiModal() { showAiModal.value = false; }
 
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
+const { intradayData, intradayLoading, loadIntradayData } = useIntradayData();
 
 // 计算当前选中股票的"加入自选"标记
 const watchlistMarkers = computed(() => {
@@ -82,6 +84,7 @@ function selectStock(stock) {
     if (quote) updateWatchlistQuote(stock.code, quote);
   });
   loadKlineData(stock);
+  loadIntradayData(stock);
   loadMoneyFlow(stock);
 }
 
@@ -130,6 +133,7 @@ async function handleManualRefresh() {
     refreshAllQuotes(),
     selectedStock.value ? loadKlineData(selectedStock.value) : Promise.resolve(),
     selectedStock.value ? loadIndustryData(selectedStock.value) : Promise.resolve(),
+    selectedStock.value ? loadIntradayData(selectedStock.value) : Promise.resolve(),
     selectedStock.value ? loadMoneyFlow(selectedStock.value) : Promise.resolve(),
   ]);
   refreshing.value = false;
@@ -160,6 +164,7 @@ onMounted(() => {
   if (selectedStock.value) {
     loadIndustryData(selectedStock.value);
     loadKlineData(selectedStock.value);
+    loadIntradayData(selectedStock.value);
     loadMoneyFlow(selectedStock.value);
   }
   klineTimer = setInterval(() => {
@@ -241,6 +246,8 @@ onUnmounted(() => {
         :kline-data="klineData"
         :kline-loading="klineLoading"
         :kline-period="klinePeriod"
+        :intraday-data="intradayData"
+        :intraday-loading="intradayLoading"
         :money-flow="moneyFlow"
         :money-flow-loading="moneyFlowLoading"
         :watchlist-markers="watchlistMarkers"
@@ -249,6 +256,7 @@ onUnmounted(() => {
         @open-industry-modal="onIndustryModalOpen"
         @open-tech-modal="openTechModal"
         @open-ai-modal="openAiModal"
+        @load-intraday="loadIntradayData(selectedStock)"
       />
     </div>
 

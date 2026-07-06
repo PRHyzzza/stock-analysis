@@ -72,8 +72,9 @@ stock-analysis/
 |------|------|
 | `StockList.vue` | 左侧边栏：自选股列表 + 搜索 + 热榜切换 |
 | `HotList.vue` | 同花顺实时热榜（在 StockList 内渲染） |
-| `StockDetail.vue` | 右侧主面板：个股详情 + K线 + 资金 + 行业 + AI |
+| `StockDetail.vue` | 右侧主面板：个股详情 + K线/分时 + 资金 + 行业 + AI |
 | `KlineChart.vue` | K 线图 (lightweight-charts)，含支撑/阻力线 |
+| `IntradayChart.vue` | 分时图 (lightweight-charts)，价格+均价+成交量 |
 | `IndustryModal.vue` | 行业分析弹窗（营收排名 + 市场表现） |
 | `TechAnalysisModal.vue` | 技术分析弹窗（MACD/KDJ/RSI/布林带） |
 | `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools） |
@@ -91,6 +92,7 @@ stock-analysis/
 | `useMoneyFlow.js` | `useMoneyFlow(ref?)` | `get_stock_money_flow` |
 | `useIndustryData.js` | `useIndustryData()` | `get_stock_industry` |
 | `useMarketIndices.js` | `useMarketIndices()` | `get_market_indices` |
+| `useIntradayData.js` | `useIntradayData()` | `get_stock_intraday` |
 | `useAiAnalysis.js` | `useAiAnalysis()` | `call_llm` (DeepSeek) |
 | `useTechIndicators.js` | `useTechIndicators()` | 纯前端计算 (基于 K 线数据) |
 
@@ -122,12 +124,13 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 
 ### 4.1 Tauri 命令 (commands.rs)
 
-所有 `#[tauri::command]` 位于此文件，共 8 个：
+所有 `#[tauri::command]` 位于此文件，共 9 个：
 
 | 命令 | 功能 | 调用的 API |
 |------|------|-----------|
 | `get_stock_quote` | 个股实时行情 | Tencent `qt.gtimg.cn` |
 | `get_stock_kline` | K 线数据 (日/周/月) | Tencent |
+| `get_stock_intraday` | 分时数据 (当日分钟) | Tencent AppStock |
 | `get_stock_money_flow` | 主力资金流向 | Tencent 优先, East Money 备选 |
 | `get_stock_industry` | 行业分析 | East Money HSF10 + 行情页 |
 | `get_market_indices` | 六大指数行情 | Tencent (并行请求) |
@@ -148,6 +151,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 
 - `StockQuote` — 价格/涨跌幅/成交量/换手率/PE/振幅
 - `KlineItem` — OHLCV (日期/开/高/低/收/量/额)
+- `IntradayItem` / `IntradayData` — 分时数据 (时间/价格/均价/量/额 + 昨收)
 - `MarketIndex` — 指数行情 (点位/涨跌幅)
 - `MoneyFlow` — 主力净流入/占比/趋势
 - `IndustryData` — 行业名称 + 市场表现 + 营收排名

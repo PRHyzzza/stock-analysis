@@ -17,6 +17,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_stock_industry,
+            commands::get_stock_intraday,
             commands::get_stock_kline,
             commands::get_stock_quote,
             commands::get_market_indices,

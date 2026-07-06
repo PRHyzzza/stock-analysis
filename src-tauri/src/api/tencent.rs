@@ -1,6 +1,6 @@
 /// 腾讯财经数据源
 use crate::helpers::to_tencent_code;
-use crate::types::{KlineItem, MarketIndex, MoneyFlow, SearchResult, StockQuote};
+use crate::types::{IntradayData, IntradayItem, KlineItem, MarketIndex, MoneyFlow, SearchResult, StockQuote};
 use regex::Regex;
 
 /// 获取个股实时行情（来自腾讯财经）
@@ -245,4 +245,110 @@ pub async fn fetch_kline_data(code: &str, period: &str) -> Result<Vec<KlineItem>
         return Err("K 线数据为空".to_string());
     }
     Ok(items)
+}
+
+/// 获取个股分时数据（来自腾讯 AppStock）
+/// 返回当日每分钟的 [时间, 价格, 成交量, 成交额]
+/// API 返回格式：data.{t_code}.data.data 是字符串数组，每项 "HHmm price volume turnover"
+/// 昨收从 data.{t_code}.qt.{t_code}[4] 获取
+pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
+    let t_code = to_tencent_code(code);
+    let url = format!(
+        "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={}",
+        t_code
+    );
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let resp = client
+        .get(&url)
+        .header("Referer", "https://web.ifzq.gtimg.cn/")
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("请求分时数据失败: {}", e))?;
+
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析 JSON 失败: {}", e))?;
+
+    // 结构: data.{t_code}
+    let stock_data = data
+        .get("data")
+        .and_then(|d| d.get(&t_code))
+        .ok_or_else(|| "未找到分时数据".to_string())?;
+
+    // 昨收: data.{t_code}.qt.{t_code}[4]
+    let pre_close = stock_data
+        .get("qt")
+        .and_then(|q| q.get(&t_code))
+        .and_then(|arr| arr.as_array())
+        .and_then(|arr| arr.get(4))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0);
+
+    // 日期: data.{t_code}.data.date
+    let date = stock_data
+        .get("data")
+        .and_then(|d| d.get("date"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // 分时数据点: data.{t_code}.data.data — 字符串数组 ["HHmm price volume turnover", ...]
+    let raw_data = stock_data
+        .get("data")
+        .and_then(|d| d.get("data"))
+        .and_then(|v| v.as_array());
+
+    let points = match raw_data {
+        Some(arr) => arr,
+        None => return Err("未找到分时数据点".to_string()),
+    };
+
+    let mut items = Vec::new();
+    let mut cum_pv = 0.0; // ∑(price × volume)
+    let mut cum_vol = 0.0; // ∑(volume)
+    for point in points {
+        let s = point.as_str().unwrap_or("");
+        if s.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = s.split(' ').collect();
+        if parts.len() >= 3 {
+            // time: "0930" → "09:30"
+            let raw_time = parts[0];
+            let time = if raw_time.len() == 4 {
+                format!("{}:{}", &raw_time[..2], &raw_time[2..])
+            } else {
+                raw_time.to_string()
+            };
+            let price: f64 = parts[1].parse().unwrap_or(0.0);
+            let volume: f64 = parts[2].parse().unwrap_or(0.0);
+            let turnover: f64 = parts.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+
+            // 计算累计 VWAP
+            cum_pv += price * volume;
+            cum_vol += volume;
+            let vwap = if cum_vol > 0.0 {
+                (cum_pv / cum_vol * 100.0).round() / 100.0
+            } else {
+                0.0
+            };
+
+            items.push(IntradayItem { time, price, avg_price: 0.0, volume, turnover, vwap });
+        }
+    }
+
+    if items.is_empty() {
+        return Err("分时数据为空".to_string());
+    }
+
+    Ok(IntradayData { items, pre_close, date })
 }

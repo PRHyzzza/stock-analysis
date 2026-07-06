@@ -64,6 +64,27 @@ pub struct IndustryData {
     pub revenue_ranking: Vec<RevenueRanking>,           // 营收排名
 }
 
+/// 分时数据条目
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct IntradayItem {
+    pub time: String,    // HH:mm
+    pub price: f64,
+    pub avg_price: f64,  // 简单均价
+    pub volume: f64,     // 成交量（手）
+    pub turnover: f64,   // 成交额（元）
+    pub vwap: f64,       // VWAP 累计加权均价
+}
+
+/// 分时完整数据
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct IntradayData {
+    pub items: Vec<IntradayItem>,
+    pub pre_close: f64,
+    pub date: String,
+}
+
 /// K 线数据条目
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
