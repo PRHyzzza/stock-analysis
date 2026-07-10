@@ -12,6 +12,7 @@ import { useKlineData } from "./composables/useKlineData";
 import { useMarketIndices } from "./composables/useMarketIndices";
 import { useMoneyFlow } from "./composables/useMoneyFlow";
 import { useIntradayData } from "./composables/useIntradayData";
+import { deleteStockMessages } from "./composables/useAiAnalysis";
 
 // ---- 侧边栏视图切换 ----
 const sidebarView = ref("watchlist");
@@ -98,6 +99,12 @@ function onIndustryModalOpen() {
   if (!industryData.value && !industryLoading.value && selectedStock.value) {
     loadIndustryData(selectedStock.value);
   }
+}
+
+/** 从自选移除时同步删除 AI 对话记录 */
+function handleRemoveFromWatchlist(code) {
+  removeFromWatchlist(code);
+  deleteStockMessages(code);
 }
 
 /** 从搜索结果添加自选 */
@@ -233,7 +240,7 @@ onUnmounted(() => {
         :search-query="searchQuery"
         :sidebar-view="sidebarView"
         @select-stock="selectStock"
-        @remove="removeFromWatchlist"
+        @remove="handleRemoveFromWatchlist"
         @add-stock="addStockFromSearch"
         @update:search-query="searchQuery = $event"
         @update:sidebar-view="sidebarView = $event"

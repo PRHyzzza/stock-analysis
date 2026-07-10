@@ -24,7 +24,22 @@ const {
   setApiKey,
   sendMessage,
   clearHistory,
+  switchStock,
+  currentStockCode,
 } = useAiAnalysis();
+
+// 弹窗打开或切换股票时加载对应对话
+watch(() => props.show, (val) => {
+  if (val && props.selectedStock) {
+    switchStock(props.selectedStock.code);
+  }
+});
+
+watch(() => props.selectedStock?.code, (newCode) => {
+  if (props.show && newCode) {
+    switchStock(newCode);
+  }
+});
 
 const inputText = ref("");
 const showApiKeyInput = ref(!apiKey.value);

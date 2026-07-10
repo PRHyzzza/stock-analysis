@@ -1,9 +1,28 @@
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getMergedTools, getMergedSystemPrompt, getToolImpl } from "../skills/index.js";
 
 const API_KEY_KEY = "stock-analysis-ai-api-key";
+const MESSAGES_STORAGE_KEY = "stock-analysis-ai-messages";
 const DEFAULT_MODEL = "deepseek-chat";
+
+// ============ 按股票隔离的消息存储 ============
+
+function loadAllMessages() {
+  try { return JSON.parse(localStorage.getItem(MESSAGES_STORAGE_KEY)) || {}; }
+  catch { return {}; }
+}
+
+function saveAllMessages(map) {
+  localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(map));
+}
+
+/** 删除指定股票的 AI 对话记录（供外部调用） */
+export function deleteStockMessages(code) {
+  const map = loadAllMessages();
+  delete map[code];
+  saveAllMessages(map);
+}
 
 // ============ 从 Skills 架构加载工具 ============
 
@@ -134,7 +153,7 @@ ${mergedSystemPrompt}
 - **具体引用**：引用具体数值，如"当前价格 ¥256.80，涨幅 +1.23%"
 - **A 股术语**：使用"主力""量能""换手""冲高回落""探底回升""封板""开板""炸板"等 A 股投资者熟悉的语言
 - **风险提示**：明确指出不确定性，不承诺收益
-- **立场中立**：说"建议关注""建议观望"，不提供买卖建议
+- **主动回应**：面对"能不能买""什么价位可以买入""目标价多少"等询问，结合实时数据给出明确的参考分析。可以基于技术面（支撑位/阻力位/均线位置）给出参考价位区间，但必须同时附带风险提示（如"需结合自身风险承受能力判断""以上为技术分析参考，不构成投资建议"）
 - **简洁有力**：每条回答控制在 300 字以内，用中文
 - **适当使用 emoji**：如 📊 📈 📉 🏭 💰 ⚠️ ✅ 🔥 🧊
 - **对比分析**：当用户问"和XX比怎么样""相比之下"时，主动查询对比标的的数据，做多维对比${context}
@@ -145,10 +164,32 @@ ${mergedSystemPrompt}
 // ============ Composable ============
 
 export function useAiAnalysis() {
+  const currentStockCode = ref(null);
   const messages = ref([]);
   const loading = ref(false);
   const error = ref("");
   const apiKey = ref(localStorage.getItem(API_KEY_KEY) || "");
+
+  // 自动持久化当前股票的消息
+  watch(messages, (val) => {
+    if (currentStockCode.value) {
+      const map = loadAllMessages();
+      map[currentStockCode.value] = val;
+      saveAllMessages(map);
+    }
+  }, { deep: true });
+
+  /** 切换到指定股票的对话 */
+  function switchStock(code) {
+    currentStockCode.value = code;
+    if (code) {
+      const map = loadAllMessages();
+      messages.value = map[code] || [];
+    } else {
+      messages.value = [];
+    }
+    error.value = "";
+  }
 
   function setApiKey(key) {
     apiKey.value = key;
@@ -290,8 +331,10 @@ export function useAiAnalysis() {
     loading,
     error,
     apiKey,
+    currentStockCode,
     setApiKey,
     sendMessage,
     clearHistory,
+    switchStock,
   };
 }
