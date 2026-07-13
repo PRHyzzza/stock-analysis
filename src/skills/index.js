@@ -42,14 +42,3 @@ export function getMergedSystemPrompt() {
 export function getToolImpl(name) {
   return getMergedToolImpl()[name];
 }
-
-/**
- * 获取所有技能的名称与描述（用于展示）
- */
-export function getSkillList() {
-  return SKILLS.map((s) => ({
-    name: s.name,
-    description: s.description,
-    toolCount: s.tools.length,
-  }));
-}

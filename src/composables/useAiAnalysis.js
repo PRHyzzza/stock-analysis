@@ -82,6 +82,23 @@ function serializeContext(contextData) {
     parts.push(`## 预加载大盘指数\n${JSON.stringify(contextData.indices, null, 2)}`);
   }
 
+  if (contextData.chipData) {
+    const chip = contextData.chipData;
+    const costStr = chip.costLevels
+      ? `COST5=${chip.costLevels.COST5}, COST15=${chip.costLevels.COST15}, COST50=${chip.costLevels.COST50}, COST85=${chip.costLevels.COST85}, COST95=${chip.costLevels.COST95}`
+      : "无";
+    const profitPct = chip.distribution
+      ? chip.distribution.filter((d) => d.price < chip.currentPrice).reduce((s, d) => s + d.ratio, 0) * 100
+      : 0;
+    parts.push(`## 预加载筹码分布数据
+筹码峰价格：${chip.peakPrice}
+平均持仓成本：${chip.avgCost}
+当前价：${chip.currentPrice}
+获利比例：${profitPct.toFixed(1)}%
+套牢比例：${(100 - profitPct).toFixed(1)}%
+分位成本：${costStr}`);
+  }
+
   return parts.join("\n\n");
 }
 

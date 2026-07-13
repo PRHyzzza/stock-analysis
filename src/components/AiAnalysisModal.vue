@@ -4,6 +4,7 @@ import { useAiAnalysis } from "../composables/useAiAnalysis";
 import AiApiKeySetup from "./ai/AiApiKeySetup.vue";
 import AiChatMessages from "./ai/AiChatMessages.vue";
 import AiChatFooter from "./ai/AiChatFooter.vue";
+import { calcChipDistribution } from "../composables/useChipDistribution";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -72,11 +73,13 @@ async function handleSend() {
   inputText.value = "";
 
   try {
+    const chipData = calcChipDistribution(props.klineData || []);
     const contextData = {
       klineData: props.klineData,
       moneyFlow: props.moneyFlow,
       industryData: props.industryData,
       indices: props.indices,
+      chipData,
     };
     await sendMessage(text, props.selectedStock, contextData);
   } catch (e) {

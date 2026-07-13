@@ -15,11 +15,6 @@ let vwapSeries = null;
 let volumeSeries = null;
 let baseLine = null;
 
-function formatTime(timeStr) {
-  // "09:30" → "9:30" 或保持原样，但 compat 用字符串时间即可
-  return timeStr;
-}
-
 function initChart() {
   if (!chartContainer.value || chart) return;
 

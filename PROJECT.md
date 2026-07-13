@@ -78,6 +78,7 @@ stock-analysis/
 | `IndustryModal.vue` | 行业分析弹窗（营收排名 + 市场表现） |
 | `TechAnalysisModal.vue` | 技术分析弹窗（MACD/KDJ/RSI/布林带） |
 | `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools） |
+| `ChipDistribution.vue` | 筹码峰可视化面板（水平条形图，自包含可折叠） |
 | `ai/AiApiKeySetup.vue` | API Key 配置面板 |
 | `ai/AiChatMessages.vue` | AI 对话消息列表 |
 | `ai/AiChatFooter.vue` | AI 输入框 + 发送按钮 |
@@ -94,7 +95,8 @@ stock-analysis/
 | `useMarketIndices.js` | `useMarketIndices()` | `get_market_indices` |
 | `useIntradayData.js` | `useIntradayData()` | `get_stock_intraday` |
 | `useAiAnalysis.js` | `useAiAnalysis()` | `call_llm` (DeepSeek) |
-| `useTechIndicators.js` | `useTechIndicators()` | 纯前端计算 (基于 K 线数据) |
+| `useTechIndicators.js` | `calcMACD/KDJ/WR/RSI/ema` 等纯函数 | 纯前端计算 (基于 K 线数据) |
+| `useChipDistribution.js` | `calcChipDistribution()` | 纯前端计算筹码分布 (基于 K 线数据) |
 
 **模式**: 每个 composable 返回 `{ data, loading, loadData(), ... }`。`App.vue` 中调用所有 composable，通过 props 传递给子组件。
 

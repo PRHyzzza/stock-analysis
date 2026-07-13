@@ -35,6 +35,7 @@ const emit = defineEmits([
   "open-industry-modal",
   "open-tech-modal",
   "open-ai-modal",
+  "open-chip-modal",
   "load-intraday",
 ]);
 
@@ -224,6 +225,14 @@ const sinceAddedPct = computed(() => {
             <circle cx="7" cy="12" r="1.5" fill="#7c3aed"/>
           </svg>
           <span>支撑/阻力</span>
+        </button>
+        <button class="btn btn-chip" @click="$emit('open-chip-modal')">
+          <svg width="18" height="18" viewBox="0 0 20 18" fill="none">
+            <path d="M1 16 6 9l3.5 3L14 3l5 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="14" cy="3" r="2.8" fill="currentColor" opacity="0.85"/>
+            <path d="M1 16h18" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <span>筹码峰</span>
         </button>
         <button class="btn btn-ai" @click="$emit('open-ai-modal')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -549,6 +558,23 @@ const sinceAddedPct = computed(() => {
   background: var(--apricot-wash);
   border-color: var(--rust);
   color: var(--rust);
+}
+
+/* Steep: 筹码峰按钮 — 山峰图标 + Purple 色调 */
+.btn-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(124, 58, 237, 0.08);
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+  box-shadow: var(--shadow-card);
+}
+.btn-chip:hover {
+  background: #7c3aed;
+  color: #fff;
+  border-color: #7c3aed;
+  box-shadow: var(--shadow-elevated);
 }
 
 /* Steep: AI 分析按钮 — 星形图标 + Rust 色 */

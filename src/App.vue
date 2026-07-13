@@ -5,6 +5,7 @@ import StockDetail from "./components/StockDetail.vue";
 import IndustryModal from "./components/IndustryModal.vue";
 import TechAnalysisModal from "./components/TechAnalysisModal.vue";
 import AiAnalysisModal from "./components/AiAnalysisModal.vue";
+import ChipDistribution from "./components/ChipDistribution.vue";
 import { useWatchlist } from "./composables/useWatchlist";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
 import { useIndustryData } from "./composables/useIndustryData";
@@ -53,6 +54,11 @@ function openAiModal() {
   }
 }
 function closeAiModal() { showAiModal.value = false; }
+
+// ---- 筹码峰弹窗 ----
+const showChipModal = ref(false);
+function openChipModal() { showChipModal.value = true; }
+function closeChipModal() { showChipModal.value = false; }
 
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
@@ -152,6 +158,7 @@ function onKeydown(e) {
     closeIndustryModal();
     closeTechModal();
     closeAiModal();
+    closeChipModal();
   }
 }
 
@@ -263,6 +270,7 @@ onUnmounted(() => {
         @open-industry-modal="onIndustryModalOpen"
         @open-tech-modal="openTechModal"
         @open-ai-modal="openAiModal"
+        @open-chip-modal="openChipModal"
         @load-intraday="loadIntradayData(selectedStock)"
       />
     </div>
@@ -295,6 +303,14 @@ onUnmounted(() => {
       :industry-data="industryData"
       :indices="indices"
       @close="closeAiModal"
+    />
+
+    <!-- 筹码峰弹窗 -->
+    <ChipDistribution
+      :show="showChipModal"
+      :kline-data="klineData"
+      :loading="klineLoading"
+      @close="closeChipModal"
     />
   </div>
 </template>

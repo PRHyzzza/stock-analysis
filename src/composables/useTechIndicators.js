@@ -4,8 +4,6 @@
  * 包含 EMA / MACD / KDJ / WR / RSI / 均线趋势 / 交叉信号
  * 所有函数为纯函数，可在组件外独立使用。
  */
-import { computed } from "vue";
-
 // ---- 纯函数（可独立导出使用） ----
 
 /** EMA 计算 */
@@ -123,50 +121,4 @@ export function getCrossSignal(arr, key1, key2, lookback = 3) {
   if (prevDiff <= 0 && currDiff > 0) return "金叉 ↑";
   if (prevDiff >= 0 && currDiff < 0) return "死叉 ↓";
   return null;
-}
-
-// ---- Composable ----
-
-/**
- * useTechIndicators — 响应式技术指标计算
- * @param {import('vue').Ref<Array>} klineDataRef — K 线数据 ref，每项需含 { high, low, close }
- * @returns {{ indicators: import('vue').ComputedRef }}
- */
-export function useTechIndicators(klineDataRef) {
-  const closePrices = computed(() => (klineDataRef.value || []).map((d) => d.close));
-
-  const macd = computed(() => calcMACD(closePrices.value));
-
-  const kdj = computed(() => calcKDJ(klineDataRef.value || []));
-
-  const wr = computed(() => calcWR(klineDataRef.value || []));
-
-  const rsi = computed(() => calcRSI(closePrices.value));
-
-  const maTrend = computed(() => calcMATrend(closePrices.value));
-
-  const crossSignal = computed(() => {
-    const macdData = macd.value;
-    if (macdData.length < 2) return {};
-    return {
-      macd: getCrossSignal(macdData, "dif", "dea"),
-    };
-  });
-
-  return {
-    indicators: computed(() => ({
-      macd: macd.value,
-      kdj: kdj.value,
-      wr: wr.value,
-      rsi: rsi.value,
-      maTrend: maTrend.value,
-      crossSignal: crossSignal.value,
-    })),
-    macd,
-    kdj,
-    wr,
-    rsi,
-    maTrend,
-    crossSignal,
-  };
 }
