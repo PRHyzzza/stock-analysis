@@ -1,6 +1,12 @@
 # 锐眼 (Ruiyan) — A 股桌面分析工具
 
-> **技术栈**: Tauri 2 + Vue 3 + Rust  
+> **技术栈**: [Tauri 2](https://v2.tauri.app/) + [Vue 3](https://vuejs.org/) + [Rust](https://www.rust-lang.org/)  
+> **数据源**: [腾讯财经](https://qt.gtimg.cn/) · [东方财富](https://www.eastmoney.com/) · [同花顺](https://www.10jqka.com.cn/)  
+> **AI 模型**: [DeepSeek API](https://api-docs.deepseek.com/) (OpenAI 兼容)  
+> **图表库**: [Lightweight Charts™](https://tradingview.github.io/lightweight-charts/)  
+> **Markdown 渲染**: [marked](https://marked.js.org/)  
+> **包管理器**: [pnpm](https://pnpm.io/)  
+> **构建工具**: [Vite](https://vite.dev/) + [Rolldown](https://rolldown.rs/)  
 > **产品名**: 锐眼 (`com.prh.stock-analysis`)  
 > **运行时**: 前端 Vite dev server (port 1420) + Tauri Rust backend
 
@@ -11,6 +17,8 @@
 ```
 stock-analysis/
 ├── PROJECT.md              ← 本文件（AI 快速上下文）
+├── .github/
+│   └── copilot-instructions.md  ← Copilot 项目规则（新对话先读 PROJECT.md）
 ├── package.json            ← 前端依赖 (Vue 3, lightweight-charts, Tauri API)
 ├── vite.config.js          ← Vite 配置 (port 1420, HMR 1421)
 ├── pnpm-lock.yaml / pnpm-workspace.yaml
@@ -21,6 +29,8 @@ stock-analysis/
 │   ├── assets/main.css     ← 全局样式 (Steep Design System)
 │   ├── components/         ← UI 组件 (不含业务逻辑)
 │   ├── composables/        ← 有状态逻辑 (调用 Tauri invoke)
+│   ├── prompts/            ← AI Agent 系统提示词模板
+│   │   └── system-prompt.md  ← 提示词模板（含 {{PRELOAD_SECTION}} 等占位符，通过 Vite ?raw 导入）
 │   ├── skills/             ← AI Agent 技能模块 (定义 LLM tools)
 │   └── utils/format.js     ← 格式化工具 (signChar)
 ├── src-tauri/              ← Rust 后端源码
@@ -28,11 +38,16 @@ stock-analysis/
 │   ├── tauri.conf.json     ← Tauri 窗口/构建/安全配置
 │   ├── src/
 │   │   ├── main.rs         ← 入口：windows_subsystem + 调用 lib::run()
-│   │   ├── lib.rs          ← Tauri Builder：注册 8 个命令 + 插件
+│   │   ├── lib.rs          ← Tauri Builder：注册 10 个命令 + 插件
 │   │   ├── types.rs        ← 数据结构 (StockQuote, KlineItem, MoneyFlow...)
 │   │   ├── helpers.rs      ← 代码转换 (to_em_code, to_tencent_code)
 │   │   ├── commands.rs     ← Tauri #[command] 处理器
-│   │   └── api/            ← HTTP API 客户端模块
+│   │   ├── api/            ← HTTP API 客户端模块
+│   │   │   ├── eastmoney.rs  ← 东方财富 JSON/JSONP/HTML 解析
+│   │   │   ├── hotlist.rs    ← 同花顺热榜 JSON API
+│   │   │   ├── llm.rs        ← DeepSeek API（非流式 + SSE 流式）
+│   │   │   ├── mod.rs        ← pub use 导出
+│   │   │   └── tencent.rs    ← 腾讯财经 qt.gtimg.cn (GBK 编码)
 │   └── capabilities/       ← Tauri 权限配置
 └── public/                 ← 静态资源
 ```
@@ -77,10 +92,10 @@ stock-analysis/
 | `IntradayChart.vue` | 分时图 (lightweight-charts)，价格+均价+成交量 |
 | `IndustryModal.vue` | 行业分析弹窗（营收排名 + 市场表现） |
 | `TechAnalysisModal.vue` | 技术分析弹窗（MACD/KDJ/RSI/布林带） |
-| `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools） |
+| `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools + 模型/思考/推理控制） |
 | `ChipDistribution.vue` | 筹码峰可视化面板（水平条形图，自包含可折叠） |
 | `ai/AiApiKeySetup.vue` | API Key 配置面板 |
-| `ai/AiChatMessages.vue` | AI 对话消息列表 |
+| `ai/AiChatMessages.vue` | AI 对话消息列表（Markdown 渲染 + 流式内容实时滚动） |
 | `ai/AiChatFooter.vue` | AI 输入框 + 发送按钮 |
 
 ### 3.2 组合式函数 (composables/)
@@ -94,7 +109,7 @@ stock-analysis/
 | `useIndustryData.js` | `useIndustryData()` | `get_stock_industry` |
 | `useMarketIndices.js` | `useMarketIndices()` | `get_market_indices` |
 | `useIntradayData.js` | `useIntradayData()` | `get_stock_intraday` |
-| `useAiAnalysis.js` | `useAiAnalysis()` | `call_llm` (DeepSeek) |
+| `useAiAnalysis.js` | `useAiAnalysis()` | `call_llm` + `call_llm_stream` (DeepSeek V4) |
 | `useTechIndicators.js` | `calcMACD/KDJ/WR/RSI/ema` 等纯函数 | 纯前端计算 (基于 K 线数据) |
 | `useChipDistribution.js` | `calcChipDistribution()` | 纯前端计算筹码分布 (基于 K 线数据) |
 
@@ -126,7 +141,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 
 ### 4.1 Tauri 命令 (commands.rs)
 
-所有 `#[tauri::command]` 位于此文件，共 9 个：
+所有 `#[tauri::command]` 位于此文件，共 10 个：
 
 | 命令 | 功能 | 调用的 API |
 |------|------|-----------|
@@ -138,7 +153,8 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `get_market_indices` | 六大指数行情 | Tencent (并行请求) |
 | `search_stocks` | 股票搜索 | Tencent |
 | `get_hot_list` | 同花顺热榜 | 10jqka.com.cn |
-| `call_llm` | AI 对话 | DeepSeek API |
+| `call_llm` | AI 对话（非流式） | [DeepSeek API](https://api-docs.deepseek.com/) |
+| `call_llm_stream` | AI 对话（SSE 流式） | DeepSeek API → Tauri 事件 `llm-chunk`/`llm-done`/`llm-error` |
 
 ### 4.2 数据源 (api/)
 
@@ -147,9 +163,23 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `tencent.rs` | **腾讯财经** `qt.gtimg.cn` | GBK 编码，`~` 分隔，无反爬 |
 | `eastmoney.rs` | **东方财富** | JSON/JSONP/HTML 解析 |
 | `hotlist.rs` | **同花顺** | JSON API |
-| `llm.rs` | **DeepSeek** | OpenAI 兼容格式 |
+| `llm.rs` | **DeepSeek** | OpenAI 兼容格式；`call_llm()` 非流式 + `call_llm_stream()` SSE 流式（依赖 [`futures-util`](https://docs.rs/futures-util/) + [`reqwest`](https://docs.rs/reqwest/) stream feature） |
 
-### 4.3 关键类型 (types.rs)
+### 4.3 AI 流式调用（call_llm_stream）
+
+SSE 流通过 Tauri 事件推送到前端：
+- `llm-chunk` — 增量 delta（`content` / `reasoning_content` / `tool_calls` 拼接）
+- `llm-done` — 流结束
+- `llm-error` — API 错误
+
+前端 `callLlmStream()` 通过 `listen()` 监听上述事件，累积 content 和 tool_calls，返回 Promise。
+
+**思考模式控制**：
+- `thinking_enabled: false` → 设置 `thinking: {type: "disabled"}` + `temperature: 0.7`
+- `thinking_enabled: true` → 设置 `reasoning_effort: "high" | "max"`
+- V4 模型多轮工具调用需在 assistant 消息中回传 `reasoning_content`，否则 API 返回 400
+
+### 4.4 关键类型 (types.rs)
 
 - `StockQuote` — 价格/涨跌幅/成交量/换手率/PE/振幅
 - `KlineItem` — OHLCV (日期/开/高/低/收/量/额)
@@ -160,7 +190,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 - `HotListData` / `HotStockItem` — 热榜数据
 - `SearchResult` — 股票搜索结果
 
-### 4.4 代码转换规则 (helpers.rs)
+### 4.5 代码转换规则 (helpers.rs)
 
 ```
 to_em_code:     600xxx → "SH600xxx"  |  其他 → "SZxxxxxx"
@@ -183,10 +213,11 @@ to_tencent_code: 600xxx → "sh600xxx"  |  其他 → "szxxxxxx"
 
 ```bash
 pnpm install          # 安装前端依赖
-pnpm dev              # 仅启动 Vite dev server
+pnpm dev              # 仅启动 Vite dev server (port 1420)
 pnpm tauri dev        # 启动 Tauri 桌面应用 (dev 模式)
-pnpm build            # 构建前端
+pnpm build            # 构建前端 (Vite → dist/)
 pnpm tauri build      # 构建 Tauri 安装包 (MSI + NSIS)
+cargo check           # 仅检查 Rust 编译（src-tauri/ 目录下执行）
 ```
 
 ---
@@ -200,6 +231,9 @@ pnpm tauri build      # 构建 Tauri 安装包 (MSI + NSIS)
 5. **AI Skills 架构**: 修改 tools 只需编辑 `skills/` 目录，无需改 `useAiAnalysis.js`
 6. **API 反爬**: East Money push2/push2his 有 CDN/WAF，腾讯 API 稳定可用
 7. **API 收费层限制**: 问财免费层仅返回 5 个字段（代码/名称/价/涨跌幅/股本），无行业/市值
+8. **V4 reasoning_content 回传**: DeepSeek V4 思考模式下，assistant 消息必须在后续请求中携带 `reasoning_content` 字段，否则 400 错误
+9. **系统提示词维护**: `src/prompts/system-prompt.md` 是 AI Agent 的系统提示词模板，通过 Vite `?raw` 导入，占位符由 `useAiAnalysis.js` 的 `buildSystemPrompt()` 动态填充
+10. **Agent 流式循环**: `sendMessage()` 每次工具调用轮都走 `callLlmStream`，工具调用完成后继续下一轮流式请求，最多 5 轮
 
 ---
 

@@ -21,9 +21,21 @@ const emit = defineEmits(["suggestion"]);
 
 const messagesContainer = ref(null);
 
-// 自动滚动到底部
+// 自动滚动到底部（新消息时）
 watch(
   () => props.messages.length,
+  async () => {
+    await nextTick();
+    scrollToBottom();
+  }
+);
+
+// 自动滚动（流式内容更新时）
+watch(
+  () => {
+    const last = props.messages[props.messages.length - 1];
+    return last?._streaming ? last.content : null;
+  },
   async () => {
     await nextTick();
     scrollToBottom();

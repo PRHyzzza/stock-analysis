@@ -142,7 +142,37 @@ pub async fn call_llm(
     model: String,
     messages: serde_json::Value,
     tools: serde_json::Value,
+    reasoning_effort: Option<String>,
+    thinking_enabled: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    call_llm_api(&api_key, &model, &messages, &tools).await
+    let re = reasoning_effort.as_deref().unwrap_or("high");
+    let te = thinking_enabled.unwrap_or(true);
+    call_llm_api(&api_key, &model, &messages, &tools, re, te).await
+}
+
+/// 流式调用 LLM（通过 Tauri 事件推送结果）
+#[tauri::command]
+pub async fn call_llm_stream(
+    app_handle: tauri::AppHandle,
+    stream_id: String,
+    api_key: String,
+    model: String,
+    messages: serde_json::Value,
+    tools: serde_json::Value,
+    reasoning_effort: Option<String>,
+    thinking_enabled: Option<bool>,
+) -> Result<(), String> {
+    let re = reasoning_effort.as_deref().unwrap_or("high");
+    let te = thinking_enabled.unwrap_or(true);
+    crate::api::call_llm_stream(
+        app_handle,
+        &stream_id,
+        &api_key,
+        &model,
+        &messages,
+        &tools,
+        re,
+        te,
+    ).await
 }
 

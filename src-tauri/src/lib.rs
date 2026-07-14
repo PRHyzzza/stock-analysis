@@ -25,6 +25,7 @@ pub fn run() {
             commands::get_stock_money_flow,
             commands::get_hot_list,
             commands::call_llm,
+            commands::call_llm_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

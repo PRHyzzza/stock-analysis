@@ -1,10 +1,21 @@
 import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getMergedTools, getMergedSystemPrompt, getToolImpl } from "../skills/index.js";
+import systemPromptTemplate from "../prompts/system-prompt.md?raw";
 
 const API_KEY_KEY = "stock-analysis-ai-api-key";
 const MESSAGES_STORAGE_KEY = "stock-analysis-ai-messages";
-const DEFAULT_MODEL = "deepseek-chat";
+const MODEL_KEY = "stock-analysis-ai-model";
+const THINKING_ENABLED_KEY = "stock-analysis-ai-thinking";
+const REASONING_EFFORT_KEY = "stock-analysis-ai-effort";
+
+/** 可用模型列表（value → label） */
+const AVAILABLE_MODELS = [
+  { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+  { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+];
+const DEFAULT_MODEL = "deepseek-v4-flash";
 
 // ============ 按股票隔离的消息存储 ============
 
@@ -103,89 +114,70 @@ function serializeContext(contextData) {
 }
 
 function buildSystemPrompt(currentStock, contextData) {
+  // 北京时间
+  const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+
+  // 构建当前股票上下文
   let context = "";
   if (currentStock) {
     context = `
 ## 当前上下文
+🕐 北京时间：${beijingTime}
 用户正在查看的股票：${currentStock.name}（${currentStock.code}）
 当前价格：¥${currentStock.price?.toFixed(2) ?? "--"}
-涨跌幅：${
-      currentStock.changePct != null
+涨跌幅：${currentStock.changePct != null
         ? (currentStock.changePct >= 0 ? "+" : "") +
-          currentStock.changePct.toFixed(2) +
-          "%"
+        currentStock.changePct.toFixed(2) +
+        "%"
         : "--"
-    }
+      }
 今开：${currentStock.open?.toFixed(2) ?? "--"}　最高：${currentStock.high?.toFixed(2) ?? "--"}　最低：${currentStock.low?.toFixed(2) ?? "--"}
 昨收：${currentStock.prevClose?.toFixed(2) ?? "--"}　成交量：${currentStock.volume != null ? (currentStock.volume / 10000).toFixed(2) + '万手' : "--"}　成交额：${currentStock.turnover != null ? (currentStock.turnover / 10000).toFixed(2) + '亿' : "--"}
 换手率：${currentStock.turnoverRate != null ? currentStock.turnoverRate.toFixed(2) + '%' : "--"}　市盈率：${currentStock.pe?.toFixed(2) ?? "--"}
 `;
   }
 
-  // 注入预加载数据
+  // 预加载数据
   const preloadedData = serializeContext(contextData);
-  let preloadSection = "";
-  if (preloadedData) {
-    preloadSection = `
+  const preloadSection = preloadedData
+    ? `
 ## 系统已预加载的数据（你已拥有这些数据，不需要重复调用工具获取）
 
 ${preloadedData}
 
 **注意**：以上数据已随当前选中股票一起加载。如果用户问的是当前股票，你已掌握这些数据，直接分析即可，无需再调用工具。
 如果用户问的是其他股票，请调用对应工具查询。
-`;
-  }
+`
+    : "";
 
-  const mergedSystemPrompt = getMergedSystemPrompt();
+  // 工具列表
+  const toolsList = TOOLS.map(
+    (t) => `- \`${t.function.name}\` — ${t.function.description}`
+  ).join("\n");
 
-  return `你是"锐眼 AI"——一个内置于"锐眼"桌面端 A 股分析工具中的智能分析助手。你的任务是利用可调用的工具获取实时数据，为用户提供专业、深度的 A 股个股分析参考。
-
-## 核心能力
-1. **综合数据分析** — 结合行情、K线、资金流、行业、大盘等多维度数据
-2. **技术面分析** — 通过 K 线数据自行计算均线趋势、判断 MACD/KDJ 等指标状态
-3. **资金面分析** — 通过主力资金流向判断大资金态度，关注北向资金动向
-4. **今日走势分析** — 当日分时走势、关键价位支撑压力分析
-5. **大盘环境** — 结合大盘指数判断整体市场氛围
-6. **股票对比** — 当用户问到其他股票时，主动调用 get_stock_quote 等工具查询并对比${preloadSection}
-## 可用工具
-${TOOLS.map(
-  (t) =>
-    `- \`${t.function.name}\` — ${t.function.description}`
-).join("\n")}
-
-## 工具能力详解
-
-${mergedSystemPrompt}
-
-## A 股市场须知
-- **交易制度**：A 股实行 T+1 交易，当日买入次日才能卖出
-- **涨跌停限制**：主板 ±10%，创业板 ±20%，科创板 ±20%，北交所 ±30%，ST 股 ±5%，退市整理期 ±10%
-- **交易时段**：集合竞价 9:15-9:25，连续竞价 9:30-11:30、13:00-15:00
-- **特殊标识**：ST/*ST 为风险警示股，N 为新股首日，C 为上市次日至第 5 日，U 为科创板未盈利
-- **关键资金指标**：北向资金（沪深港通）是 A 股重要的外资风向标
-
-## 分析原则
-- **基于数据**：每次分析必须先调用工具获取实时数据，不要凭记忆回答
-- **多维度**：至少从 2-3 个维度综合分析（技术面 + 资金面 + 行业面）
-- **具体引用**：引用具体数值，如"当前价格 ¥256.80，涨幅 +1.23%"
-- **A 股术语**：使用"主力""量能""换手""冲高回落""探底回升""封板""开板""炸板"等 A 股投资者熟悉的语言
-- **风险提示**：明确指出不确定性，不承诺收益
-- **主动回应**：面对"能不能买""什么价位可以买入""目标价多少"等询问，结合实时数据给出明确的参考分析。可以基于技术面（支撑位/阻力位/均线位置）给出参考价位区间，但必须同时附带风险提示（如"需结合自身风险承受能力判断""以上为技术分析参考，不构成投资建议"）
-- **简洁有力**：每条回答控制在 300 字以内，用中文
-- **适当使用 emoji**：如 📊 📈 📉 🏭 💰 ⚠️ ✅ 🔥 🧊
-- **对比分析**：当用户问"和XX比怎么样""相比之下"时，主动查询对比标的的数据，做多维对比${context}
----
-`;
+  return systemPromptTemplate
+    .replace("{{PRELOAD_SECTION}}", preloadSection)
+    .replace("{{TOOLS}}", toolsList)
+    .replace("{{SKILL_PROMPTS}}", getMergedSystemPrompt())
+    .replace("{{STOCK_CONTEXT}}", context);
 }
 
 // ============ Composable ============
 
 export function useAiAnalysis() {
   const currentStockCode = ref(null);
+  const currentModel = ref(localStorage.getItem(MODEL_KEY) || DEFAULT_MODEL);
+  const thinkingEnabled = ref(localStorage.getItem(THINKING_ENABLED_KEY) !== "false");
+  const reasoningEffort = ref(localStorage.getItem(REASONING_EFFORT_KEY) || "high");
   const messages = ref([]);
   const loading = ref(false);
   const error = ref("");
   const apiKey = ref(localStorage.getItem(API_KEY_KEY) || "");
+
+  // 流式事件监听器清理函数
+  let unlistenChunk = null;
+  let unlistenDone = null;
+  let unlistenError = null;
 
   // 自动持久化当前股票的消息
   watch(messages, (val) => {
@@ -219,33 +211,27 @@ export function useAiAnalysis() {
   }
 
   /**
-   * 发送消息 → Agent 循环（最多 5 轮工具调用）
-   * @param {string} text - 用户输入
-   * @param {object|null} currentStock - 当前选中的股票
-   * @param {object} [contextData] - 预加载的上下文数据
-   * @param {Array} [contextData.klineData] - K 线数据
-   * @param {object} [contextData.moneyFlow] - 主力资金数据
-   * @param {object} [contextData.industryData] - 行业分析数据
-   * @param {Array} [contextData.indices] - 大盘指数数据
-   * @returns {Promise<string>} 最终回答
+   * 发送消息 → Agent 循环（最多 5 轮工具调用）+ 流式输出最终回答
    */
   async function sendMessage(text, currentStock, contextData) {
     if (!text.trim() || loading.value) return "";
     if (!apiKey.value) {
-      error.value = "请先设置 DeepSeek API Key";
+      error.value = "请先设置 API Key";
       throw new Error("NO_API_KEY");
     }
 
-    // 添加用户消息
     messages.value.push({ role: "user", content: text });
     loading.value = true;
     error.value = "";
 
+    // 流式占位消息（最终回答会被逐字填入）
+    const streamMsgIdx = messages.value.length;
+    messages.value.push({ role: "assistant", content: "", _streaming: true });
+
     try {
       const systemPrompt = buildSystemPrompt(currentStock, contextData);
-      // 取最近 20 条消息作为上下文
       const recentMessages = messages.value
-        .filter((m) => m.role !== "system")
+        .filter((m) => m.role !== "system" && !m._streaming)
         .slice(-20);
       const allMessages = [
         { role: "system", content: systemPrompt },
@@ -255,78 +241,91 @@ export function useAiAnalysis() {
       let currentMessages = [...allMessages];
       let finalContent = "";
 
-      // Agent 循环：最多 5 轮工具调用
+      // Agent 循环：每个 round 使用流式调用，工具调用完成后继续下一轮
       for (let round = 0; round < 5; round++) {
-        const response = await callLlm(currentMessages);
+        const result = await callLlmStream(currentMessages, (content) => {
+          // 实时更新流式消息
+          const msg = messages.value[streamMsgIdx];
+          if (msg) msg.content = content;
+        });
 
-        const choice = response.choices?.[0];
-        if (!choice) {
-          throw new Error(`LLM 返回异常: ${JSON.stringify(response)}`);
-        }
-
-        const msg = choice.message;
-
-        if (msg.tool_calls && msg.tool_calls.length > 0) {
-          // 记录 assistant 消息（含工具调用）
+        const toolCallsArr = result.tool_calls;
+        if (toolCallsArr && toolCallsArr.length > 0) {
+          // 记录 assistant 消息（包含 thinking 内容 + tool_calls）
+          // 修复：保留 reasoning_content，确保 V4 思考模式下多轮对话正常
           currentMessages.push({
             role: "assistant",
-            content: msg.content || null,
-            tool_calls: msg.tool_calls.map((tc) => ({
-              id: tc.id,
-              type: tc.type,
-              function: tc.function,
-            })),
+            content: result.content || null,
+            ...(result.reasoning_content ? { reasoning_content: result.reasoning_content } : {}),
+            tool_calls: toolCallsArr,
           });
 
+          // 清空占位消息准备下一轮
+          const msg = messages.value[streamMsgIdx];
+          if (msg) msg.content = "";
+
           // 依次执行工具
-          for (const tc of msg.tool_calls) {
-            const fn = tc.function;
-            const toolFn = getToolImpl(fn.name);
+          for (const tc of toolCallsArr) {
+            const fnName = tc.function?.name || tc.function_name;
+            const toolFn = getToolImpl(fnName);
             if (!toolFn) {
               currentMessages.push({
                 role: "tool",
                 tool_call_id: tc.id,
-                content: `[错误] 未知工具: ${fn.name}`,
+                content: `[错误] 未知工具: ${fnName}`,
               });
               continue;
             }
 
             let args;
             try {
-              args = JSON.parse(fn.arguments);
+              args = typeof tc.function?.arguments === "string"
+                ? JSON.parse(tc.function.arguments)
+                : (tc.function?.arguments || {});
             } catch {
               currentMessages.push({
                 role: "tool",
                 tool_call_id: tc.id,
-                content: `[错误] 工具参数解析失败: ${fn.arguments}`,
+                content: `[错误] 工具参数解析失败`,
               });
               continue;
             }
 
-            const result = await toolFn(args);
+            const toolResult = await toolFn(args);
             currentMessages.push({
               role: "tool",
               tool_call_id: tc.id,
-              content: result,
+              content: toolResult,
             });
           }
+
+          // 新一轮：重新创建流式占位
+          messages.value[streamMsgIdx].content = "";
         } else {
-          // 没有工具调用 → 这是最终回答
-          finalContent = msg.content || "";
+          // 没有工具调用 → 最终回答已在流式回调中填入
+          finalContent = result.content || "";
           break;
         }
       }
 
       if (!finalContent) {
         finalContent = "⚠️ 分析超时，请重试或简化您的问题。";
+        messages.value[streamMsgIdx].content = finalContent;
       }
 
-      messages.value.push({ role: "assistant", content: finalContent });
+      // 移除流式标记
+      delete messages.value[streamMsgIdx]._streaming;
       return finalContent;
     } catch (e) {
       if (e.message === "NO_API_KEY") throw e;
       const errMsg = `分析出错: ${e.message || e}`;
-      messages.value.push({ role: "assistant", content: errMsg });
+      const msg = messages.value[streamMsgIdx];
+      if (msg) {
+        msg.content = errMsg;
+        delete msg._streaming;
+      } else {
+        messages.value.push({ role: "assistant", content: errMsg });
+      }
       error.value = errMsg;
       throw e;
     } finally {
@@ -334,13 +333,128 @@ export function useAiAnalysis() {
     }
   }
 
+  function setModel(model) {
+    currentModel.value = model;
+    localStorage.setItem(MODEL_KEY, model);
+  }
+
+  function setThinkingEnabled(enabled) {
+    thinkingEnabled.value = enabled;
+    localStorage.setItem(THINKING_ENABLED_KEY, String(enabled));
+  }
+
+  function setReasoningEffort(effort) {
+    reasoningEffort.value = effort;
+    localStorage.setItem(REASONING_EFFORT_KEY, effort);
+  }
+
+  /** 非流式调用（兼容旧逻辑，不再使用） */
   async function callLlm(messagesList) {
     return await invoke("call_llm", {
       apiKey: apiKey.value,
-      model: DEFAULT_MODEL,
+      model: currentModel.value,
       messages: messagesList,
       tools: TOOLS,
+      reasoningEffort: reasoningEffort.value,
+      thinkingEnabled: thinkingEnabled.value,
     });
+  }
+
+  /**
+   * 流式调用 LLM（SSE），通过 Tauri 事件接收 chunk。
+   * @param {Array} messagesList
+   * @param {(content: string) => void} onContentDelta — 每次收到内容增量时的回调
+   * @returns {Promise<{content:string, tool_calls?:Array, reasoning_content?:string}>}
+   */
+  function callLlmStream(messagesList, onContentDelta) {
+    return new Promise(async (resolve, reject) => {
+      // 清理上一次的监听器
+      if (unlistenChunk) { unlistenChunk(); unlistenChunk = null; }
+      if (unlistenDone) { unlistenDone(); unlistenDone = null; }
+      if (unlistenError) { unlistenError(); unlistenError = null; }
+
+      const toolCallMap = {};   // idx → 累积的 tool_call
+      let content = "";
+      let reasoningContent = null;
+      let finished = false;
+
+      try {
+        unlistenChunk = await listen("llm-chunk", (event) => {
+          if (finished) return;
+          const data = event.payload?.data;
+          const delta = data?.choices?.[0]?.delta;
+          if (!delta) return;
+
+          // 累积 content
+          if (delta.content) {
+            content += delta.content;
+            onContentDelta?.(content);
+          }
+
+          // 累积 reasoning_content（思考链）
+          if (delta.reasoning_content) {
+            reasoningContent = (reasoningContent || "") + delta.reasoning_content;
+          }
+
+          // 累积 tool_calls（增量碎片拼接）
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!toolCallMap[idx]) {
+                toolCallMap[idx] = { id: "", type: "function", function: { name: "", arguments: "" } };
+              }
+              if (tc.id) toolCallMap[idx].id = tc.id;
+              if (tc.type) toolCallMap[idx].type = tc.type;
+              if (tc.function?.name) toolCallMap[idx].function.name += tc.function.name;
+              if (tc.function?.arguments) toolCallMap[idx].function.arguments += tc.function.arguments;
+            }
+          }
+        });
+
+        unlistenDone = await listen("llm-done", async () => {
+          if (finished) return;
+          finished = true;
+          await cleanup();
+
+          const toolCallsArr = Object.values(toolCallMap).filter((tc) => tc.function.name);
+          resolve({
+            content,
+            ...(toolCallsArr.length > 0 ? { tool_calls: toolCallsArr } : {}),
+            ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
+          });
+        });
+
+        unlistenError = await listen("llm-error", async (event) => {
+          if (finished) return;
+          finished = true;
+          await cleanup();
+          reject(new Error(event.payload?.data?.error || "LLM 流式请求失败"));
+        });
+
+        // 发起流式请求
+        await invoke("call_llm_stream", {
+          streamId: "main",
+          apiKey: apiKey.value,
+          model: currentModel.value,
+          messages: messagesList,
+          tools: TOOLS,
+          reasoningEffort: reasoningEffort.value,
+          thinkingEnabled: thinkingEnabled.value,
+        });
+      } catch (e) {
+        if (!finished) {
+          finished = true;
+          await cleanup();
+          reject(e);
+        }
+      }
+    });
+  }
+
+  async function cleanup() {
+    if (unlistenChunk) { unlistenChunk(); unlistenChunk = null; }
+    if (unlistenDone) { unlistenDone(); unlistenDone = null; }
+    if (unlistenError) { unlistenError(); unlistenError = null; }
   }
 
   return {
@@ -349,7 +463,14 @@ export function useAiAnalysis() {
     error,
     apiKey,
     currentStockCode,
+    currentModel,
+    thinkingEnabled,
+    reasoningEffort,
+    availableModels: AVAILABLE_MODELS,
     setApiKey,
+    setModel,
+    setThinkingEnabled,
+    setReasoningEffort,
     sendMessage,
     clearHistory,
     switchStock,
