@@ -2,7 +2,7 @@
 /**
  * AiChatMessages — 对话消息列表（含欢迎屏 + 打字动画）
  */
-import { ref, nextTick, watch } from "vue";
+import { ref, computed, nextTick, watch, onMounted } from "vue";
 import { marked } from "marked";
 
 // 配置 marked
@@ -21,7 +21,28 @@ const emit = defineEmits(["suggestion"]);
 
 const messagesContainer = ref(null);
 
-// 自动滚动到底部（新消息时）
+// 是否已有流式占位消息（避免 loading 时出现双气泡）
+const hasStreamingMessage = computed(() => {
+  const last = props.messages[props.messages.length - 1];
+  return last?._streaming === true;
+});
+
+// 挂载时滚动到底部（已有历史消息场景）
+onMounted(async () => {
+  await nextTick();
+  scrollToBottom();
+});
+
+// 切换股票时，消息列表整体替换（引用变化），滚动到底部
+watch(
+  () => props.messages,
+  async () => {
+    await nextTick();
+    scrollToBottom();
+  }
+);
+
+// 新消息追加时滚动到底部（length 变化 + 非引用替换场景的兜底）
 watch(
   () => props.messages.length,
   async () => {
@@ -124,8 +145,8 @@ defineExpose({ scrollToBottom });
       </div>
     </template>
 
-    <!-- 打字动画 -->
-    <div v-if="loading" class="message ai-msg">
+    <!-- 打字动画（仅在无流式占位消息时显示，避免双气泡） -->
+    <div v-if="loading && !hasStreamingMessage" class="message ai-msg">
       <div class="msg-avatar">AI</div>
       <div class="msg-content">
         <div class="typing-indicator">
