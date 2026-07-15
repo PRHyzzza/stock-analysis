@@ -32,7 +32,7 @@ stock-analysis/
 │   ├── prompts/            ← AI Agent 系统提示词模板
 │   │   └── system-prompt.md  ← 提示词模板（含 {{PRELOAD_SECTION}} 等占位符，通过 Vite ?raw 导入）
 │   ├── skills/             ← AI Agent 技能模块 (定义 LLM tools)
-│   └── utils/format.js     ← 格式化工具 (signChar)
+│   └── utils/format.js     ← 格式化工具 (signChar, formatAmount, fmtMoney, fmtPct, pctClass, inflowClass)
 ├── src-tauri/              ← Rust 后端源码
 │   ├── Cargo.toml          ← Rust 依赖 (tauri, reqwest, serde, tokio, regex)
 │   ├── tauri.conf.json     ← Tauri 窗口/构建/安全配置
@@ -43,10 +43,10 @@ stock-analysis/
 │   │   ├── helpers.rs      ← 代码转换 (to_em_code, to_tencent_code)
 │   │   ├── commands.rs     ← Tauri #[command] 处理器
 │   │   ├── api/            ← HTTP API 客户端模块
-│   │   │   ├── eastmoney.rs  ← 东方财富 JSON/JSONP/HTML 解析
+│   │   │   ├── eastmoney.rs  ← 东方财富 JSON/JSONP/HTML 解析 + industry parsing
 │   │   │   ├── hotlist.rs    ← 同花顺热榜 JSON API
 │   │   │   ├── llm.rs        ← DeepSeek API（非流式 + SSE 流式）
-│   │   │   ├── mod.rs        ← pub use 导出
+│   │   │   ├── mod.rs        ← pub use 导出 + build_http_client() 统一构建
 │   │   │   └── tencent.rs    ← 腾讯财经 qt.gtimg.cn (GBK 编码)
 │   └── capabilities/       ← Tauri 权限配置
 └── public/                 ← 静态资源
@@ -85,7 +85,7 @@ stock-analysis/
 
 | 文件 | 职责 |
 |------|------|
-| `StockList.vue` | 左侧边栏：自选股列表 + 搜索 + 热榜切换 |
+| `StockList.vue` | 左侧边栏：自选股列表 + 搜索 + 热榜切换 + 板块资金 |
 | `HotList.vue` | 同花顺实时热榜（在 StockList 内渲染） |
 | `StockDetail.vue` | 右侧主面板：个股详情 + K线/分时 + 资金 + 行业 + AI |
 | `KlineChart.vue` | K 线图 (lightweight-charts)，含支撑/阻力线 |
@@ -94,6 +94,7 @@ stock-analysis/
 | `TechAnalysisModal.vue` | 技术分析弹窗（MACD/KDJ/RSI/布林带） |
 | `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools + 模型/思考/推理控制） |
 | `ChipDistribution.vue` | 筹码峰可视化面板（水平条形图，自包含可折叠） |
+| `SectorMoneyFlow.vue` | 行业板块资金流向面板（rank + 资金/涨跌切换模式） |
 | `ai/AiApiKeySetup.vue` | API Key 配置面板 |
 | `ai/AiChatMessages.vue` | AI 对话消息列表（Markdown 渲染 + 流式内容实时滚动） |
 | `ai/AiChatFooter.vue` | AI 输入框 + 发送按钮 |
@@ -104,6 +105,7 @@ stock-analysis/
 |------|---------|------------------|
 | `useWatchlist.js` | `useWatchlist()` | 纯前端，localStorage 持久化 |
 | `useQuoteLoader.js` | `useQuoteLoader()` | `get_stock_quote` |
+| `useStockSearch.js` | `useStockSearch()` | `search_stocks`（含防抖） |
 | `useKlineData.js` | `useKlineData()` | `get_stock_kline` |
 | `useMoneyFlow.js` | `useMoneyFlow(ref?)` | `get_stock_money_flow` |
 | `useIndustryData.js` | `useIndustryData()` | `get_stock_industry` |
@@ -112,6 +114,7 @@ stock-analysis/
 | `useAiAnalysis.js` | `useAiAnalysis()` | `call_llm` + `call_llm_stream` (DeepSeek V4) |
 | `useTechIndicators.js` | `calcMACD/KDJ/WR/RSI/ema` 等纯函数 | 纯前端计算 (基于 K 线数据) |
 | `useChipDistribution.js` | `calcChipDistribution()` | 纯前端计算筹码分布 (基于 K 线数据) |
+| `useSectorMoneyFlow.js` | `useSectorMoneyFlow()` | `get_sector_money_flow` |
 
 **模式**: 每个 composable 返回 `{ data, loading, loadData(), ... }`。`App.vue` 中调用所有 composable，通过 props 传递给子组件。
 
@@ -141,7 +144,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 
 ### 4.1 Tauri 命令 (commands.rs)
 
-所有 `#[tauri::command]` 位于此文件，共 10 个：
+所有 `#[tauri::command]` 位于此文件，共 11 个：
 
 | 命令 | 功能 | 调用的 API |
 |------|------|-----------|
@@ -149,6 +152,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `get_stock_kline` | K 线数据 (日/周/月) | Tencent |
 | `get_stock_intraday` | 分时数据 (当日分钟) | Tencent AppStock |
 | `get_stock_money_flow` | 主力资金流向 | Tencent 优先, East Money 备选 |
+| `get_sector_money_flow` | 全部板块资金流向 | East Money `push2` clist API |
 | `get_stock_industry` | 行业分析 | East Money HSF10 + 行情页 |
 | `get_market_indices` | 六大指数行情 | Tencent (并行请求) |
 | `search_stocks` | 股票搜索 | Tencent |

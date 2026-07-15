@@ -3,13 +3,8 @@ use crate::types::{HotListData, HotStockItem};
 
 /// 获取热榜数据
 pub async fn fetch_hot_list() -> Result<HotListData, String> {
+    let client = super::build_http_client()?;
     let url = "https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock?stock_type=a&type=hour&list_type=normal";
-
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let resp = client
         .get(url)

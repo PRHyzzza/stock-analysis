@@ -15,6 +15,7 @@ import { useKlineData } from "./composables/useKlineData";
 import { useMarketIndices } from "./composables/useMarketIndices";
 import { useMoneyFlow } from "./composables/useMoneyFlow";
 import { useIntradayData } from "./composables/useIntradayData";
+import { useSectorMoneyFlow } from "./composables/useSectorMoneyFlow";
 import { deleteStockMessages } from "./composables/useAiAnalysis";
 
 // ---- 侧边栏视图切换 ----
@@ -65,6 +66,7 @@ function closeChipModal() { showChipModal.value = false; }
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
 const { intradayData, intradayLoading, loadIntradayData } = useIntradayData();
+const { sectorList, sectorLoading, sectorError, loadSectorMoneyFlow } = useSectorMoneyFlow();
 
 // 计算当前选中股票的"加入自选"标记
 const watchlistMarkers = computed(() => {
@@ -173,6 +175,8 @@ onMounted(() => {
   // 加载指数行情（每 60 秒）
   loadIndices();
   indicesTimer = setInterval(loadIndices, 60000);
+  // 加载板块资金流向
+  loadSectorMoneyFlow();
   // 左侧所有自选股刷新实时数据（每 30 秒）
   refreshAllQuotes();
   quotesTimer = setInterval(refreshAllQuotes, 30000);
@@ -229,11 +233,15 @@ onUnmounted(() => {
         :selected-stock="selectedStock"
         :search-query="searchQuery"
         :sidebar-view="sidebarView"
+        :sector-list="sectorList"
+        :sector-loading="sectorLoading"
+        :sector-error="sectorError"
         @select-stock="selectStock"
         @remove="handleRemoveFromWatchlist"
         @add-stock="addStockFromSearch"
         @update:search-query="searchQuery = $event"
         @update:sidebar-view="sidebarView = $event"
+        @sector-refresh="loadSectorMoneyFlow"
       />
 
       <!-- 右侧：详情面板 -->

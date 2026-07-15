@@ -120,6 +120,20 @@ pub struct HotStockItem {
     pub popularity_tag: String,  // 人气标签
 }
 
+/// 板块资金流向条目
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SectorMoneyFlowItem {
+    pub code: String,            // 板块代码
+    pub name: String,            // 板块名称
+    pub change_pct: f64,         // 涨跌幅 (%)
+    pub main_net_inflow: f64,    // 主力净流入（万元）
+    pub super_large_net: f64,    // 超大单净流入（万元）
+    pub large_net: f64,          // 大单净流入（万元）
+    pub medium_net: f64,         // 中单净流入（万元）
+    pub small_net: f64,          // 小单净流入（万元）
+}
+
 /// 热榜数据
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HotListData {

@@ -5,14 +5,9 @@ use regex::Regex;
 
 /// 获取个股实时行情（来自腾讯财经）
 pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
+    let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
     let url = format!("https://qt.gtimg.cn/q={}", t_code);
-
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let resp = client
         .get(&url)
@@ -56,6 +51,7 @@ pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
 
 /// 获取大盘指数实时行情
 pub async fn fetch_index_quote(code: &str) -> Result<MarketIndex, String> {
+    let client = super::build_http_client()?;
     let t_code = if code.starts_with("000") || code.starts_with("6") {
         format!("sh{}", code)
     } else {
@@ -63,12 +59,6 @@ pub async fn fetch_index_quote(code: &str) -> Result<MarketIndex, String> {
     };
 
     let url = format!("https://qt.gtimg.cn/q={}", t_code);
-
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let resp = client
         .get(&url)
@@ -96,14 +86,9 @@ pub async fn fetch_index_quote(code: &str) -> Result<MarketIndex, String> {
 
 /// 获取个股主力资金流向（来自腾讯财经）
 pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
+    let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
     let url = format!("https://qt.gtimg.cn/q=ff_{}", t_code);
-
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let resp = client
         .get(&url)
@@ -141,13 +126,8 @@ fn unescape_unicode(s: &str) -> String {
 
 /// 搜索股票（来自腾讯智能搜索）
 pub async fn fetch_search_results(keyword: &str) -> Result<Vec<SearchResult>, String> {
+    let client = super::build_http_client()?;
     let url = format!("https://smartbox.gtimg.cn/s3/?q={}&t=all", keyword);
-
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let resp = client
         .get(&url)
@@ -186,17 +166,12 @@ pub async fn fetch_search_results(keyword: &str) -> Result<Vec<SearchResult>, St
 pub async fn fetch_kline_data(code: &str, period: &str) -> Result<Vec<KlineItem>, String> {
     use crate::helpers::parse_json_f64;
 
+    let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
     let url = format!(
         "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={},{},,,120,qfq",
         t_code, period
     );
-
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let resp = client
         .get(&url)
@@ -252,17 +227,12 @@ pub async fn fetch_kline_data(code: &str, period: &str) -> Result<Vec<KlineItem>
 /// API 返回格式：data.{t_code}.data.data 是字符串数组，每项 "HHmm price volume turnover"
 /// 昨收从 data.{t_code}.qt.{t_code}[4] 获取
 pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
+    let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
     let url = format!(
         "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={}",
         t_code
     );
-
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let resp = client
         .get(&url)

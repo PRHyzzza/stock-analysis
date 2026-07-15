@@ -1,7 +1,7 @@
 <script setup>
-import { ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import HotList from "./HotList.vue";
+import SectorMoneyFlow from "./SectorMoneyFlow.vue";
+import { useStockSearch } from "../composables/useStockSearch.js";
 
 const props = defineProps({
   watchlist: { type: Array, required: true },
@@ -9,59 +9,41 @@ const props = defineProps({
   selectedStock: { type: Object, default: null },
   searchQuery: { type: String, default: "" },
   sidebarView: { type: String, default: "watchlist" },
+  sectorList: { type: Array, default: () => [] },
+  sectorLoading: { type: Boolean, default: false },
+  sectorError: { type: String, default: "" },
 });
 
-const emit = defineEmits(["select-stock", "remove", "update:searchQuery", "add-stock", "update:sidebarView"]);
+const emit = defineEmits([
+  "select-stock", "remove", "update:searchQuery", "add-stock",
+  "update:sidebarView", "sector-refresh",
+]);
+
+const {
+  searchQuery,
+  searchResults,
+  showResults,
+  searching,
+  onSearchInput,
+  clearSearch,
+  onSearchBlur,
+  onSearchFocus,
+} = useStockSearch(() => props.watchlist);
 
 function switchTab(view) {
   emit("update:sidebarView", view);
 }
 
-const searchResults = ref([]);
-const showResults = ref(false);
-const searching = ref(false);
-let debounceTimer = null;
-
-function onSearchInput(e) {
-  const val = e.target.value;
-  emit("update:searchQuery", val);
-
-  if (debounceTimer) clearTimeout(debounceTimer);
-
-  if (val.trim().length === 0) {
-    searchResults.value = [];
-    showResults.value = false;
-    return;
-  }
-
-  debounceTimer = setTimeout(() => doSearch(val.trim()), 300);
-}
-
-async function doSearch(keyword) {
-  searching.value = true;
-  showResults.value = true;
-  try {
-    const results = await invoke("search_stocks", { keyword });
-    // 已存在的自选股排在后面
-    results.sort((a, b) => {
-      const aIn = props.watchlist.some((s) => s.code === a.code) ? 1 : 0;
-      const bIn = props.watchlist.some((s) => s.code === b.code) ? 1 : 0;
-      return aIn - bIn;
-    });
-    searchResults.value = results;
-  } catch (e) {
-    console.error("搜索失败:", e);
-    searchResults.value = [];
-  } finally {
-    searching.value = false;
-  }
+// 同步本地 searchQuery 到父组件
+function handleSearchInput(e) {
+  onSearchInput(e);
+  emit("update:searchQuery", searchQuery.value);
 }
 
 function addStock(result) {
   emit("add-stock", result);
+  clearSearch();
   emit("update:searchQuery", "");
-  searchResults.value = [];
-  showResults.value = false;
 }
 
 function selectStock(stock) {
@@ -70,16 +52,6 @@ function selectStock(stock) {
 
 function removeStock(code) {
   emit("remove", code);
-}
-
-function onSearchBlur() {
-  setTimeout(() => { showResults.value = false; }, 200);
-}
-
-function onSearchFocus() {
-  if (searchResults.value.length > 0) {
-    showResults.value = true;
-  }
 }
 </script>
 
@@ -101,6 +73,13 @@ function onSearchFocus() {
       >
         热榜
       </button>
+      <button
+        class="sidebar-tab"
+        :class="{ active: sidebarView === 'sectorflow' }"
+        @click="switchTab('sectorflow')"
+      >
+        板块
+      </button>
     </div>
 
     <!-- 自选股视图 -->
@@ -117,7 +96,7 @@ function onSearchFocus() {
           type="text"
           placeholder="搜索添加自选股..."
           class="search-input"
-          @input="onSearchInput"
+          @input="handleSearchInput"
           @focus="onSearchFocus"
           @blur="onSearchBlur"
         />
@@ -200,6 +179,15 @@ function onSearchFocus() {
       :watchlist="watchlist"
       @select-stock="(stock) => emit('select-stock', stock)"
       @remove-stock="(code) => emit('remove', code)"
+    />
+
+    <!-- 板块资金视图 -->
+    <SectorMoneyFlow
+      v-if="sidebarView === 'sectorflow'"
+      :sector-list="sectorList"
+      :loading="sectorLoading"
+      :error="sectorError"
+      @refresh="emit('sector-refresh')"
     />
   </aside>
 </template>

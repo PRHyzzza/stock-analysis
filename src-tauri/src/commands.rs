@@ -1,11 +1,12 @@
 use crate::api::{
     call_llm as call_llm_api, fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
     fetch_industry_name, fetch_intraday_data, fetch_kline_data, fetch_money_flow,
-    fetch_money_flow_eastmoney, fetch_search_results, fetch_stock_quote,
+    fetch_money_flow_eastmoney, fetch_search_results, fetch_sector_money_flow, fetch_stock_quote,
+    parse_industry_analysis,
 };
 use crate::types::{
-    HotListData, IndustryData, IntradayData, KlineItem, MarketIndex, MarketPerformance,
-    MoneyFlow, RevenueRanking, SearchResult, StockQuote,
+    HotListData, IndustryData, IntradayData, KlineItem, MarketIndex,
+    MoneyFlow, SearchResult, SectorMoneyFlowItem, StockQuote,
 };
 
 /// 获取个股行业数据（行业名称 + 行业分析）
@@ -20,56 +21,9 @@ pub async fn get_stock_industry(code: String) -> Result<IndustryData, String> {
 
     let industry_name = name_result?;
     let analysis = analysis_result?;
-
-    // 解析市场表现 (scbx)
-    let mut market_performance = Vec::new();
-    if let Some(scbx) = analysis.get("scbx").and_then(|v| v.as_array()) {
-        for item in scbx {
-            market_performance.push(MarketPerformance {
-                changerate: item.get("CHANGERATE").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                hs300_changerate: item.get("HS300_CHANGERATE").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                time_type: item.get("TIME_TYPE").and_then(|v| v.as_i64()).unwrap_or(0),
-            });
-        }
-    }
-
-    // 解析营收排名 (gsgm_yysr)
-    let mut revenue_ranking = Vec::new();
-    if let Some(yysr) = analysis.get("gsgm_yysr").and_then(|v| v.as_array()) {
-        for item in yysr {
-            let sc = item.get("CORRE_SECURITY_CODE").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            if sc.is_empty() { continue; }
-            revenue_ranking.push(RevenueRanking {
-                stock_code: sc,
-                stock_name: item.get("CORRE_SECURITY_NAME").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                total_operate_income: item.get("TOTAL_OPERATEINCOME").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                total_operate_income_rank: item.get("TOTAL_OPERATEINCOME_RANK").and_then(|v| v.as_i64()).unwrap_or(0),
-            });
-        }
-    }
-    // 如果当前股票不在列表中，从 gsgm 补
-    if !revenue_ranking.iter().any(|r| r.stock_code == code) {
-        if let Some(gsgm) = analysis.get("gsgm").and_then(|v| v.as_array()) {
-            if let Some(item) = gsgm.first() {
-                let sc = item.get("CORRE_SECURITY_CODE").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                if !sc.is_empty() {
-                    revenue_ranking.push(RevenueRanking {
-                        stock_code: sc,
-                        stock_name: item.get("CORRE_SECURITY_NAME").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        total_operate_income: item.get("TOTAL_OPERATEINCOME").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        total_operate_income_rank: item.get("TOTAL_OPERATEINCOME_RANK").and_then(|v| v.as_i64()).unwrap_or(0),
-                    });
-                }
-            }
-        }
-    }
-    revenue_ranking.sort_by(|a, b| a.total_operate_income_rank.cmp(&b.total_operate_income_rank));
-
-    Ok(IndustryData {
-        industry_name,
-        market_performance,
-        revenue_ranking,
-    })
+    let mut data = parse_industry_analysis(&code, &analysis);
+    data.industry_name = industry_name;
+    Ok(data)
 }
 
 /// 获取个股 K 线数据（日/周/月）
@@ -92,10 +46,10 @@ pub async fn get_stock_quote(code: String) -> Result<StockQuote, String> {
 
 
 
-/// 获取大盘指数实时行情（上证/深证/创业板/沪深300/科创50/中证500）
+/// 获取大盘指数实时行情（上证/深证/创业板/沪深300/科创50/中证500/中证1000）
 #[tauri::command]
 pub async fn get_market_indices() -> Result<Vec<MarketIndex>, String> {
-    let codes = vec!["000001", "399001", "399006", "000300", "000688", "000905"];
+    let codes = vec!["000001", "399001", "399006", "000300", "000688", "000905", "000852"];
     let mut results = Vec::new();
     for code in codes {
         match fetch_index_quote(code).await {
@@ -133,6 +87,12 @@ pub async fn get_stock_money_flow(code: String) -> Result<MoneyFlow, String> {
 #[tauri::command]
 pub async fn get_hot_list() -> Result<HotListData, String> {
     fetch_hot_list().await
+}
+
+/// 获取全部板块资金流向（行业+概念），按主力净流入从高到低排序
+#[tauri::command]
+pub async fn get_sector_money_flow() -> Result<Vec<SectorMoneyFlowItem>, String> {
+    fetch_sector_money_flow().await
 }
 
 /// 调用 LLM（兼容 DeepSeek / OpenAI）

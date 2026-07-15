@@ -12,13 +12,8 @@ pub async fn call_llm(
     reasoning_effort: &str,
     thinking_enabled: bool,
 ) -> Result<serde_json::Value, String> {
+    let client = super::build_http_client()?;
     let url = "https://api.deepseek.com/chat/completions";
-
-    let client = reqwest::Client::builder()
-        .user_agent("stock-analysis/1.0")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let mut body = serde_json::Map::new();
     body.insert("model".to_string(), serde_json::json!(model));
@@ -86,13 +81,8 @@ pub async fn call_llm_stream(
     reasoning_effort: &str,
     thinking_enabled: bool,
 ) -> Result<(), String> {
+    let client = super::build_http_client()?;
     let url = "https://api.deepseek.com/chat/completions";
-
-    let client = reqwest::Client::builder()
-        .user_agent("stock-analysis/1.0")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
     let mut body = serde_json::Map::new();
     body.insert("model".to_string(), serde_json::json!(model));

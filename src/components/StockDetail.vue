@@ -1,20 +1,8 @@
 <script setup>
 import KlineChart from "./KlineChart.vue";
 import IntradayChart from "./IntradayChart.vue";
-import { signChar } from "../utils/format";
+import { signChar, fmtMoney, fmtPct } from "../utils/format";
 import { ref, computed } from "vue";
-
-function fmtMoney(v) {
-  if (v == null) return "--";
-  const abs = Math.abs(v);
-  if (abs >= 10000) return (v / 10000).toFixed(2) + "亿";
-  if (abs >= 1000) return (v / 1000).toFixed(2) + "千万";
-  return v.toFixed(2) + "万";
-}
-function fmtPct(v) {
-  if (v == null) return "";
-  return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
-}
 
 const props = defineProps({
   selectedStock: { type: Object, default: null },

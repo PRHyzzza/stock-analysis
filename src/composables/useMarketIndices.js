@@ -12,6 +12,7 @@ export function useMarketIndices() {
     { code: "000300", name: "沪深300", price: 0, change: 0, changePct: 0 },
     { code: "000688", name: "科创50", price: 0, change: 0, changePct: 0 },
     { code: "000905", name: "中证500", price: 0, change: 0, changePct: 0 },
+    { code: "000852", name: "中证1000", price: 0, change: 0, changePct: 0 },
   ]);
   const loading = ref(false);
 
