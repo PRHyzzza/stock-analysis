@@ -1,4 +1,4 @@
-# 📈 锐眼
+# 📈 stock-analysis
 
 ## 🚀 快速开始
 

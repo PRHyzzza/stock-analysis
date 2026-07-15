@@ -1,4 +1,4 @@
-# 锐眼 (Ruiyan) — A 股桌面分析工具
+# stock-analysis — A 股桌面分析工具
 
 > **技术栈**: [Tauri 2](https://v2.tauri.app/) + [Vue 3](https://vuejs.org/) + [Rust](https://www.rust-lang.org/)  
 > **数据源**: [腾讯财经](https://qt.gtimg.cn/) · [东方财富](https://www.eastmoney.com/) · [同花顺](https://www.10jqka.com.cn/)  
@@ -7,7 +7,7 @@
 > **Markdown 渲染**: [marked](https://marked.js.org/)  
 > **包管理器**: [pnpm](https://pnpm.io/)  
 > **构建工具**: [Vite](https://vite.dev/) + [Rolldown](https://rolldown.rs/)  
-> **产品名**: 锐眼 (`com.prh.stock-analysis`)  
+> **产品名**: stock-analysis (`com.prh.stock-analysis`)  
 > **运行时**: 前端 Vite dev server (port 1420) + Tauri Rust backend
 
 ---

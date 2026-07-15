@@ -15,7 +15,7 @@ pub async fn call_llm(
     let url = "https://api.deepseek.com/chat/completions";
 
     let client = reqwest::Client::builder()
-        .user_agent("Ruiyan/1.0")
+        .user_agent("stock-analysis/1.0")
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
@@ -89,7 +89,7 @@ pub async fn call_llm_stream(
     let url = "https://api.deepseek.com/chat/completions";
 
     let client = reqwest::Client::builder()
-        .user_agent("Ruiyan/1.0")
+        .user_agent("stock-analysis/1.0")
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;

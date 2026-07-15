@@ -243,10 +243,13 @@ export function useAiAnalysis() {
 
       // Agent 循环：每个 round 使用流式调用，工具调用完成后继续下一轮
       for (let round = 0; round < 5; round++) {
-        const result = await callLlmStream(currentMessages, (content) => {
+        const result = await callLlmStream(currentMessages, (content, reasoning) => {
           // 实时更新流式消息
           const msg = messages.value[streamMsgIdx];
-          if (msg) msg.content = content;
+          if (msg) {
+            msg.content = content;
+            if (reasoning) msg._reasoning = reasoning;
+          }
         });
 
         const toolCallsArr = result.tool_calls;
@@ -262,7 +265,7 @@ export function useAiAnalysis() {
 
           // 清空占位消息准备下一轮
           const msg = messages.value[streamMsgIdx];
-          if (msg) msg.content = "";
+          if (msg) { msg.content = ""; delete msg._reasoning; }
 
           // 依次执行工具
           for (const tc of toolCallsArr) {
@@ -301,6 +304,7 @@ export function useAiAnalysis() {
 
           // 新一轮：重新创建流式占位
           messages.value[streamMsgIdx].content = "";
+          delete messages.value[streamMsgIdx]._reasoning;
         } else {
           // 没有工具调用 → 最终回答已在流式回调中填入
           finalContent = result.content || "";
@@ -315,6 +319,7 @@ export function useAiAnalysis() {
 
       // 移除流式标记
       delete messages.value[streamMsgIdx]._streaming;
+      delete messages.value[streamMsgIdx]._reasoning;
       return finalContent;
     } catch (e) {
       if (e.message === "NO_API_KEY") throw e;
@@ -323,6 +328,7 @@ export function useAiAnalysis() {
       if (msg) {
         msg.content = errMsg;
         delete msg._streaming;
+        delete msg._reasoning;
       } else {
         messages.value.push({ role: "assistant", content: errMsg });
       }
@@ -394,6 +400,7 @@ export function useAiAnalysis() {
           // 累积 reasoning_content（思考链）
           if (delta.reasoning_content) {
             reasoningContent = (reasoningContent || "") + delta.reasoning_content;
+            onContentDelta?.(content, reasoningContent);
           }
 
           // 累积 tool_calls（增量碎片拼接）

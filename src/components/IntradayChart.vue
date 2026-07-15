@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { createChart, ColorType, LineSeries, HistogramSeries } from "lightweight-charts";
 
 const props = defineProps({

@@ -1,4 +1,4 @@
-# 锐眼 (Ruiyan) — AI 项目上下文规则
+# stock-analysis — AI 项目上下文规则
 
 ## 首要规则：先读 PROJECT.md
 

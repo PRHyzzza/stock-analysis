@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import TitleBar from "./components/TitleBar.vue";
+import MarketHeader from "./components/MarketHeader.vue";
 import StockList from "./components/StockList.vue";
 import StockDetail from "./components/StockDetail.vue";
 import IndustryModal from "./components/IndustryModal.vue";
@@ -208,34 +210,15 @@ onUnmounted(() => {
 
 <template>
   <div class="app">
-    <!-- 顶栏 -->
-    <header class="header">
-      <div class="header-center">
-        <div class="market-indices">
-          <template v-for="(idx, i) in indices" :key="idx.code">
-            <span v-if="i > 0" class="index-divider"></span>
-            <span class="index-item">
-              <span class="index-name">{{ idx.name }}</span>
-              <span class="index-value" :class="idx.change >= 0 ? 'up' : 'down'">
-                {{ idx.price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
-              </span>
-              <span class="index-change" :class="idx.change >= 0 ? 'up' : 'down'">
-                {{ idx.changePct > 0 ? '+' : '' }}{{ idx.changePct.toFixed(2) }}%
-              </span>
-            </span>
-          </template>
-        </div>
-      </div>
-      <div class="header-right">
-        <button class="btn-refresh" :class="{ loading: refreshing }" @click="handleManualRefresh" :disabled="refreshing">
-          <svg class="refresh-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M2 8a6 6 0 0 1 10.47-4M14 8a6 6 0 0 1-10.47 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M13.5 2v4h-4M2.5 14v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span>{{ refreshing ? '刷新中...' : '刷新' }}</span>
-        </button>
-      </div>
-    </header>
+    <!-- 自定义标题栏 -->
+    <TitleBar />
+
+    <!-- 指数栏 -->
+    <MarketHeader
+      :indices="indices"
+      :refreshing="refreshing"
+      @refresh="handleManualRefresh"
+    />
 
     <!-- 主体区域: 左-列表 | 右-详情 -->
     <div class="main-layout">
@@ -323,102 +306,6 @@ onUnmounted(() => {
   flex-direction: column;
   background: var(--bg);
   overflow: hidden;
-}
-
-/* ===== Steep: 顶栏 (marble header) ===== */
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 32px;
-  height: 60px;
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  position: relative;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* Steep: ghost-style refresh button — no fill, ink border */
-.btn-refresh {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.btn-refresh:hover {
-  border-color: var(--ink);
-  color: var(--ink);
-  background: transparent;
-}
-.btn-refresh:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btn-refresh.loading .refresh-icon {
-  animation: spin 0.8s linear infinite;
-}
-
-.header-center {
-  display: flex;
-  align-items: center;
-  margin-left: 32px;
-}
-
-.market-indices {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-
-.index-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.index-name {
-  color: var(--text-muted);
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-.index-value {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-
-.index-change {
-  font-weight: 500;
-  font-size: 12px;
-}
-
-.index-change.up,
-.index-value.up { color: var(--red); }
-
-.index-change.down,
-.index-value.down { color: var(--green); }
-
-.index-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--border);
 }
 
 /* ===== Steep: 主体布局 — 舒适间距 ===== */

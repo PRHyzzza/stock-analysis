@@ -96,7 +96,7 @@ defineExpose({ scrollToBottom });
           <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="var(--rust)" stroke="var(--rust)" stroke-width="0.5" />
         </svg>
       </div>
-      <p class="welcome-title">锐眼 AI 分析助手</p>
+      <p class="welcome-title">AI 分析助手</p>
       <p class="welcome-desc">
         选中一只 A 股个股，然后问我关于它的分析问题。
         <br />我会自动调用东方财富/Tencent 数据源获取实时行情，
@@ -140,7 +140,16 @@ defineExpose({ scrollToBottom });
       <div v-else-if="msg.role === 'assistant'" class="message ai-msg">
         <div class="msg-avatar">AI</div>
         <div class="msg-content">
-          <div class="msg-text markdown-body" v-html="renderMarkdown(msg.content)"></div>
+          <!-- 深度思考中：有推理内容但尚未输出正文 -->
+          <div v-if="msg._streaming && !msg.content" class="thinking-state">
+            <div class="thinking-header">
+              <span class="thinking-dot"></span>
+              <span>深度思考中...</span>
+            </div>
+            <div v-if="msg._reasoning" class="thinking-reasoning">{{ msg._reasoning }}</div>
+          </div>
+          <!-- 正常渲染 markdown -->
+          <div v-else class="msg-text markdown-body" v-html="renderMarkdown(msg.content)"></div>
         </div>
       </div>
     </template>
@@ -393,6 +402,49 @@ defineExpose({ scrollToBottom });
 
 .ai-msg .msg-text :deep(a:hover) {
   opacity: 0.8;
+}
+
+/* ── 深度思考状态 ── */
+.thinking-state {
+  min-width: 120px;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 0;
+}
+
+.thinking-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rust);
+  animation: thinkingPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes thinkingPulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+.thinking-reasoning {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(23, 25, 28, 0.03);
+  border-left: 2px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .typing-indicator {

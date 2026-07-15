@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ruiyan",
+  "productName": "stock-analysis",
   "version": "0.1.0",
   "identifier": "com.prh.stock-analysis",
   "build": {
@@ -12,7 +12,8 @@
   "app": {
     "windows": [
       {
-        "title": "锐眼",
+        "title": "stock-analysis",
+        "decorations": false,
         "width": 800,
         "height": 600,
         "maximized": true

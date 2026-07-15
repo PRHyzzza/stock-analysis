@@ -139,12 +139,7 @@ function doSuggestion(text) {
         <!-- 头部 -->
         <div class="modal-header">
           <div class="modal-header-left">
-            <span class="ai-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="var(--rust)" stroke="var(--rust)" stroke-width="0.5" />
-              </svg>
-            </span>
-            <span class="modal-title">锐眼 AI</span>
+            <span class="modal-title">AI</span>
             <span class="ai-badge">Agent</span>
 
             <span class="ctrl-divider"></span>
@@ -295,8 +290,10 @@ function doSuggestion(text) {
 .modal-container {
   display: flex;
   flex-direction: column;
-  width: 640px;
-  height: 560px;
+  width: 900px;
+  max-width: 95vw;
+  height: 680px;
+  max-height: 90vh;
   background: var(--card-bg);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-modal);
@@ -318,11 +315,6 @@ function doSuggestion(text) {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.ai-icon {
-  display: flex;
-  align-items: center;
 }
 
 .modal-title {
