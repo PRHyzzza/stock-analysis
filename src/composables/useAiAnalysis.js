@@ -179,9 +179,21 @@ export function useAiAnalysis() {
   let unlistenDone = null;
   let unlistenError = null;
 
-  // 自动持久化当前股票的消息
+  /** 检查当前股票是否在自选股中 */
+  function isInWatchlist(code) {
+    try {
+      const raw = localStorage.getItem("stock-analysis-watchlist");
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.some((s) => s.code === code);
+    } catch {
+      return false;
+    }
+  }
+
+  // 自动持久化当前股票的消息（仅自选股才保存）
   watch(messages, (val) => {
-    if (currentStockCode.value) {
+    if (currentStockCode.value && isInWatchlist(currentStockCode.value)) {
       const map = loadAllMessages();
       map[currentStockCode.value] = val;
       saveAllMessages(map);

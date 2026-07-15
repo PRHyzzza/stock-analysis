@@ -29,12 +29,7 @@ async function loadHotList() {
 
 function selectStock(item) {
   selectedCode.value = item.code;
-  // 已是自选股 → 取消自选，不改变右侧面板
-  if (isInWatchlist(item.code)) {
-    emit("remove-stock", item.code);
-    return;
-  }
-  // 非自选 → 选中并显示到右侧
+  // 选中并显示到右侧面板
   const stock = {
     code: item.code,
     name: item.name,
