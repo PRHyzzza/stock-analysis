@@ -114,7 +114,7 @@ function serializeContext(contextData) {
 }
 
 function buildSystemPrompt(currentStock, contextData) {
-  // 北京时间
+  // 北京时间（始终计算，每次请求都附带最新时间）
   const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
 
   // 构建当前股票上下文
@@ -122,7 +122,6 @@ function buildSystemPrompt(currentStock, contextData) {
   if (currentStock) {
     context = `
 ## 当前上下文
-🕐 北京时间：${beijingTime}
 用户正在查看的股票：${currentStock.name}（${currentStock.code}）
 当前价格：¥${currentStock.price?.toFixed(2) ?? "--"}
 涨跌幅：${currentStock.changePct != null
@@ -156,6 +155,7 @@ ${preloadedData}
   ).join("\n");
 
   return systemPromptTemplate
+    .replace("{{BEIJING_TIME}}", beijingTime)
     .replace("{{PRELOAD_SECTION}}", preloadSection)
     .replace("{{TOOLS}}", toolsList)
     .replace("{{SKILL_PROMPTS}}", getMergedSystemPrompt())
