@@ -20,6 +20,7 @@ const props = defineProps({
 const emit = defineEmits(["suggestion"]);
 
 const messagesContainer = ref(null);
+const reasoningEl = ref(null);
 
 // 是否已有流式占位消息（避免 loading 时出现双气泡）
 const hasStreamingMessage = computed(() => {
@@ -51,15 +52,21 @@ watch(
   }
 );
 
-// 自动滚动（流式内容更新时）
+// 自动滚动（流式内容更新时，包括深度思考的 reasoning 和正文 content）
 watch(
   () => {
     const last = props.messages[props.messages.length - 1];
-    return last?._streaming ? last.content : null;
+    if (!last?._streaming) return null;
+    // 同时追踪 reasoning 和 content，确保深度思考内容增长时也能触发滚动
+    return last._reasoning + "|||" + last.content;
   },
   async () => {
     await nextTick();
     scrollToBottom();
+    // 深度思考内部滚动条也跟随到底部
+    if (reasoningEl.value) {
+      reasoningEl.value.scrollTop = reasoningEl.value.scrollHeight;
+    }
   }
 );
 
@@ -146,7 +153,7 @@ defineExpose({ scrollToBottom });
               <span class="thinking-dot"></span>
               <span>深度思考中...</span>
             </div>
-            <div v-if="msg._reasoning" class="thinking-reasoning">{{ msg._reasoning }}</div>
+            <div v-if="msg._reasoning" ref="reasoningEl" class="thinking-reasoning">{{ msg._reasoning }}</div>
           </div>
           <!-- 正常渲染 markdown -->
           <div v-else class="msg-text markdown-body" v-html="renderMarkdown(msg.content)"></div>
