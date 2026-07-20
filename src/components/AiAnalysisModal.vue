@@ -13,6 +13,7 @@ const props = defineProps({
   moneyFlow: { type: Object, default: null },
   industryData: { type: Object, default: null },
   indices: { type: Array, default: null },
+  positions: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["close"]);
@@ -112,6 +113,7 @@ async function handleSend() {
       industryData: props.industryData,
       indices: props.indices,
       chipData,
+      positions: props.positions,
     };
     await sendMessage(text, props.selectedStock, contextData);
   } catch (e) {

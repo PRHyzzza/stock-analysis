@@ -8,7 +8,9 @@ import IndustryModal from "./components/IndustryModal.vue";
 import TechAnalysisModal from "./components/TechAnalysisModal.vue";
 import AiAnalysisModal from "./components/AiAnalysisModal.vue";
 import ChipDistribution from "./components/ChipDistribution.vue";
+import PositionModal from "./components/PositionModal.vue";
 import { useWatchlist } from "./composables/useWatchlist";
+import { usePositions } from "./composables/usePositions";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
 import { useIndustryData } from "./composables/useIndustryData";
 import { useKlineData } from "./composables/useKlineData";
@@ -62,6 +64,12 @@ function closeAiModal() { showAiModal.value = false; }
 const showChipModal = ref(false);
 function openChipModal() { showChipModal.value = true; }
 function closeChipModal() { showChipModal.value = false; }
+
+// ---- 持仓弹窗 ----
+const showPositionsModal = ref(false);
+const { positions, addPosition, removePosition } = usePositions();
+function openPositionsModal() { showPositionsModal.value = true; }
+function closePositionsModal() { showPositionsModal.value = false; }
 
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
@@ -163,6 +171,7 @@ function onKeydown(e) {
     closeTechModal();
     closeAiModal();
     closeChipModal();
+    closePositionsModal();
   }
 }
 
@@ -222,6 +231,7 @@ onUnmounted(() => {
       :indices="indices"
       :refreshing="refreshing"
       @refresh="handleManualRefresh"
+      @open-positions="openPositionsModal"
     />
 
     <!-- 主体区域: 左-列表 | 右-详情 -->
@@ -293,6 +303,7 @@ onUnmounted(() => {
       :money-flow="moneyFlow"
       :industry-data="industryData"
       :indices="indices"
+      :positions="positions"
       @close="closeAiModal"
     />
 
@@ -302,6 +313,15 @@ onUnmounted(() => {
       :kline-data="klineData"
       :loading="klineLoading"
       @close="closeChipModal"
+    />
+
+    <!-- 持仓弹窗 -->
+    <PositionModal
+      :show="showPositionsModal"
+      :positions="positions"
+      @close="closePositionsModal"
+      @add="addPosition"
+      @remove="removePosition"
     />
   </div>
 </template>

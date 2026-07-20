@@ -4,7 +4,7 @@ defineProps({
   refreshing: { type: Boolean, default: false },
 });
 
-defineEmits(["refresh"]);
+defineEmits(["refresh", "open-positions"]);
 </script>
 
 <template>
@@ -26,6 +26,13 @@ defineEmits(["refresh"]);
       </div>
     </div>
     <div class="header-right">
+      <button class="btn-positions" @click="$emit('open-positions')">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M3 13V5l5-3 5 3v8" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <rect x="6" y="8" width="4" height="5" rx="0.4" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+        <span>持仓</span>
+      </button>
       <button class="btn-refresh" :class="{ loading: refreshing }" @click="$emit('refresh')" :disabled="refreshing">
         <svg class="refresh-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M2 8a6 6 0 0 1 10.47-4M14 8a6 6 0 0 1-10.47 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -57,6 +64,7 @@ defineEmits(["refresh"]);
 .header-right {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .market-indices {
@@ -99,6 +107,27 @@ defineEmits(["refresh"]);
   width: 1px;
   height: 16px;
   background: var(--border);
+}
+
+.btn-positions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-positions:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: rgba(93, 42, 26, 0.04);
 }
 
 .btn-refresh {

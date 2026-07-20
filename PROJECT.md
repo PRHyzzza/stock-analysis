@@ -28,7 +28,11 @@ stock-analysis/
 │   ├── App.vue             ← 根组件：侧边栏 + 主面板 + 所有弹窗
 │   ├── assets/main.css     ← 全局样式 (Steep Design System)
 │   ├── components/         ← UI 组件 (不含业务逻辑)
+│   │   ├── SearchDropdown.vue  ← 股票搜索下拉（从 StockList.vue 拆分）
+│   │   └── ai/             ← AI 对话子组件
 │   ├── composables/        ← 有状态逻辑 (调用 Tauri invoke)
+│   │   ├── useSupportResistance.js  ← 支撑/阻力位算法（自由函数）
+│   │   └── llmClient.js    ← SSE 流式客户端（自由函数）
 │   ├── prompts/            ← AI Agent 系统提示词模板
 │   │   └── system-prompt.md  ← 提示词模板（含 {{PRELOAD_SECTION}} 等占位符，通过 Vite ?raw 导入）
 │   ├── skills/             ← AI Agent 技能模块 (定义 LLM tools)
@@ -95,6 +99,8 @@ stock-analysis/
 | `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools + 模型/思考/推理控制） |
 | `ChipDistribution.vue` | 筹码峰可视化面板（水平条形图，自包含可折叠） |
 | `SectorMoneyFlow.vue` | 行业板块资金流向面板（rank + 资金/涨跌切换模式） |
+| `PositionModal.vue` | 持仓管理弹窗：汇总、列表、添加/删除、股票搜索 |
+| `SearchDropdown.vue` | 股票搜索下拉组件（从 StockList.vue 拆分） |
 | `ai/AiApiKeySetup.vue` | API Key 配置面板 |
 | `ai/AiChatMessages.vue` | AI 对话消息列表（Markdown 渲染 + 流式内容实时滚动） |
 | `ai/AiChatFooter.vue` | AI 输入框 + 发送按钮 |
@@ -115,6 +121,10 @@ stock-analysis/
 | `useTechIndicators.js` | `calcMACD/KDJ/WR/RSI/ema` 等纯函数 | 纯前端计算 (基于 K 线数据) |
 | `useChipDistribution.js` | `calcChipDistribution()` | 纯前端计算筹码分布 (基于 K 线数据) |
 | `useSectorMoneyFlow.js` | `useSectorMoneyFlow()` | `get_sector_money_flow` |
+| `usePositions.js` | `usePositions()` | 纯前端，localStorage 持久化（code/name/buyPrice/quantity/buyDate） |
+| `aiContext.js` | `computeMA()`, `serializeContext()`, `buildSystemPrompt()` | 纯函数，从 `useAiAnalysis.js` 拆分出的 AI 上下文构建模块 |
+| `useSupportResistance.js` | `calcSupportResistance()` | 纯函数，从 `KlineChart.vue` 拆分出的支撑/阻力位算法（聚类 + 斐波那契） |
+| `llmClient.js` | `callLlmStream()` | 纯函数，从 `useAiAnalysis.js` 拆分出的 SSE 流式 LLM 调用客户端 |
 
 **模式**: 每个 composable 返回 `{ data, loading, loadData(), ... }`。`App.vue` 中调用所有 composable，通过 props 传递给子组件。
 
@@ -137,6 +147,26 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 ```
 
 **添加新技能**: ①创建 skill 文件 ②在 `index.js` 的 `SKILLS` 数组中添加 ③自动生效。
+
+### 3.4 AI 上下文构建 (composables/aiContext.js)
+
+从 `useAiAnalysis.js` 拆分出的纯函数模块，负责将预加载数据序列化为 LLM 系统提示词上下文：
+
+| 函数 | 职责 |
+|------|------|
+| `computeMA(data, period)` | 计算移动平均线 |
+| `serializeContext(contextData)` | 将 klineData / moneyFlow / industryData / indices / positions / chipData 序列化为 Markdown 文本 |
+| `buildSystemPrompt(currentStock, contextData)` | 组装完整系统提示词：北京时间 + 股票上下文 + 预加载数据 + 工具列表 + Skill 提示词 |
+
+**数据流**: `AiAnalysisModal` 组装 contextData → `sendMessage()` 调用 `buildSystemPrompt()` → 拼入 `messages[0].role="system"`
+
+### 3.5 持仓管理 (usePositions.js + PositionModal.vue)
+
+- **存储**: `localStorage` key `stock-analysis-positions`
+- **数据结构**: `{ code, name, buyPrice, quantity, buyDate, addedAt }`
+- **操作**: 添加（同 code 覆盖）、删除、实时行情更新
+- **弹窗入口**: `MarketHeader` 右侧「持仓」按钮
+- **AI 集成**: 持仓数据通过 `AiAnalysisModal` → `contextData.positions` 传入 LLM 上下文
 
 ---
 
@@ -236,8 +266,10 @@ cargo check           # 仅检查 Rust 编译（src-tauri/ 目录下执行）
 6. **API 反爬**: East Money push2/push2his 有 CDN/WAF，腾讯 API 稳定可用
 7. **API 收费层限制**: 问财免费层仅返回 5 个字段（代码/名称/价/涨跌幅/股本），无行业/市值
 8. **V4 reasoning_content 回传**: DeepSeek V4 思考模式下，assistant 消息必须在后续请求中携带 `reasoning_content` 字段，否则 400 错误
-9. **系统提示词维护**: `src/prompts/system-prompt.md` 是 AI Agent 的系统提示词模板，通过 Vite `?raw` 导入，占位符由 `useAiAnalysis.js` 的 `buildSystemPrompt()` 动态填充
+9. **系统提示词维护**: `src/prompts/system-prompt.md` 是 AI Agent 的系统提示词模板，通过 Vite `?raw` 导入，占位符由 `aiContext.js` 的 `buildSystemPrompt()` 动态填充
 10. **Agent 流式循环**: `sendMessage()` 每次工具调用轮都走 `callLlmStream`，工具调用完成后继续下一轮流式请求，最多 5 轮
+11. **AI 上下文拆分**: 上下文构建逻辑（computeMA / serializeContext / buildSystemPrompt）已从 `useAiAnalysis.js` 拆分到 `aiContext.js`（纯函数），便于独立维护和测试
+12. **持仓传给 AI**: 每次发送消息时，`contextData.positions` 包含用户持仓（买入价/数量/盈亏），AI 可据此提供持仓分析和操作建议
 
 ---
 

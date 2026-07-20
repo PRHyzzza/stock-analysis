@@ -1,8 +1,8 @@
 import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { getMergedTools, getMergedSystemPrompt, getToolImpl } from "../skills/index.js";
-import systemPromptTemplate from "../prompts/system-prompt.md?raw";
+import { getMergedTools, getToolImpl } from "../skills/index.js";
+import { buildSystemPrompt } from "./aiContext.js";
+import { callLlmStream } from "./llmClient.js";
 
 const API_KEY_KEY = "stock-analysis-ai-api-key";
 const MESSAGES_STORAGE_KEY = "stock-analysis-ai-messages";
@@ -39,129 +39,6 @@ export function deleteStockMessages(code) {
 
 const TOOLS = getMergedTools();
 
-// ============ 构建系统提示词 ============
-
-/**
- * 计算移动平均线
- * @param {Array} data - K 线数据 [{ close }]
- * @param {number} period - 周期
- * @returns {Array} [{ time, value }]
- */
-function computeMA(data, period) {
-  const result = [];
-  for (let i = 0; i < data.length; i++) {
-    if (i < period - 1) continue;
-    let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) {
-      sum += data[j].close;
-    }
-    result.push({ time: data[i].date || data[i].time, value: Math.round((sum / period) * 100) / 100 });
-  }
-  return result;
-}
-
-/**
- * 将预加载数据序列化为上下文字符串
- */
-function serializeContext(contextData) {
-  if (!contextData) return "";
-  const parts = [];
-
-  if (contextData.klineData && Array.isArray(contextData.klineData) && contextData.klineData.length > 0) {
-    const recent = contextData.klineData.slice(-30);
-    const maPeriods = [5, 10, 20, 30, 60];
-    const maData = {};
-    for (const p of maPeriods) {
-      if (contextData.klineData.length >= p) {
-        const maValues = computeMA(contextData.klineData, p);
-        maData[`MA${p}`] = maValues.slice(-30);
-      }
-    }
-    parts.push(`## 预加载 K 线数据（最近 ${recent.length} 根日K，已包含在上下文中无需重新调用工具）\n${JSON.stringify(recent, null, 2)}`);
-    parts.push(`## 预计算移动平均线（MA）\n${JSON.stringify(maData, null, 2)}\n（说明：以上为系统预计算的 MA5/MA10/MA20/MA30/MA60 值，你可以直接使用，无需自己计算。）`);
-  }
-
-  if (contextData.moneyFlow) {
-    parts.push(`## 预加载主力资金数据\n${JSON.stringify(contextData.moneyFlow, null, 2)}`);
-  }
-
-  if (contextData.industryData) {
-    parts.push(`## 预加载行业分析数据\n${JSON.stringify(contextData.industryData, null, 2)}`);
-  }
-
-  if (contextData.indices && Array.isArray(contextData.indices) && contextData.indices.length > 0) {
-    parts.push(`## 预加载大盘指数\n${JSON.stringify(contextData.indices, null, 2)}`);
-  }
-
-  if (contextData.chipData) {
-    const chip = contextData.chipData;
-    const costStr = chip.costLevels
-      ? `COST5=${chip.costLevels.COST5}, COST15=${chip.costLevels.COST15}, COST50=${chip.costLevels.COST50}, COST85=${chip.costLevels.COST85}, COST95=${chip.costLevels.COST95}`
-      : "无";
-    const profitPct = chip.distribution
-      ? chip.distribution.filter((d) => d.price < chip.currentPrice).reduce((s, d) => s + d.ratio, 0) * 100
-      : 0;
-    parts.push(`## 预加载筹码分布数据
-筹码峰价格：${chip.peakPrice}
-平均持仓成本：${chip.avgCost}
-当前价：${chip.currentPrice}
-获利比例：${profitPct.toFixed(1)}%
-套牢比例：${(100 - profitPct).toFixed(1)}%
-分位成本：${costStr}`);
-  }
-
-  return parts.join("\n\n");
-}
-
-function buildSystemPrompt(currentStock, contextData) {
-  // 北京时间（始终计算，每次请求都附带最新时间）
-  const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
-
-  // 构建当前股票上下文
-  let context = "";
-  if (currentStock) {
-    context = `
-## 当前上下文
-用户正在查看的股票：${currentStock.name}（${currentStock.code}）
-当前价格：¥${currentStock.price?.toFixed(2) ?? "--"}
-涨跌幅：${currentStock.changePct != null
-        ? (currentStock.changePct >= 0 ? "+" : "") +
-        currentStock.changePct.toFixed(2) +
-        "%"
-        : "--"
-      }
-今开：${currentStock.open?.toFixed(2) ?? "--"}　最高：${currentStock.high?.toFixed(2) ?? "--"}　最低：${currentStock.low?.toFixed(2) ?? "--"}
-昨收：${currentStock.prevClose?.toFixed(2) ?? "--"}　成交量：${currentStock.volume != null ? (currentStock.volume / 10000).toFixed(2) + '万手' : "--"}　成交额：${currentStock.turnover != null ? (currentStock.turnover / 10000).toFixed(2) + '亿' : "--"}
-换手率：${currentStock.turnoverRate != null ? currentStock.turnoverRate.toFixed(2) + '%' : "--"}　市盈率：${currentStock.pe?.toFixed(2) ?? "--"}
-`;
-  }
-
-  // 预加载数据
-  const preloadedData = serializeContext(contextData);
-  const preloadSection = preloadedData
-    ? `
-## 系统已预加载的数据（你已拥有这些数据，不需要重复调用工具获取）
-
-${preloadedData}
-
-**注意**：以上数据已随当前选中股票一起加载。如果用户问的是当前股票，你已掌握这些数据，直接分析即可，无需再调用工具。
-如果用户问的是其他股票，请调用对应工具查询。
-`
-    : "";
-
-  // 工具列表
-  const toolsList = TOOLS.map(
-    (t) => `- \`${t.function.name}\` — ${t.function.description}`
-  ).join("\n");
-
-  return systemPromptTemplate
-    .replace("{{BEIJING_TIME}}", beijingTime)
-    .replace("{{PRELOAD_SECTION}}", preloadSection)
-    .replace("{{TOOLS}}", toolsList)
-    .replace("{{SKILL_PROMPTS}}", getMergedSystemPrompt())
-    .replace("{{STOCK_CONTEXT}}", context);
-}
-
 // ============ Composable ============
 
 export function useAiAnalysis() {
@@ -173,11 +50,6 @@ export function useAiAnalysis() {
   const loading = ref(false);
   const error = ref("");
   const apiKey = ref(localStorage.getItem(API_KEY_KEY) || "");
-
-  // 流式事件监听器清理函数
-  let unlistenChunk = null;
-  let unlistenDone = null;
-  let unlistenError = null;
 
   /** 检查当前股票是否在自选股中 */
   function isInWatchlist(code) {
@@ -255,7 +127,7 @@ export function useAiAnalysis() {
 
       // Agent 循环：每个 round 使用流式调用，工具调用完成后继续下一轮
       for (let round = 0; round < 5; round++) {
-        const result = await callLlmStream(currentMessages, (content, reasoning) => {
+        const result = await callLlmStreamWrapped(currentMessages, (content, reasoning) => {
           // 实时更新流式消息
           const msg = messages.value[streamMsgIdx];
           if (msg) {
@@ -379,101 +251,18 @@ export function useAiAnalysis() {
   }
 
   /**
-   * 流式调用 LLM（SSE），通过 Tauri 事件接收 chunk。
-   * @param {Array} messagesList
-   * @param {(content: string) => void} onContentDelta — 每次收到内容增量时的回调
-   * @returns {Promise<{content:string, tool_calls?:Array, reasoning_content?:string}>}
+   * 流式调用（已拆分到 llmClient.js，此处为适配封装）
    */
-  function callLlmStream(messagesList, onContentDelta) {
-    return new Promise(async (resolve, reject) => {
-      // 清理上一次的监听器
-      if (unlistenChunk) { unlistenChunk(); unlistenChunk = null; }
-      if (unlistenDone) { unlistenDone(); unlistenDone = null; }
-      if (unlistenError) { unlistenError(); unlistenError = null; }
-
-      const toolCallMap = {};   // idx → 累积的 tool_call
-      let content = "";
-      let reasoningContent = null;
-      let finished = false;
-
-      try {
-        unlistenChunk = await listen("llm-chunk", (event) => {
-          if (finished) return;
-          const data = event.payload?.data;
-          const delta = data?.choices?.[0]?.delta;
-          if (!delta) return;
-
-          // 累积 content
-          if (delta.content) {
-            content += delta.content;
-            onContentDelta?.(content);
-          }
-
-          // 累积 reasoning_content（思考链）
-          if (delta.reasoning_content) {
-            reasoningContent = (reasoningContent || "") + delta.reasoning_content;
-            onContentDelta?.(content, reasoningContent);
-          }
-
-          // 累积 tool_calls（增量碎片拼接）
-          if (delta.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index ?? 0;
-              if (!toolCallMap[idx]) {
-                toolCallMap[idx] = { id: "", type: "function", function: { name: "", arguments: "" } };
-              }
-              if (tc.id) toolCallMap[idx].id = tc.id;
-              if (tc.type) toolCallMap[idx].type = tc.type;
-              if (tc.function?.name) toolCallMap[idx].function.name += tc.function.name;
-              if (tc.function?.arguments) toolCallMap[idx].function.arguments += tc.function.arguments;
-            }
-          }
-        });
-
-        unlistenDone = await listen("llm-done", async () => {
-          if (finished) return;
-          finished = true;
-          await cleanup();
-
-          const toolCallsArr = Object.values(toolCallMap).filter((tc) => tc.function.name);
-          resolve({
-            content,
-            ...(toolCallsArr.length > 0 ? { tool_calls: toolCallsArr } : {}),
-            ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
-          });
-        });
-
-        unlistenError = await listen("llm-error", async (event) => {
-          if (finished) return;
-          finished = true;
-          await cleanup();
-          reject(new Error(event.payload?.data?.error || "LLM 流式请求失败"));
-        });
-
-        // 发起流式请求
-        await invoke("call_llm_stream", {
-          streamId: "main",
-          apiKey: apiKey.value,
-          model: currentModel.value,
-          messages: messagesList,
-          tools: TOOLS,
-          reasoningEffort: reasoningEffort.value,
-          thinkingEnabled: thinkingEnabled.value,
-        });
-      } catch (e) {
-        if (!finished) {
-          finished = true;
-          await cleanup();
-          reject(e);
-        }
-      }
+  function callLlmStreamWrapped(messagesList, onContentDelta) {
+    return callLlmStream({
+      apiKey: apiKey.value,
+      model: currentModel.value,
+      thinkingEnabled: thinkingEnabled.value,
+      reasoningEffort: reasoningEffort.value,
+      messages: messagesList,
+      tools: TOOLS,
+      onDelta: onContentDelta,
     });
-  }
-
-  async function cleanup() {
-    if (unlistenChunk) { unlistenChunk(); unlistenChunk = null; }
-    if (unlistenDone) { unlistenDone(); unlistenDone = null; }
-    if (unlistenError) { unlistenError(); unlistenError = null; }
   }
 
   return {
