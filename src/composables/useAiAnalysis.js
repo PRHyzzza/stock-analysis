@@ -104,26 +104,19 @@ export function useAiAnalysis() {
       const { profileContent, saveProfile } = useUserProfileSingleton();
       const currentProfile = profileContent.value || "";
 
-      const updatePrompt = `你是一个用户画像分析器。请根据以下对话，更新用户画像（Markdown 格式）。
+      const updatePrompt = `你是一个用户画像分析器。请根据以下对话，更新用户画像（Markdown 格式，不超过200字）
 
 ## 当前画像
-${currentProfile || "（尚无画像，请创建初始画像）"}
+${currentProfile || "（尚无）"}
 
 ## 本轮对话
 用户: ${userText}
-AI: ${aiResponse.slice(0, 1000)}
+AI: ${aiResponse.slice(0, 800)}
 
-## 更新要求
+## 要求
 1. 如果当前画像为空，请创建初始画像。
-2. 如果已有画像，增量更新（不要丢失已有信息）。
-3. 画像应包含但不限于：
-   - 投资风格偏好（短线/中线/长线/混合）
-   - 风险承受能力（保守/稳健/激进）
-   - 关注的行业/板块
-   - 经验水平
-   - 常见问题类型
-   - 持仓偏好
-   - 任何特殊需求或约束
+2. 如果已有画像，根据新对话微调（不要丢失原有信息）。
+3. 聚焦：投资风格 + 关注方向 + 风险偏好。
 4. 输出纯 Markdown，没有代码块包裹，没有多余解释。
 5. 用中文。`;
 

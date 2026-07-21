@@ -142,7 +142,7 @@ ${preloadedData}
 
   // 用户画像
   const profileSection = userProfile
-    ? `\n## 👤 用户画像（系统自动维护，基于历史对话分析）\n\n${userProfile}\n\n**说明**：以上画像是基于你与用户的历史对话自动学习生成的。请结合画像了解用户的投资偏好、风格、关注领域和经验水平，给出更个性化的分析和建议。\n`
+    ? `\n## 👤 用户画像（自动学习）\n\n${userProfile}\n\n**说明**：以上基于历史对话自动生成，了解用户偏好即可，分析时点到为止。\n`
     : "";
 
   return systemPromptTemplate

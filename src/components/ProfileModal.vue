@@ -56,7 +56,7 @@ function closeModal() {
               <path d="M4 18c0-3.6 2.7-6.5 6-6.5s6 2.9 6 6.5" stroke-linecap="round"/>
             </svg>
             <span class="modal-title">用户画像</span>
-            <span class="profile-badge">AI 自动维护</span>
+            <span class="profile-badge">AI 自动总结</span>
           </div>
           <div class="modal-header-right">
             <span v-if="savedHint" class="saved-hint">✓ 已保存</span>
@@ -80,7 +80,7 @@ function closeModal() {
               <textarea
                 v-model="editText"
                 class="edit-textarea"
-                placeholder="# 用户画像&#10;&#10;在此编辑你的投资画像…&#10;AI 会在对话后自动更新此内容。"
+                placeholder="AI 会根据你的对话自动总结投资画像…"
                 spellcheck="false"
               ></textarea>
             </div>
