@@ -16,44 +16,32 @@
 
 ```
 stock-analysis/
-├── PROJECT.md              ← 本文件（AI 快速上下文）
-├── .github/
-│   └── copilot-instructions.md  ← Copilot 项目规则（新对话先读 PROJECT.md）
-├── package.json            ← 前端依赖 (Vue 3, lightweight-charts, Tauri API)
-├── vite.config.js          ← Vite 配置 (port 1420, HMR 1421)
-├── pnpm-lock.yaml / pnpm-workspace.yaml
-├── index.html              ← SPA 入口 HTML
-├── src/                    ← Vue 前端源码
-│   ├── main.js             ← createApp(App).mount("#app")
-│   ├── App.vue             ← 根组件：侧边栏 + 主面板 + 所有弹窗
-│   ├── assets/main.css     ← 全局样式 (Steep Design System)
-│   ├── components/         ← UI 组件 (不含业务逻辑)
-│   │   ├── SearchDropdown.vue  ← 股票搜索下拉（从 StockList.vue 拆分）
-│   │   └── ai/             ← AI 对话子组件
-│   ├── composables/        ← 有状态逻辑 (调用 Tauri invoke)
-│   │   ├── useSupportResistance.js  ← 支撑/阻力位算法（自由函数）
-│   │   └── llmClient.js    ← SSE 流式客户端（自由函数）
-│   ├── prompts/            ← AI Agent 系统提示词模板
-│   │   └── system-prompt.md  ← 提示词模板（含 {{PRELOAD_SECTION}} 等占位符，通过 Vite ?raw 导入）
-│   ├── skills/             ← AI Agent 技能模块 (定义 LLM tools)
-│   └── utils/format.js     ← 格式化工具 (signChar, formatAmount, fmtMoney, fmtPct, pctClass, inflowClass)
-├── src-tauri/              ← Rust 后端源码
-│   ├── Cargo.toml          ← Rust 依赖 (tauri, reqwest, serde, tokio, regex)
-│   ├── tauri.conf.json     ← Tauri 窗口/构建/安全配置
-│   ├── src/
-│   │   ├── main.rs         ← 入口：windows_subsystem + 调用 lib::run()
-│   │   ├── lib.rs          ← Tauri Builder：注册 10 个命令 + 插件
-│   │   ├── types.rs        ← 数据结构 (StockQuote, KlineItem, MoneyFlow...)
-│   │   ├── helpers.rs      ← 代码转换 (to_em_code, to_tencent_code)
-│   │   ├── commands.rs     ← Tauri #[command] 处理器
-│   │   ├── api/            ← HTTP API 客户端模块
-│   │   │   ├── eastmoney.rs  ← 东方财富 JSON/JSONP/HTML 解析 + industry parsing
-│   │   │   ├── hotlist.rs    ← 同花顺热榜 JSON API
-│   │   │   ├── llm.rs        ← DeepSeek API（非流式 + SSE 流式）
-│   │   │   ├── mod.rs        ← pub use 导出 + build_http_client() 统一构建
-│   │   │   └── tencent.rs    ← 腾讯财经 qt.gtimg.cn (GBK 编码)
-│   └── capabilities/       ← Tauri 权限配置
-└── public/                 ← 静态资源
+├── PROJECT.md
+├── package.json / vite.config.js / pnpm-lock.yaml
+├── index.html
+├── src/                        ← Vue 前端
+│   ├── main.js / App.vue
+│   ├── assets/main.css         ← 全局样式
+│   ├── components/             ← UI 组件（详见 §3.1）
+│   │   ├── MarketHeader.vue / TitleBar.vue
+│   │   ├── StockList.vue / HotList.vue / SearchDropdown.vue
+│   │   ├── StockDetail.vue / KlineChart.vue / IntradayChart.vue
+│   │   ├── AiAnalysisModal.vue / TechAnalysisModal.vue / IndustryModal.vue
+│   │   ├── ProfileModal.vue / PositionModal.vue
+│   │   ├── ChipDistribution.vue / SectorMoneyFlow.vue
+│   │   └── ai/   (AiApiKeySetup / AiChatMessages / AiChatFooter)
+│   ├── composables/            ← 有状态逻辑（详见 §3.2）
+│   ├── prompts/system-prompt.md ← AI 提示词模板
+│   ├── skills/                 ← AI 工具模块（详见 §3.3）
+│   └── utils/format.js
+├── src-tauri/                  ← Rust 后端
+│   ├── Cargo.toml / tauri.conf.json
+│   └── src/
+│       ├── main.rs / lib.rs
+│       ├── commands.rs         ← 13 个 Tauri 命令（详见 §4.1）
+│       ├── types.rs / helpers.rs
+│       └── api/  (tencent / eastmoney / hotlist / llm)
+└── public/
 ```
 
 ---
@@ -89,6 +77,8 @@ stock-analysis/
 
 | 文件 | 职责 |
 |------|------|
+| `MarketHeader.vue` | 顶部栏：大盘指数 + 刷新按钮 + 画像/持仓入口 |
+| `TitleBar.vue` | 应用标题栏（窗口拖拽区域） |
 | `StockList.vue` | 左侧边栏：自选股列表 + 搜索 + 热榜切换 + 板块资金 |
 | `HotList.vue` | 同花顺实时热榜（在 StockList 内渲染） |
 | `StockDetail.vue` | 右侧主面板：个股详情 + K线/分时 + 资金 + 行业 + AI |
@@ -97,6 +87,7 @@ stock-analysis/
 | `IndustryModal.vue` | 行业分析弹窗（营收排名 + 市场表现） |
 | `TechAnalysisModal.vue` | 技术分析弹窗（MACD/KDJ/RSI/布林带） |
 | `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools + 模型/思考/推理控制） |
+| `ProfileModal.vue` | 用户画像编辑弹窗：左侧 Markdown 编辑 + 右侧实时预览（marked 渲染） |
 | `ChipDistribution.vue` | 筹码峰可视化面板（水平条形图，自包含可折叠） |
 | `SectorMoneyFlow.vue` | 行业板块资金流向面板（rank + 资金/涨跌切换模式） |
 | `PositionModal.vue` | 持仓管理弹窗：汇总、列表、添加/删除、股票搜索 |
@@ -121,8 +112,9 @@ stock-analysis/
 | `useTechIndicators.js` | `calcMACD/KDJ/WR/RSI/ema` 等纯函数 | 纯前端计算 (基于 K 线数据) |
 | `useChipDistribution.js` | `calcChipDistribution()` | 纯前端计算筹码分布 (基于 K 线数据) |
 | `useSectorMoneyFlow.js` | `useSectorMoneyFlow()` | `get_sector_money_flow` |
-| `usePositions.js` | `usePositions()` | 纯前端，localStorage 持久化（code/name/buyPrice/quantity/buyDate） |
-| `aiContext.js` | `computeMA()`, `serializeContext()`, `buildSystemPrompt()` | 纯函数，从 `useAiAnalysis.js` 拆分出的 AI 上下文构建模块 |
+| `usePositions.js` | `usePositions()` | 纯前端，localStorage 持久化（code/name/buyPrice/quantity/buyDate + 盈亏计算） |
+| `useUserProfile.js` | `useUserProfile()`, `useUserProfileSingleton()` | `read_user_profile` + `save_user_profile`（Tauri invoke，文件存储在 app_data_dir） |
+| `aiContext.js` | `computeMA()`, `serializeContext()`, `buildSystemPrompt()` | 纯函数，构建 AI 系统提示词（含用户画像和持仓注入） |
 | `useSupportResistance.js` | `calcSupportResistance()` | 纯函数，从 `KlineChart.vue` 拆分出的支撑/阻力位算法（聚类 + 斐波那契） |
 | `llmClient.js` | `callLlmStream()` | 纯函数，从 `useAiAnalysis.js` 拆分出的 SSE 流式 LLM 调用客户端 |
 
@@ -148,25 +140,24 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 
 **添加新技能**: ①创建 skill 文件 ②在 `index.js` 的 `SKILLS` 数组中添加 ③自动生效。
 
-### 3.4 AI 上下文构建 (composables/aiContext.js)
+### 3.4 AI 上下文构建 (aiContext.js)
 
-从 `useAiAnalysis.js` 拆分出的纯函数模块，负责将预加载数据序列化为 LLM 系统提示词上下文：
+纯函数模块，负责将预加载数据序列化为 LLM 系统提示词：
 
 | 函数 | 职责 |
 |------|------|
 | `computeMA(data, period)` | 计算移动平均线 |
-| `serializeContext(contextData)` | 将 klineData / moneyFlow / industryData / indices / positions / chipData 序列化为 Markdown 文本 |
-| `buildSystemPrompt(currentStock, contextData)` | 组装完整系统提示词：北京时间 + 股票上下文 + 预加载数据 + 工具列表 + Skill 提示词 |
+| `serializeContext(contextData)` | 将 klineData / moneyFlow / industryData / indices / positions / chipData 序列化为 Markdown |
+| `buildSystemPrompt(currentStock, contextData, userProfile)` | 组装完整系统提示词，填充 `{{USER_PROFILE}}` 等占位符 |
 
-**数据流**: `AiAnalysisModal` 组装 contextData → `sendMessage()` 调用 `buildSystemPrompt()` → 拼入 `messages[0].role="system"`
+**数据流**: `AiAnalysisModal` 组装 contextData → `sendMessage()` → `buildSystemPrompt()` → `messages[0].role="system"`
 
-### 3.5 持仓管理 (usePositions.js + PositionModal.vue)
+### 3.5 核心子系统
 
-- **存储**: `localStorage` key `stock-analysis-positions`
-- **数据结构**: `{ code, name, buyPrice, quantity, buyDate, addedAt }`
-- **操作**: 添加（同 code 覆盖）、删除、实时行情更新
-- **弹窗入口**: `MarketHeader` 右侧「持仓」按钮
-- **AI 集成**: 持仓数据通过 `AiAnalysisModal` → `contextData.positions` 传入 LLM 上下文
+| 子系统 | 存储 | 入口 | 关键点 |
+|--------|------|------|--------|
+| **持仓** (`usePositions` + `PositionModal`) | localStorage | MarketHeader「持仓」 | `refreshAllQuotes()` 每 30s 刷新实时价→算盈亏；AI 对话时注入含实时价格和盈亏的持仓上下文 |
+| **用户画像** (`useUserProfile` + `ProfileModal`) | `app_data_dir/user-profile.md` | MarketHeader「画像」 | AI 每次回复后自动更新（`deepseek-v4-flash` 非流式关思考，静默失败）；手动编辑左 textarea 右 marked 预览；单例 `useUserProfileSingleton()` 跨组件共享 |
 
 ---
 
@@ -174,7 +165,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 
 ### 4.1 Tauri 命令 (commands.rs)
 
-所有 `#[tauri::command]` 位于此文件，共 11 个：
+所有 `#[tauri::command]` 位于此文件，共 13 个：
 
 | 命令 | 功能 | 调用的 API |
 |------|------|-----------|
@@ -189,6 +180,8 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `get_hot_list` | 同花顺热榜 | 10jqka.com.cn |
 | `call_llm` | AI 对话（非流式） | [DeepSeek API](https://api-docs.deepseek.com/) |
 | `call_llm_stream` | AI 对话（SSE 流式） | DeepSeek API → Tauri 事件 `llm-chunk`/`llm-done`/`llm-error` |
+| `read_user_profile` | 读取用户画像 Markdown 文件 | 本地 `app_data_dir/user-profile.md` |
+| `save_user_profile` | 保存用户画像 Markdown 文件 | 本地 `app_data_dir/user-profile.md` |
 
 ### 4.2 数据源 (api/)
 
@@ -199,19 +192,13 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `hotlist.rs` | **同花顺** | JSON API |
 | `llm.rs` | **DeepSeek** | OpenAI 兼容格式；`call_llm()` 非流式 + `call_llm_stream()` SSE 流式（依赖 [`futures-util`](https://docs.rs/futures-util/) + [`reqwest`](https://docs.rs/reqwest/) stream feature） |
 
-### 4.3 AI 流式调用（call_llm_stream）
+### 4.3 AI 流式调用
 
-SSE 流通过 Tauri 事件推送到前端：
-- `llm-chunk` — 增量 delta（`content` / `reasoning_content` / `tool_calls` 拼接）
-- `llm-done` — 流结束
-- `llm-error` — API 错误
+SSE 流通过 Tauri 事件推送：`llm-chunk`（delta 增量）/ `llm-done` / `llm-error`。前端 `callLlmStream()` 通过 `listen()` 监听，累积 content 和 tool_calls，返回 Promise。
 
-前端 `callLlmStream()` 通过 `listen()` 监听上述事件，累积 content 和 tool_calls，返回 Promise。
-
-**思考模式控制**：
-- `thinking_enabled: false` → 设置 `thinking: {type: "disabled"}` + `temperature: 0.7`
-- `thinking_enabled: true` → 设置 `reasoning_effort: "high" | "max"`
-- V4 模型多轮工具调用需在 assistant 消息中回传 `reasoning_content`，否则 API 返回 400
+- `thinking_enabled: false` → `thinking: {type: "disabled"}` + `temperature: 0.7`
+- `thinking_enabled: true` → `reasoning_effort: "high" | "max"`
+- ⚠️ V4 多轮工具调用需回传 `reasoning_content`，否则 400
 
 ### 4.4 关键类型 (types.rs)
 
@@ -256,20 +243,16 @@ cargo check           # 仅检查 Rust 编译（src-tauri/ 目录下执行）
 
 ---
 
-## 7. 关键约定 & 注意事项
+## 7. 关键约定
 
 1. **资金流向双数据源**: 腾讯优先 → 东方财富备选（push2 偶发连接重置）
-2. **GBK 编码**: 腾讯 API 返回 GBK，Rust 中用 `encoding_rs::GBK.decode()` 解码
-3. **竞态保护**: `useMoneyFlow` 和 `useKlineData` 支持 `selectedStockRef` 参数，切换股票时丢弃旧请求结果
-4. **Vue 3 prop watch 坑**: `props.showSR` 的 watch 可能不触发，使用 `defineExpose` + 模板 ref 直接调用绕过
-5. **AI Skills 架构**: 修改 tools 只需编辑 `skills/` 目录，无需改 `useAiAnalysis.js`
-6. **API 反爬**: East Money push2/push2his 有 CDN/WAF，腾讯 API 稳定可用
-7. **API 收费层限制**: 问财免费层仅返回 5 个字段（代码/名称/价/涨跌幅/股本），无行业/市值
-8. **V4 reasoning_content 回传**: DeepSeek V4 思考模式下，assistant 消息必须在后续请求中携带 `reasoning_content` 字段，否则 400 错误
-9. **系统提示词维护**: `src/prompts/system-prompt.md` 是 AI Agent 的系统提示词模板，通过 Vite `?raw` 导入，占位符由 `aiContext.js` 的 `buildSystemPrompt()` 动态填充
-10. **Agent 流式循环**: `sendMessage()` 每次工具调用轮都走 `callLlmStream`，工具调用完成后继续下一轮流式请求，最多 5 轮
-11. **AI 上下文拆分**: 上下文构建逻辑（computeMA / serializeContext / buildSystemPrompt）已从 `useAiAnalysis.js` 拆分到 `aiContext.js`（纯函数），便于独立维护和测试
-12. **持仓传给 AI**: 每次发送消息时，`contextData.positions` 包含用户持仓（买入价/数量/盈亏），AI 可据此提供持仓分析和操作建议
+2. **GBK 编码**: 腾讯 API 返回 GBK，Rust 用 `encoding_rs::GBK.decode()` 解码
+3. **竞态保护**: `useMoneyFlow` / `useKlineData` 支持 `selectedStockRef`，切换股票时丢弃旧请求
+4. **Vue 3 prop watch 坑**: `props.showSR` 的 watch 可能不触发，用 `defineExpose` + 模板 ref 绕过
+5. **API 反爬**: East Money 有 CDN/WAF，腾讯 API 更稳定
+6. **问财免费层**: 仅返回 5 字段（代码/名称/价/涨跌幅/股本），无行业/市值
+7. **V4 reasoning_content 回传**: 思考模式下 assistant 消息须携带该字段，否则 400
+8. **持仓实时行情**: `refreshAllQuotes()` 每 30s 刷新自选股+持仓价格，开 AI 弹窗/加仓时立即刷新
 
 ---
 

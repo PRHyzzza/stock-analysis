@@ -4,7 +4,7 @@ defineProps({
   refreshing: { type: Boolean, default: false },
 });
 
-defineEmits(["refresh", "open-positions"]);
+defineEmits(["refresh", "open-positions", "open-profile"]);
 </script>
 
 <template>
@@ -26,6 +26,13 @@ defineEmits(["refresh", "open-positions"]);
       </div>
     </div>
     <div class="header-right">
+      <button class="btn-positions" @click="$emit('open-profile')" title="用户画像">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="5.5" r="3" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M3 14c0-2.8 2.24-5 5-5s5 2.2 5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+        <span>画像</span>
+      </button>
       <button class="btn-positions" @click="$emit('open-positions')">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M3 13V5l5-3 5 3v8" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>

@@ -26,10 +26,38 @@ const {
   onSearchFocus,
 } = useStockSearch(() => []);
 
+const highlightedIndex = ref(-1);
+
 function selectSearchResult(result) {
   form.value.code = result.code;
   form.value.name = result.name;
   clearStockSearch();
+  highlightedIndex.value = -1;
+}
+
+function onSearchKeydown(e) {
+  if (!showResults.value || searchResults.value.length === 0) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    highlightedIndex.value = Math.min(highlightedIndex.value + 1, searchResults.value.length - 1);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    highlightedIndex.value = Math.max(highlightedIndex.value - 1, 0);
+  } else if (e.key === "Enter" && highlightedIndex.value >= 0) {
+    e.preventDefault();
+    selectSearchResult(searchResults.value[highlightedIndex.value]);
+  } else if (e.key === "Escape") {
+    clearStockSearch();
+    highlightedIndex.value = -1;
+  }
+}
+
+/** 高亮匹配文字 */
+function highlightMatch(text, keyword) {
+  if (!keyword || !keyword.trim()) return text;
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(${escaped})`, "gi");
+  return text.replace(re, '<mark class="search-highlight">$1</mark>');
 }
 
 function closeModal() {
@@ -192,6 +220,7 @@ const totalProfitPct = computed(() =>
                   @input="onSearchInput"
                   @focus="onSearchFocus"
                   @blur="onSearchBlur"
+                  @keydown="onSearchKeydown"
                 />
               </div>
               <!-- 搜索结果下拉 -->
@@ -202,14 +231,16 @@ const totalProfitPct = computed(() =>
                 </div>
                 <template v-else-if="searchResults.length > 0">
                   <div
-                    v-for="result in searchResults"
+                    v-for="(result, idx) in searchResults"
                     :key="result.market + result.code"
                     class="search-dropdown-item"
+                    :class="{ highlighted: idx === highlightedIndex }"
                     @mousedown.prevent="selectSearchResult(result)"
+                    @mouseenter="highlightedIndex = idx"
                   >
                     <div class="search-result-left">
-                      <span class="search-result-name">{{ result.name }}</span>
-                      <span class="search-result-code">{{ result.code }}</span>
+                      <span class="search-result-name" v-html="highlightMatch(result.name, stockSearchQuery)"></span>
+                      <span class="search-result-code" v-html="highlightMatch(result.code, stockSearchQuery)"></span>
                     </div>
                     <span class="search-result-market">{{ result.market }}</span>
                   </div>
@@ -496,7 +527,7 @@ const totalProfitPct = computed(() =>
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  max-height: 200px;
+  max-height: 360px;
   overflow-y: auto;
   z-index: 10;
 }
@@ -505,11 +536,12 @@ const totalProfitPct = computed(() =>
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 8px 14px;
   cursor: pointer;
   transition: background 0.1s;
 }
-.search-dropdown-item:hover {
+.search-dropdown-item:hover,
+.search-dropdown-item.highlighted {
   background: var(--fog);
 }
 
@@ -541,6 +573,14 @@ const totalProfitPct = computed(() =>
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--fog);
+}
+
+/* 搜索匹配高亮 */
+:deep(.search-highlight) {
+  background: rgba(251, 225, 209, 0.6);
+  color: var(--rust);
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .search-spinner {

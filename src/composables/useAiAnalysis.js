@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getMergedTools, getToolImpl } from "../skills/index.js";
 import { buildSystemPrompt } from "./aiContext.js";
 import { callLlmStream } from "./llmClient.js";
+import { useUserProfileSingleton } from "./useUserProfile.js";
 
 const API_KEY_KEY = "stock-analysis-ai-api-key";
 const MESSAGES_STORAGE_KEY = "stock-analysis-ai-messages";
@@ -95,7 +96,59 @@ export function useAiAnalysis() {
   }
 
   /**
-   * 发送消息 → Agent 循环（最多 5 轮工具调用）+ 流式输出最终回答
+   * 后台异步更新用户画像：用非流式调用让 AI 总结本轮对话，增量更新画像
+   * 失败静默处理，不影响主流程
+   */
+  async function updateUserProfileBackground(userText, aiResponse) {
+    try {
+      const { profileContent, saveProfile } = useUserProfileSingleton();
+      const currentProfile = profileContent.value || "";
+
+      const updatePrompt = `你是一个用户画像分析器。请根据以下对话，更新用户画像（Markdown 格式）。
+
+## 当前画像
+${currentProfile || "（尚无画像，请创建初始画像）"}
+
+## 本轮对话
+用户: ${userText}
+AI: ${aiResponse.slice(0, 1000)}
+
+## 更新要求
+1. 如果当前画像为空，请创建初始画像。
+2. 如果已有画像，增量更新（不要丢失已有信息）。
+3. 画像应包含但不限于：
+   - 投资风格偏好（短线/中线/长线/混合）
+   - 风险承受能力（保守/稳健/激进）
+   - 关注的行业/板块
+   - 经验水平
+   - 常见问题类型
+   - 持仓偏好
+   - 任何特殊需求或约束
+4. 输出纯 Markdown，没有代码块包裹，没有多余解释。
+5. 用中文。`;
+
+      const result = await invoke("call_llm", {
+        apiKey: apiKey.value,
+        model: "deepseek-v4-flash",
+        messages: [
+          { role: "user", content: updatePrompt },
+        ],
+        tools: [],
+        reasoningEffort: "low",
+        thinkingEnabled: false,
+      });
+
+      const newContent = result?.choices?.[0]?.message?.content?.trim();
+      if (newContent && newContent !== currentProfile) {
+        await saveProfile(newContent);
+      }
+    } catch {
+      // 画像更新失败不影响主流程
+    }
+  }
+
+  /**
+   * 发送消息 → Agent 循环 + 流式输出 + 后台画像更新
    */
   async function sendMessage(text, currentStock, contextData) {
     if (!text.trim() || loading.value) return "";
@@ -113,7 +166,10 @@ export function useAiAnalysis() {
     messages.value.push({ role: "assistant", content: "", _streaming: true });
 
     try {
-      const systemPrompt = buildSystemPrompt(currentStock, contextData);
+      // 获取用户画像注入系统提示词
+      const { getProfileForContext } = useUserProfileSingleton();
+      const userProfile = getProfileForContext();
+      const systemPrompt = buildSystemPrompt(currentStock, contextData, userProfile);
       const recentMessages = messages.value
         .filter((m) => m.role !== "system" && !m._streaming)
         .slice(-20);
@@ -204,6 +260,10 @@ export function useAiAnalysis() {
       // 移除流式标记
       delete messages.value[streamMsgIdx]._streaming;
       delete messages.value[streamMsgIdx]._reasoning;
+
+      // 后台异步更新用户画像（不阻塞 UI）
+      updateUserProfileBackground(text, finalContent);
+
       return finalContent;
     } catch (e) {
       if (e.message === "NO_API_KEY") throw e;

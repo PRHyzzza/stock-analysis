@@ -96,9 +96,10 @@ export function serializeContext(contextData) {
  * 构建完整的 AI 系统提示词
  * @param {Object|null} currentStock - 当前选中的股票
  * @param {Object|null} contextData - 预加载的上下文数据
+ * @param {string} userProfile - 用户画像 markdown 原文（可选）
  * @returns {string}
  */
-export function buildSystemPrompt(currentStock, contextData) {
+export function buildSystemPrompt(currentStock, contextData, userProfile) {
   // 北京时间（始终计算，每次请求都附带最新时间）
   const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
 
@@ -139,10 +140,16 @@ ${preloadedData}
     (t) => `- \`${t.function.name}\` — ${t.function.description}`
   ).join("\n");
 
+  // 用户画像
+  const profileSection = userProfile
+    ? `\n## 👤 用户画像（系统自动维护，基于历史对话分析）\n\n${userProfile}\n\n**说明**：以上画像是基于你与用户的历史对话自动学习生成的。请结合画像了解用户的投资偏好、风格、关注领域和经验水平，给出更个性化的分析和建议。\n`
+    : "";
+
   return systemPromptTemplate
     .replace("{{BEIJING_TIME}}", beijingTime)
     .replace("{{PRELOAD_SECTION}}", preloadSection)
     .replace("{{TOOLS}}", toolsList)
     .replace("{{SKILL_PROMPTS}}", getMergedSystemPrompt())
+    .replace("{{USER_PROFILE}}", profileSection)
     .replace("{{STOCK_CONTEXT}}", context);
 }

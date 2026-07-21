@@ -8,6 +8,10 @@ use crate::types::{
     HotListData, IndustryData, IntradayData, KlineItem, MarketIndex,
     MoneyFlow, SearchResult, SectorMoneyFlowItem, StockQuote,
 };
+use std::fs;
+use tauri::Manager;
+
+/// 用户画像持久化路径（app data dir 下的 user-profile.md）
 
 /// 获取个股行业数据（行业名称 + 行业分析）
 #[tauri::command]
@@ -134,5 +138,38 @@ pub async fn call_llm_stream(
         re,
         te,
     ).await
+}
+
+// ──────────────────────────────────────────
+// 用户画像读写（存储在 Tauri app data dir）
+// ──────────────────────────────────────────
+
+const PROFILE_FILENAME: &str = "user-profile.md";
+
+fn profile_path(app_handle: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取 app data dir 失败: {}", e))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {}", e))?;
+    Ok(dir.join(PROFILE_FILENAME))
+}
+
+/// 读取用户画像（返回 md 原文，不存在则返回空字符串）
+#[tauri::command]
+pub fn read_user_profile(app_handle: tauri::AppHandle) -> Result<String, String> {
+    let path = profile_path(&app_handle)?;
+    if path.exists() {
+        fs::read_to_string(&path).map_err(|e| format!("读取画像文件失败: {}", e))
+    } else {
+        Ok(String::new())
+    }
+}
+
+/// 保存用户画像（覆盖写入 md 文件）
+#[tauri::command]
+pub fn save_user_profile(app_handle: tauri::AppHandle, content: String) -> Result<(), String> {
+    let path = profile_path(&app_handle)?;
+    fs::write(&path, &content).map_err(|e| format!("写入画像文件失败: {}", e))
 }
 

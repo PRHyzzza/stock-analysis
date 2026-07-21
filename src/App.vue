@@ -9,6 +9,7 @@ import TechAnalysisModal from "./components/TechAnalysisModal.vue";
 import AiAnalysisModal from "./components/AiAnalysisModal.vue";
 import ChipDistribution from "./components/ChipDistribution.vue";
 import PositionModal from "./components/PositionModal.vue";
+import ProfileModal from "./components/ProfileModal.vue";
 import { useWatchlist } from "./composables/useWatchlist";
 import { usePositions } from "./composables/usePositions";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
@@ -19,6 +20,7 @@ import { useMoneyFlow } from "./composables/useMoneyFlow";
 import { useIntradayData } from "./composables/useIntradayData";
 import { useSectorMoneyFlow } from "./composables/useSectorMoneyFlow";
 import { deleteStockMessages } from "./composables/useAiAnalysis";
+import { useUserProfileSingleton } from "./composables/useUserProfile";
 
 // ---- 侧边栏视图切换 ----
 const sidebarView = ref("watchlist");
@@ -51,6 +53,12 @@ function closeTechModal() { showTechModal.value = false; }
 const showAiModal = ref(false);
 function openAiModal() {
   showAiModal.value = true;
+  // 打开 AI 弹窗时立刻刷新所有持仓实时价格
+  positions.value.forEach((pos) => {
+    loadQuote({ code: pos.code }).then((quote) => {
+      if (quote) updatePositionQuote(pos.code, quote);
+    });
+  });
   // 确保切换 AI 弹窗时数据已加载
   if (selectedStock.value && !klineData.value && !klineLoading.value) {
     loadKlineData(selectedStock.value);
@@ -67,9 +75,23 @@ function closeChipModal() { showChipModal.value = false; }
 
 // ---- 持仓弹窗 ----
 const showPositionsModal = ref(false);
-const { positions, addPosition, removePosition } = usePositions();
+const { positions, addPosition, removePosition, updatePositionQuote } = usePositions();
+const { loadProfile } = useUserProfileSingleton();
+
+async function handleAddPosition(pos) {
+  addPosition(pos);
+  // 立即获取新增持仓的实时行情
+  const quote = await loadQuote({ code: pos.code });
+  if (quote) updatePositionQuote(pos.code, quote);
+}
+
 function openPositionsModal() { showPositionsModal.value = true; }
 function closePositionsModal() { showPositionsModal.value = false; }
+
+// ---- 画像弹窗 ----
+const showProfileModal = ref(false);
+function openProfileModal() { showProfileModal.value = true; }
+function closeProfileModal() { showProfileModal.value = false; }
 
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
@@ -181,6 +203,8 @@ let klineTimer;
 
 onMounted(() => {
   document.addEventListener("keydown", onKeydown);
+  // 加载用户画像
+  loadProfile();
   // 加载指数行情（每 60 秒）
   loadIndices();
   indicesTimer = setInterval(loadIndices, 60000);
@@ -205,6 +229,12 @@ function refreshAllQuotes() {
   watchlist.value.forEach((stock) => {
     loadQuote(stock).then((quote) => {
       if (quote) updateWatchlistQuote(stock.code, quote);
+    });
+  });
+  // 刷新持仓的实时行情
+  positions.value.forEach((pos) => {
+    loadQuote({ code: pos.code }).then((quote) => {
+      if (quote) updatePositionQuote(pos.code, quote);
     });
   });
   // 同时刷新当前选中股票的资金流向
@@ -232,6 +262,7 @@ onUnmounted(() => {
       :refreshing="refreshing"
       @refresh="handleManualRefresh"
       @open-positions="openPositionsModal"
+      @open-profile="openProfileModal"
     />
 
     <!-- 主体区域: 左-列表 | 右-详情 -->
@@ -320,8 +351,14 @@ onUnmounted(() => {
       :show="showPositionsModal"
       :positions="positions"
       @close="closePositionsModal"
-      @add="addPosition"
+      @add="handleAddPosition"
       @remove="removePosition"
+    />
+
+    <!-- 画像弹窗 -->
+    <ProfileModal
+      :show="showProfileModal"
+      @close="closeProfileModal"
     />
   </div>
 </template>
