@@ -112,7 +112,7 @@ function closeModal() {
 .modal-container {
   background: var(--card-bg);
   border-radius: var(--radius-lg);
-  width: 820px;
+  width: 1100px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
