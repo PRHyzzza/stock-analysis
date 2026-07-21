@@ -63,6 +63,7 @@ function initChart() {
     priceLineVisible: true,
     priceLineColor: "rgba(163, 166, 175, 0.3)",
     lastValueVisible: true,
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
     crosshairMarkerRadius: 4,
     crosshairMarkerBorderColor: "#e74c3c",
     crosshairMarkerBackgroundColor: "#ffffff",
@@ -75,6 +76,7 @@ function initChart() {
     lineStyle: 2,
     priceLineVisible: false,
     lastValueVisible: false,
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
     crosshairMarkerVisible: false,
   });
 
@@ -85,6 +87,7 @@ function initChart() {
     lineStyle: 0,
     priceLineVisible: false,
     lastValueVisible: true,
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
     crosshairMarkerRadius: 3,
     crosshairMarkerBorderColor: "#2196F3",
     crosshairMarkerBackgroundColor: "#ffffff",
@@ -151,7 +154,8 @@ function updateChartData(intradayData) {
     if (avgPrice <= 0 && item.volume > 0 && item.turnover > 0) {
       avgPrice = item.turnover / (item.volume * 100);
     }
-    if (avgPrice > 0) {
+    // 安全校验：均价应在当前价的 ±50% 范围内，避免异常值拉伸价格轴
+    if (avgPrice > 0 && avgPrice > item.price * 0.5 && avgPrice < item.price * 1.5) {
       avgPriceData.push({ time: timestamp, value: avgPrice });
     }
 
