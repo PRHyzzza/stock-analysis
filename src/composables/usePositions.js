@@ -13,11 +13,16 @@ function loadPositions() {
   return [];
 }
 
+/** 单例实例 */
+let _instance = null;
+
 /**
  * 持仓状态管理（含 localStorage 持久化）
  * 每条持仓: { code, name, buyPrice, quantity, buyDate, addedAt }
+ * 单例模式：跨组件共享同一份状态
  */
 export function usePositions() {
+  if (_instance) return _instance;
   const positions = ref(loadPositions());
 
   // 持久化
@@ -85,7 +90,7 @@ export function usePositions() {
     totalCost.value > 0 ? (totalProfit.value / totalCost.value) * 100 : 0
   );
 
-  return {
+  _instance = {
     positions,
     positionStats,
     totalProfit,
@@ -96,4 +101,5 @@ export function usePositions() {
     removePosition,
     updatePositionQuote,
   };
+  return _instance;
 }

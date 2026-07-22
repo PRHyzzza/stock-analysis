@@ -10,6 +10,7 @@ export function useStockSearch(getWatchlist) {
   const showResults = ref(false);
   const searching = ref(false);
   let debounceTimer = null;
+  let blurTimer = null;
 
   function onSearchInput(e) {
     const val = e.target.value;
@@ -53,10 +54,11 @@ export function useStockSearch(getWatchlist) {
   }
 
   function onSearchBlur() {
-    setTimeout(() => { showResults.value = false; }, 200);
+    blurTimer = setTimeout(() => { showResults.value = false; }, 200);
   }
 
   function onSearchFocus() {
+    if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
     if (searchResults.value.length > 0) {
       showResults.value = true;
     }

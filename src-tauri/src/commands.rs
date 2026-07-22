@@ -55,10 +55,20 @@ pub async fn get_stock_quote(code: String) -> Result<StockQuote, String> {
 pub async fn get_market_indices() -> Result<Vec<MarketIndex>, String> {
     let codes = vec!["000001", "399001", "399006", "000300", "000688", "000905", "000852"];
     let mut results = Vec::new();
-    for code in codes {
+    for code in &codes {
         match fetch_index_quote(code).await {
             Ok(index) => results.push(index),
-            Err(e) => eprintln!("获取指数 {} 失败: {}", code, e),
+            Err(e) => {
+                eprintln!("获取指数 {} 失败: {}", code, e);
+                // 兜底：确保前端始终收到所有指数条目，price=0 由前端展示为 "--"
+                results.push(MarketIndex {
+                    code: code.to_string(),
+                    name: code.to_string(),
+                    price: 0.0,
+                    change: 0.0,
+                    change_pct: 0.0,
+                });
+            }
         }
     }
     Ok(results)

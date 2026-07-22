@@ -110,9 +110,8 @@ export function useWatchlistNotifications() {
   const history = ref(loadHistory());
 
   // 确保今日记录存在
-  const today = getToday();
-  if (!history.value[today]) {
-    history.value = { ...history.value, [today]: {} };
+  if (!history.value[getToday()]) {
+    history.value = { ...history.value, [getToday()]: {} };
   }
 
   // defaults for when settings aren't provided yet
@@ -126,17 +125,18 @@ export function useWatchlistNotifications() {
 
   /** 指定股票+触发类型今天是否已通知过 */
   function hasTriggeredToday(code, type) {
-    return history.value[today]?.[code]?.includes(type) ?? false;
+    return history.value[getToday()]?.[code]?.includes(type) ?? false;
   }
 
   /** 标记为已触发 */
   function markTriggeredToday(code, type) {
-    const todayData = history.value[today] || {};
+    const t = getToday();
+    const todayData = history.value[t] || {};
     const triggers = todayData[code] || [];
     if (!triggers.includes(type)) {
       history.value = {
         ...history.value,
-        [today]: { ...todayData, [code]: [...triggers, type] },
+        [t]: { ...todayData, [code]: [...triggers, type] },
       };
       saveHistory(history.value);
     }

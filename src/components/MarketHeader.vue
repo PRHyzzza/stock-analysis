@@ -15,11 +15,11 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings"]);
           <span v-if="i > 0" class="index-divider"></span>
           <span class="index-item">
             <span class="index-name">{{ idx.name }}</span>
-            <span class="index-value" :class="idx.change >= 0 ? 'up' : 'down'">
-              {{ idx.price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+            <span class="index-value" :class="idx.price === 0 ? '' : idx.change >= 0 ? 'up' : 'down'">
+              {{ idx.price === 0 ? '--' : idx.price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
             </span>
-            <span class="index-change" :class="idx.change >= 0 ? 'up' : 'down'">
-              {{ idx.changePct > 0 ? '+' : '' }}{{ idx.changePct.toFixed(2) }}%
+            <span class="index-change" :class="idx.price === 0 ? '' : idx.change >= 0 ? 'up' : 'down'">
+              {{ idx.price === 0 ? '--' : (idx.changePct > 0 ? '+' : '') + idx.changePct.toFixed(2) + '%' }}
             </span>
           </span>
         </template>
@@ -137,9 +137,6 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings"]);
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s;
-}
-.btn-icon-only {
-  padding: 6px 8px;
 }
 .btn-positions:hover {
   border-color: var(--rust);
