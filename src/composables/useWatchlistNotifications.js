@@ -4,6 +4,9 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
+
+const appWindow = getCurrentWindow();
 
 const STORAGE_KEY = "stock-analysis-notif-history";
 
@@ -213,17 +216,25 @@ export function useWatchlistNotifications() {
     const permitted = await ensurePermission();
     if (!permitted) return;
 
-    // ── 发送通知 ──
+    // ── 发送通知（await 每条，防止 Windows Toast 排队延迟）──
+    // 任务栏闪烁黄色（UserAttentionType.Critical），直到用户聚焦窗口
+    await appWindow.requestUserAttention(UserAttentionType.Critical);
+
     for (const trigger of newTriggers) {
       const label = TRIGGER_LABELS[trigger] || trigger;
       const sign = changePct > 0 ? "+" : "";
 
-      sendNotification({
+      await sendNotification({
         title: `${label}: ${name} (${code})`,
         body: `当前价 ${price.toFixed(2)}  涨跌幅 ${sign}${changePct.toFixed(2)}%`,
       });
 
       markTriggeredToday(code, trigger);
+
+      // 多条通知之间间隔 300ms，避免 Windows 通知系统节流合并
+      if (newTriggers.length > 1) {
+        await new Promise((r) => setTimeout(r, 300));
+      }
     }
   }
 
