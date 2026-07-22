@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { signChar, fmtPct } from "../utils/format";
 import { useStockSearch } from "../composables/useStockSearch.js";
 import { usePositions } from "../composables/usePositions.js";
+import ConfirmDialog from "./ConfirmDialog.vue";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -15,6 +16,7 @@ const emit = defineEmits(["close", "add", "remove"]);
 const { positionStats, totalProfit, totalCost, totalMarketValue, totalProfitPct } = usePositions();
 
 const showForm = ref(false);
+const editingCode = ref(null); // null = 新增, 非 null = 编辑对应 code
 const form = ref({ code: "", name: "", buyPrice: "", quantity: "", buyDate: "" });
 const formError = ref("");
 
@@ -72,13 +74,29 @@ function closeModal() {
 }
 
 function openAddForm() {
+  editingCode.value = null;
   form.value = { code: "", name: "", buyPrice: "", quantity: "", buyDate: "" };
   formError.value = "";
   clearStockSearch();
   showForm.value = true;
 }
 
+function openEditForm(pos) {
+  editingCode.value = pos.code;
+  form.value = {
+    code: pos.code || "",
+    name: pos.name || "",
+    buyPrice: pos.buyPrice != null ? String(pos.buyPrice) : "",
+    quantity: pos.quantity != null ? String(pos.quantity) : "",
+    buyDate: pos.buyDate || "",
+  };
+  formError.value = "";
+  clearStockSearch();
+  showForm.value = true;
+}
+
 function cancelForm() {
+  editingCode.value = null;
   showForm.value = false;
   formError.value = "";
   clearStockSearch();
@@ -88,28 +106,54 @@ function submitForm() {
   const { code, name, buyPrice, quantity } = form.value;
   if (!code.trim()) { formError.value = "请搜索并选择股票"; return; }
   if (!name.trim()) { formError.value = "请搜索并选择股票"; return; }
-  if (!buyPrice || Number(buyPrice) <= 0) { formError.value = "请输入有效的买入价"; return; }
+  if (!buyPrice || Number(buyPrice) <= 0) { formError.value = "请输入有效的成本"; return; }
   if (!quantity || Number(quantity) <= 0) { formError.value = "请输入有效的持仓数量"; return; }
   formError.value = "";
-  emit("add", {
+  const payload = {
     code: code.trim(),
     name: name.trim(),
     buyPrice: Number(buyPrice),
     quantity: Number(quantity),
     buyDate: form.value.buyDate || undefined,
-  });
+  };
+  if (editingCode.value) {
+    emit("edit", payload);
+  } else {
+    emit("add", payload);
+  }
+  editingCode.value = null;
   showForm.value = false;
   clearStockSearch();
 }
 
+const confirmState = ref({ show: false, code: "", name: "" });
+
 function confirmRemove(code, name) {
-  if (window.confirm(`确定删除 ${name}(${code}) 的持仓记录吗？`)) {
-    emit("remove", code);
-  }
+  confirmState.value = { show: true, code, name };
+}
+
+function handleConfirmRemove() {
+  emit("remove", confirmState.value.code);
+  confirmState.value = { show: false, code: "", name: "" };
+}
+
+function handleCancelRemove() {
+  confirmState.value = { show: false, code: "", name: "" };
 }
 </script>
 
 <template>
+  <ConfirmDialog
+    :show="confirmState.show"
+    title="删除持仓"
+    :message="`确定删除 ${confirmState.name}(${confirmState.code}) 的持仓记录吗？`"
+    confirm-text="删除"
+    cancel-text="取消"
+    :danger="true"
+    @confirm="handleConfirmRemove"
+    @cancel="handleCancelRemove"
+  />
+
   <Teleport to="body">
     <div v-if="show" class="modal-overlay" @click.self="closeModal">
       <div class="modal-container">
@@ -160,7 +204,7 @@ function confirmRemove(code, name) {
           </div>
 
           <div v-else class="position-list">
-            <div v-for="p in positionStats" :key="p.code" class="position-row">
+            <div v-for="p in positionStats" :key="p.code" class="position-row" @click="openEditForm(p)" title="点击修改持仓">
               <div class="position-info">
                 <span class="position-name">{{ p.name }}</span>
                 <span class="position-code">{{ p.code }}</span>
@@ -175,7 +219,7 @@ function confirmRemove(code, name) {
                 <span class="profit-amount">{{ signChar(p.profit) }}{{ p.profit.toFixed(2) }}</span>
                 <span class="profit-pct">{{ fmtPct(p.profitPct) }}</span>
               </div>
-              <button class="position-remove" @click="confirmRemove(p.code, p.name)" title="删除持仓">✕</button>
+              <button class="position-remove" @click.stop="confirmRemove(p.code, p.name)" title="删除持仓">✕</button>
             </div>
           </div>
 
@@ -235,7 +279,7 @@ function confirmRemove(code, name) {
               <button class="selected-stock-clear" @click="form.code = ''; form.name = ''">✕</button>
             </div>
             <div class="form-row">
-              <input v-model="form.buyPrice" type="number" step="0.01" placeholder="买入价" class="form-input" />
+              <input v-model="form.buyPrice" type="number" step="0.01" placeholder="成本" class="form-input" />
               <input v-model="form.quantity" type="number" step="1" placeholder="数量 (股)" class="form-input" />
             </div>
             <div class="form-row">
@@ -244,7 +288,7 @@ function confirmRemove(code, name) {
             <div v-if="formError" class="form-error">{{ formError }}</div>
             <div class="form-actions">
               <button class="btn-form btn-form-cancel" @click="cancelForm">取消</button>
-              <button class="btn-form btn-form-submit" @click="submitForm">确认添加</button>
+              <button class="btn-form btn-form-submit" @click="submitForm">{{ editingCode ? '确认修改' : '确认添加' }}</button>
             </div>
           </div>
 
@@ -396,6 +440,11 @@ function confirmRemove(code, name) {
   border-radius: 10px;
   background: var(--fog);
   gap: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.position-row:hover {
+  background: var(--border);
 }
 
 .position-info {

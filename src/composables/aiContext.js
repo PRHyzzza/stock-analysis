@@ -63,7 +63,7 @@ export function serializeContext(contextData) {
     const posSummary = contextData.positions.map((p) => ({
       代码: p.code,
       名称: p.name,
-      买入价: p.buyPrice,
+      成本: p.buyPrice,
       数量: p.quantity,
       现价: p.price || p.buyPrice,
       买入日期: p.buyDate || "未知",

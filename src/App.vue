@@ -88,6 +88,13 @@ async function handleAddPosition(pos) {
   if (quote) updatePositionQuote(pos.code, quote);
 }
 
+async function handleEditPosition(pos) {
+  addPosition(pos);
+  // 立即刷新修改后持仓的实时行情
+  const quote = await loadQuote({ code: pos.code });
+  if (quote) updatePositionQuote(pos.code, quote);
+}
+
 function openPositionsModal() { showPositionsModal.value = true; }
 function closePositionsModal() { showPositionsModal.value = false; }
 
@@ -389,6 +396,7 @@ onUnmounted(() => {
       :positions="positions"
       @close="closePositionsModal"
       @add="handleAddPosition"
+      @edit="handleEditPosition"
       @remove="removePosition"
     />
 
