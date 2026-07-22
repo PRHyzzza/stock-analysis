@@ -2,6 +2,9 @@
 import { ref, computed, onMounted, onUpdated, onUnmounted, watch, nextTick } from "vue";
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
 import { calcSupportResistance } from "../composables/useSupportResistance.js";
+import { useSettings } from "../composables/useSettings.js";
+
+const { state: settings } = useSettings();
 
 const props = defineProps({
   data: { type: Array, default: () => [] },
@@ -114,14 +117,18 @@ function renderSupportResistance() {
   }
 }
 
-/** 均线系列 */
-const maPeriods = [5, 10, 20, 30];
-const maColors = {
+/** 均线系列 — 由设置控制周期 */
+const ALL_MA_COLORS = {
   5: "#ff4500", 10: "#1a73e8", 20: "#9c27b0",
-  30: "#00acc1",
+  30: "#00acc1", 60: "#e67e22", 120: "#2ecc71",
+  250: "#e74c3c",
 };
 const maSeries = {};
 const maLatestValues = ref({});
+
+/** 当前启用的均线周期（响应式，随设置变化） */
+const activeMaPeriods = computed(() => settings.klineMaPeriods || [5, 10, 20, 30]);
+const show30DayHL = computed(() => settings.klineShow30DayHL !== false);
 
 function computeMA(data, period) {
   const result = [];
@@ -199,9 +206,9 @@ function initChart() {
   });
 
   // 添加均线
-  maPeriods.forEach((p) => {
+  activeMaPeriods.value.forEach((p) => {
     const series = chart.addSeries(LineSeries, {
-      color: maColors[p],
+      color: ALL_MA_COLORS[p] || "#888",
       lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: false,
@@ -255,34 +262,39 @@ function updateChartData(newData) {
   volumeSeries.setData(volumeData);
 
   // 计算近 30 日高低并更新/创建价格线
-  const lookback = Math.min(30, candleData.length);
-  const recentCandles = candleData.slice(-lookback);
-  const high30 = Math.max(...recentCandles.map((c) => c.high));
-  const low30 = Math.min(...recentCandles.map((c) => c.low));
+  if (show30DayHL.value) {
+    const lookback = Math.min(30, candleData.length);
+    const recentCandles = candleData.slice(-lookback);
+    const high30 = Math.max(...recentCandles.map((c) => c.high));
+    const low30 = Math.min(...recentCandles.map((c) => c.low));
 
-  if (highPriceLine) {
-    highPriceLine.applyOptions({ price: high30 });
+    if (highPriceLine) {
+      highPriceLine.applyOptions({ price: high30 });
+    } else {
+      highPriceLine = candleSeries.createPriceLine({
+        price: high30,
+        color: "#e74c3c",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "30日高",
+      });
+    }
+    if (lowPriceLine) {
+      lowPriceLine.applyOptions({ price: low30 });
+    } else {
+      lowPriceLine = candleSeries.createPriceLine({
+        price: low30,
+        color: "#27ae60",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "30日低",
+      });
+    }
   } else {
-    highPriceLine = candleSeries.createPriceLine({
-      price: high30,
-      color: "#e74c3c",
-      lineWidth: 1,
-      lineStyle: 2,
-      axisLabelVisible: true,
-      title: "30日高",
-    });
-  }
-  if (lowPriceLine) {
-    lowPriceLine.applyOptions({ price: low30 });
-  } else {
-    lowPriceLine = candleSeries.createPriceLine({
-      price: low30,
-      color: "#27ae60",
-      lineWidth: 1,
-      lineStyle: 2,
-      axisLabelVisible: true,
-      title: "30日低",
-    });
+    if (highPriceLine) { try { candleSeries?.removePriceLine(highPriceLine); } catch {} highPriceLine = null; }
+    if (lowPriceLine) { try { candleSeries?.removePriceLine(lowPriceLine); } catch {} lowPriceLine = null; }
   }
 
   // 支撑与阻力 — 保存数据，数据更新后重新渲染
@@ -290,9 +302,34 @@ function updateChartData(newData) {
   srLevels.value = { support, resistance };
   refreshSRIfVisible();
 
-  // 更新均线数据
+  // 更新均线数据（按需动态创建/移除 series）
   const latestValues = {};
-  maPeriods.forEach((p) => {
+  const currentPeriods = new Set(activeMaPeriods.value);
+
+  // 移除不再需要的 series
+  Object.keys(maSeries).forEach((p) => {
+    const period = Number(p);
+    if (!currentPeriods.has(period) && maSeries[period]) {
+      try { chart?.removeSeries(maSeries[period]); } catch {}
+      delete maSeries[period];
+    }
+  });
+
+  // 按需创建新 series
+  currentPeriods.forEach((p) => {
+    if (!maSeries[p] && chart) {
+      const series = chart.addSeries(LineSeries, {
+        color: ALL_MA_COLORS[p] || "#888",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      maSeries[p] = series;
+    }
+  });
+
+  currentPeriods.forEach((p) => {
     const series = maSeries[p];
     if (series) {
       const maData = computeMA(candleData, p);
@@ -428,8 +465,8 @@ onUnmounted(() => {
           >月 K</button>
         </div>
         <div class="kline-legend">
-          <span v-for="p in maPeriods" :key="p" class="legend-item ma-legend">
-            <span class="legend-dot" :style="{ background: maColors[p] }"></span>
+          <span v-for="p in activeMaPeriods" :key="p" class="legend-item ma-legend">
+            <span class="legend-dot" :style="{ background: ALL_MA_COLORS[p] || '#888' }"></span>
             MA{{ p }} <span class="ma-value">{{ maLatestValues[p]?.toFixed(2) ?? "--" }}</span>
           </span>
         </div>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import TitleBar from "./components/TitleBar.vue";
 import MarketHeader from "./components/MarketHeader.vue";
 import StockList from "./components/StockList.vue";
@@ -10,6 +10,7 @@ import AiAnalysisModal from "./components/AiAnalysisModal.vue";
 import ChipDistribution from "./components/ChipDistribution.vue";
 import PositionModal from "./components/PositionModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
+import SettingsModal from "./components/SettingsModal.vue";
 import { useWatchlist } from "./composables/useWatchlist";
 import { usePositions } from "./composables/usePositions";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
@@ -21,6 +22,8 @@ import { useIntradayData } from "./composables/useIntradayData";
 import { useSectorMoneyFlow } from "./composables/useSectorMoneyFlow";
 import { deleteStockMessages } from "./composables/useAiAnalysis";
 import { useUserProfileSingleton } from "./composables/useUserProfile";
+import { useWatchlistNotifications } from "./composables/useWatchlistNotifications";
+import { useSettings } from "./composables/useSettings";
 
 // ---- 侧边栏视图切换 ----
 const sidebarView = ref("watchlist");
@@ -93,10 +96,17 @@ const showProfileModal = ref(false);
 function openProfileModal() { showProfileModal.value = true; }
 function closeProfileModal() { showProfileModal.value = false; }
 
+// ---- 设置弹窗 ----
+const showSettingsModal = ref(false);
+function openSettingsModal() { showSettingsModal.value = true; }
+function closeSettingsModal() { showSettingsModal.value = false; }
+
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
 const { intradayData, intradayLoading, loadIntradayData } = useIntradayData();
 const { sectorList, sectorLoading, sectorError, loadSectorMoneyFlow } = useSectorMoneyFlow();
+const { checkAndNotify } = useWatchlistNotifications();
+const { state: settings } = useSettings();
 
 // 计算当前选中股票的"加入自选"标记
 const watchlistMarkers = computed(() => {
@@ -194,6 +204,7 @@ function onKeydown(e) {
     closeAiModal();
     closeChipModal();
     closePositionsModal();
+    closeSettingsModal();
   }
 }
 
@@ -201,34 +212,59 @@ let indicesTimer;
 let quotesTimer;
 let klineTimer;
 
+/** 重新设置所有定时器（设置变更时调用） */
+function rescheduleTimers() {
+  clearInterval(indicesTimer);
+  clearInterval(quotesTimer);
+  clearInterval(klineTimer);
+
+  if (settings.indicesRefreshMs > 0) {
+    indicesTimer = setInterval(loadIndices, settings.indicesRefreshMs);
+  }
+  if (settings.quotesRefreshMs > 0) {
+    quotesTimer = setInterval(refreshAllQuotes, settings.quotesRefreshMs);
+  }
+  if (settings.klineRefreshMs > 0) {
+    klineTimer = setInterval(() => {
+      if (selectedStock.value) loadKlineData(selectedStock.value);
+    }, settings.klineRefreshMs);
+  }
+}
+
 onMounted(() => {
   document.addEventListener("keydown", onKeydown);
   // 加载用户画像
   loadProfile();
-  // 加载指数行情（每 60 秒）
+  // 加载指数行情
   loadIndices();
-  indicesTimer = setInterval(loadIndices, 60000);
   // 加载板块资金流向
   loadSectorMoneyFlow();
-  // 左侧所有自选股刷新实时数据（每 30 秒）
+  // 初始设置定时器
+  rescheduleTimers();
+  // 左侧所有自选股刷新实时数据
   refreshAllQuotes();
-  quotesTimer = setInterval(refreshAllQuotes, 30000);
-  // 右侧选中股票定时刷新 K 线（每 120 秒）
+  // 右侧选中股票加载数据
   if (selectedStock.value) {
     loadIndustryData(selectedStock.value);
     loadKlineData(selectedStock.value);
     loadIntradayData(selectedStock.value);
     loadMoneyFlow(selectedStock.value);
   }
-  klineTimer = setInterval(() => {
-    if (selectedStock.value) loadKlineData(selectedStock.value);
-  }, 120000);
 });
+
+// 设置变更时自动重新调度定时器
+watch(
+  () => [settings.indicesRefreshMs, settings.quotesRefreshMs, settings.klineRefreshMs],
+  () => { rescheduleTimers(); }
+);
 
 function refreshAllQuotes() {
   watchlist.value.forEach((stock) => {
     loadQuote(stock).then((quote) => {
-      if (quote) updateWatchlistQuote(stock.code, quote);
+      if (quote) {
+        updateWatchlistQuote(stock.code, quote);
+        checkAndNotify(quote, settings);
+      }
     });
   });
   // 刷新持仓的实时行情
@@ -263,6 +299,7 @@ onUnmounted(() => {
       @refresh="handleManualRefresh"
       @open-positions="openPositionsModal"
       @open-profile="openProfileModal"
+      @open-settings="openSettingsModal"
     />
 
     <!-- 主体区域: 左-列表 | 右-详情 -->
@@ -359,6 +396,12 @@ onUnmounted(() => {
     <ProfileModal
       :show="showProfileModal"
       @close="closeProfileModal"
+    />
+
+    <!-- 设置弹窗 -->
+    <SettingsModal
+      :show="showSettingsModal"
+      @close="closeSettingsModal"
     />
   </div>
 </template>

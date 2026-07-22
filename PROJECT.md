@@ -27,7 +27,7 @@ stock-analysis/
 │   │   ├── StockList.vue / HotList.vue / SearchDropdown.vue
 │   │   ├── StockDetail.vue / KlineChart.vue / IntradayChart.vue
 │   │   ├── AiAnalysisModal.vue / TechAnalysisModal.vue / IndustryModal.vue
-│   │   ├── ProfileModal.vue / PositionModal.vue
+│   │   ├── ProfileModal.vue / PositionModal.vue / SettingsModal.vue
 │   │   ├── ChipDistribution.vue / SectorMoneyFlow.vue
 │   │   └── ai/   (AiApiKeySetup / AiChatMessages / AiChatFooter)
 │   ├── composables/            ← 有状态逻辑（详见 §3.2）
@@ -77,7 +77,7 @@ stock-analysis/
 
 | 文件 | 职责 |
 |------|------|
-| `MarketHeader.vue` | 顶部栏：大盘指数 + 刷新按钮 + 画像/持仓入口 |
+| `MarketHeader.vue` | 顶部栏：大盘指数 + 刷新按钮 + ⚙设置/画像/持仓入口 |
 | `TitleBar.vue` | 应用标题栏（窗口拖拽区域） |
 | `StockList.vue` | 左侧边栏：自选股列表 + 搜索 + 热榜切换 + 板块资金 |
 | `HotList.vue` | 同花顺实时热榜（在 StockList 内渲染） |
@@ -92,6 +92,7 @@ stock-analysis/
 | `SectorMoneyFlow.vue` | 行业板块资金流向面板（rank + 资金/涨跌切换模式） |
 | `PositionModal.vue` | 持仓管理弹窗：汇总、列表、添加/删除、股票搜索 |
 | `SearchDropdown.vue` | 股票搜索下拉组件（从 StockList.vue 拆分） |
+| `SettingsModal.vue` | 全局设置弹窗：4 个标签页（通知/刷新/图表/AI），全部选项实时生效、localStorage 持久化 |
 | `ai/AiApiKeySetup.vue` | API Key 配置面板 |
 | `ai/AiChatMessages.vue` | AI 对话消息列表（Markdown 渲染 + 流式内容实时滚动） |
 | `ai/AiChatFooter.vue` | AI 输入框 + 发送按钮 |
@@ -117,6 +118,8 @@ stock-analysis/
 | `aiContext.js` | `computeMA()`, `serializeContext()`, `buildSystemPrompt()` | 纯函数，构建 AI 系统提示词（含用户画像和持仓注入） |
 | `useSupportResistance.js` | `calcSupportResistance()` | 纯函数，从 `KlineChart.vue` 拆分出的支撑/阻力位算法（聚类 + 斐波那契） |
 | `llmClient.js` | `callLlmStream()` | 纯函数，从 `useAiAnalysis.js` 拆分出的 SSE 流式 LLM 调用客户端 |
+| `useWatchlistNotifications.js` | `useWatchlistNotifications()` | Windows 原生通知 (`@tauri-apps/plugin-notification`)；涨停/跌停/±7%/±5%/快速拉升/快速下跌，每股票每类型每日一次 |
+| `useSettings.js` | `useSettings()` | 全局设置单例，localStorage `stock-analysis-settings` 持久化；返回 `{ state, resetAll }`，所有模块通过 state 读取配置 |
 
 **模式**: 每个 composable 返回 `{ data, loading, loadData(), ... }`。`App.vue` 中调用所有 composable，通过 props 传递给子组件。
 
@@ -158,6 +161,8 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 |--------|------|------|--------|
 | **持仓** (`usePositions` + `PositionModal`) | localStorage | MarketHeader「持仓」 | `refreshAllQuotes()` 每 30s 刷新实时价→算盈亏；AI 对话时注入含实时价格和盈亏的持仓上下文 |
 | **用户画像** (`useUserProfile` + `ProfileModal`) | `app_data_dir/user-profile.md` | MarketHeader「画像」 | AI 每次回复后自动更新（`deepseek-v4-flash` 非流式关思考，静默失败）；手动编辑左 textarea 右 marked 预览；单例 `useUserProfileSingleton()` 跨组件共享 |
+| **自选通知** (`useWatchlistNotifications`) | localStorage (触发历史) | 行情刷新时自动调用 | 涨停/跌停/±7%/±5% 阈值 + 快速拉升/下跌（30s 内变动 ≥2%）；每股票每触发类型每日一次；Windows 原生通知 via `tauri-plugin-notification` |
+| **全局设置** (`useSettings` + `SettingsModal`) | localStorage `stock-analysis-settings` | MarketHeader「⚙」 | 4 个标签页：通知开关/刷新间隔/图表 MA 参数/AI 模型配置；`App.vue` 的 `watch` 自动将刷新间隔变更应用到定时器 |
 
 ---
 
@@ -182,6 +187,8 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `call_llm_stream` | AI 对话（SSE 流式） | DeepSeek API → Tauri 事件 `llm-chunk`/`llm-done`/`llm-error` |
 | `read_user_profile` | 读取用户画像 Markdown 文件 | 本地 `app_data_dir/user-profile.md` |
 | `save_user_profile` | 保存用户画像 Markdown 文件 | 本地 `app_data_dir/user-profile.md` |
+
+**Tauri 插件**: `tauri-plugin-opener` (打开外部链接) + `tauri-plugin-notification` (Windows 原生通知)
 
 ### 4.2 数据源 (api/)
 

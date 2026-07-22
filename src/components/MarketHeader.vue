@@ -4,7 +4,7 @@ defineProps({
   refreshing: { type: Boolean, default: false },
 });
 
-defineEmits(["refresh", "open-positions", "open-profile"]);
+defineEmits(["refresh", "open-positions", "open-profile", "open-settings"]);
 </script>
 
 <template>
@@ -26,6 +26,12 @@ defineEmits(["refresh", "open-positions", "open-profile"]);
       </div>
     </div>
     <div class="header-right">
+      <button class="btn-positions btn-icon-only" @click="$emit('open-settings')" title="设置">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="10" cy="10" r="3"/>
+          <path d="M10 1.5V3m0 14v1.5M1.5 10H3m14 0h1.5M3.4 3.4l1.06 1.06m11.08 11.08 1.06 1.06M3.4 16.6l1.06-1.06m11.08-11.08 1.06-1.06"/>
+        </svg>
+      </button>
       <button class="btn-positions" @click="$emit('open-profile')" title="用户画像">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <circle cx="8" cy="5.5" r="3" stroke="currentColor" stroke-width="1.3"/>
@@ -130,6 +136,9 @@ defineEmits(["refresh", "open-positions", "open-profile"]);
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s;
+}
+.btn-icon-only {
+  padding: 6px 8px;
 }
 .btn-positions:hover {
   border-color: var(--rust);

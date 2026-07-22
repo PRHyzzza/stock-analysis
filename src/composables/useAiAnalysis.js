@@ -4,6 +4,7 @@ import { getMergedTools, getToolImpl } from "../skills/index.js";
 import { buildSystemPrompt } from "./aiContext.js";
 import { callLlmStream } from "./llmClient.js";
 import { useUserProfileSingleton } from "./useUserProfile.js";
+import { useSettings } from "./useSettings.js";
 
 const API_KEY_KEY = "stock-analysis-ai-api-key";
 const MESSAGES_STORAGE_KEY = "stock-analysis-ai-messages";
@@ -42,11 +43,17 @@ const TOOLS = getMergedTools();
 
 // ============ Composable ============
 
+const { state: settings } = useSettings();
+
 export function useAiAnalysis() {
   const currentStockCode = ref(null);
-  const currentModel = ref(localStorage.getItem(MODEL_KEY) || DEFAULT_MODEL);
-  const thinkingEnabled = ref(localStorage.getItem(THINKING_ENABLED_KEY) !== "false");
-  const reasoningEffort = ref(localStorage.getItem(REASONING_EFFORT_KEY) || "high");
+  const currentModel = ref(localStorage.getItem(MODEL_KEY) || settings.aiModel);
+  const thinkingEnabled = ref(
+    localStorage.getItem(THINKING_ENABLED_KEY) !== null
+      ? localStorage.getItem(THINKING_ENABLED_KEY) !== "false"
+      : settings.aiThinkingEnabled
+  );
+  const reasoningEffort = ref(localStorage.getItem(REASONING_EFFORT_KEY) || settings.aiReasoningEffort);
   const messages = ref([]);
   const loading = ref(false);
   const error = ref("");
