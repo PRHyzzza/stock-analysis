@@ -5,9 +5,9 @@ import { buildSystemPrompt } from "./aiContext.js";
 import { callLlmStream } from "./llmClient.js";
 import { useUserProfileSingleton } from "./useUserProfile.js";
 import { useSettings } from "./useSettings.js";
+import { loadStockMessages, saveStockMessages, isStockInWatchlist } from "./aiMessageStore.js";
 
 const API_KEY_KEY = "stock-analysis-ai-api-key";
-const MESSAGES_STORAGE_KEY = "stock-analysis-ai-messages";
 const MODEL_KEY = "stock-analysis-ai-model";
 const THINKING_ENABLED_KEY = "stock-analysis-ai-thinking";
 const REASONING_EFFORT_KEY = "stock-analysis-ai-effort";
@@ -18,24 +18,6 @@ const AVAILABLE_MODELS = [
   { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
 ];
 const DEFAULT_MODEL = "deepseek-v4-flash";
-
-// ============ 按股票隔离的消息存储 ============
-
-function loadAllMessages() {
-  try { return JSON.parse(localStorage.getItem(MESSAGES_STORAGE_KEY)) || {}; }
-  catch { return {}; }
-}
-
-function saveAllMessages(map) {
-  localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(map));
-}
-
-/** 删除指定股票的 AI 对话记录（供外部调用） */
-export function deleteStockMessages(code) {
-  const map = loadAllMessages();
-  delete map[code];
-  saveAllMessages(map);
-}
 
 // ============ 从 Skills 架构加载工具 ============
 
@@ -59,36 +41,22 @@ export function useAiAnalysis() {
   const error = ref("");
   const apiKey = ref(localStorage.getItem(API_KEY_KEY) || "");
 
-  /** 检查当前股票是否在自选股中 */
-  function isInWatchlist(code) {
-    try {
-      const raw = localStorage.getItem("stock-analysis-watchlist");
-      if (!raw) return false;
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) && parsed.some((s) => s.code === code);
-    } catch {
-      return false;
-    }
-  }
+  // 设置变更时同步到 AI 状态（SettingsModal → AiModelControls）
+  watch(() => settings.aiModel, (m) => { if (m) currentModel.value = m; });
+  watch(() => settings.aiThinkingEnabled, (v) => { thinkingEnabled.value = v; });
+  watch(() => settings.aiReasoningEffort, (v) => { if (v) reasoningEffort.value = v; });
 
   // 自动持久化当前股票的消息（仅自选股才保存）
   watch(messages, (val) => {
-    if (currentStockCode.value && isInWatchlist(currentStockCode.value)) {
-      const map = loadAllMessages();
-      map[currentStockCode.value] = val;
-      saveAllMessages(map);
+    if (currentStockCode.value && isStockInWatchlist(currentStockCode.value)) {
+      saveStockMessages(currentStockCode.value, val);
     }
   }, { deep: true });
 
   /** 切换到指定股票的对话 */
   function switchStock(code) {
     currentStockCode.value = code;
-    if (code) {
-      const map = loadAllMessages();
-      messages.value = map[code] || [];
-    } else {
-      messages.value = [];
-    }
+    messages.value = loadStockMessages(code);
     error.value = "";
   }
 
@@ -285,16 +253,19 @@ AI: ${aiResponse.slice(0, 800)}
 
   function setModel(model) {
     currentModel.value = model;
+    settings.aiModel = model;
     localStorage.setItem(MODEL_KEY, model);
   }
 
   function setThinkingEnabled(enabled) {
     thinkingEnabled.value = enabled;
+    settings.aiThinkingEnabled = enabled;
     localStorage.setItem(THINKING_ENABLED_KEY, String(enabled));
   }
 
   function setReasoningEffort(effort) {
     reasoningEffort.value = effort;
+    settings.aiReasoningEffort = effort;
     localStorage.setItem(REASONING_EFFORT_KEY, effort);
   }
 

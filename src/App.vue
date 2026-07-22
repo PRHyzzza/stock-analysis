@@ -20,7 +20,7 @@ import { useMarketIndices } from "./composables/useMarketIndices";
 import { useMoneyFlow } from "./composables/useMoneyFlow";
 import { useIntradayData } from "./composables/useIntradayData";
 import { useSectorMoneyFlow } from "./composables/useSectorMoneyFlow";
-import { deleteStockMessages } from "./composables/useAiAnalysis";
+import { deleteStockMessages } from "./composables/aiMessageStore";
 import { useUserProfileSingleton } from "./composables/useUserProfile";
 import { useWatchlistNotifications } from "./composables/useWatchlistNotifications";
 import { useSettings } from "./composables/useSettings";

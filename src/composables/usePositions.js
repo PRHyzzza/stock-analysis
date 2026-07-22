@@ -1,4 +1,4 @@
-import { ref, watch } from "vue";
+import { ref, computed, watch } from "vue";
 
 const STORAGE_KEY = "stock-analysis-positions";
 
@@ -59,8 +59,39 @@ export function usePositions() {
     }
   }
 
+  // ── 盈亏计算 ──
+  const positionStats = computed(() => {
+    return positions.value.map((p) => {
+      const currentPrice = p.price || p.buyPrice;
+      const buyPrice = p.buyPrice || 0;
+      const profit = buyPrice > 0 ? (currentPrice - buyPrice) * (p.quantity || 0) : 0;
+      const profitPct = buyPrice > 0 ? ((currentPrice - buyPrice) / buyPrice) * 100 : 0;
+      const totalCost = buyPrice * (p.quantity || 0);
+      const marketValue = currentPrice * (p.quantity || 0);
+      return { ...p, profit, profitPct, totalCost, marketValue, currentPrice };
+    });
+  });
+
+  const totalProfit = computed(() =>
+    positionStats.value.reduce((s, p) => s + p.profit, 0)
+  );
+  const totalCost = computed(() =>
+    positionStats.value.reduce((s, p) => s + p.totalCost, 0)
+  );
+  const totalMarketValue = computed(() =>
+    positionStats.value.reduce((s, p) => s + p.marketValue, 0)
+  );
+  const totalProfitPct = computed(() =>
+    totalCost.value > 0 ? (totalProfit.value / totalCost.value) * 100 : 0
+  );
+
   return {
     positions,
+    positionStats,
+    totalProfit,
+    totalCost,
+    totalMarketValue,
+    totalProfitPct,
     addPosition,
     removePosition,
     updatePositionQuote,

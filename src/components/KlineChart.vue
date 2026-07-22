@@ -406,6 +406,13 @@ watch(
   { deep: true }
 );
 
+// 均线周期 / 30日高低线设置变更时自动重绘
+watch([activeMaPeriods, show30DayHL], () => {
+  if (props.data && props.data.length > 0 && candleSeries) {
+    updateChartData(props.data);
+  }
+});
+
 onMounted(() => {
   // 挂载后等待 DOM 就绪，如果已有数据则初始化
   nextTick(() => {

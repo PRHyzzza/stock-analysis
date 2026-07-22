@@ -1,13 +1,10 @@
 <script setup>
 import { computed } from "vue";
 import {
-  calcMACD,
-  calcKDJ,
-  calcWR,
-  calcRSI,
-  calcMATrend,
-  getCrossSignal,
+  calcMACD, calcKDJ, calcWR, calcRSI,
+  calcMATrend, getCrossSignal,
 } from "../composables/useTechIndicators";
+import IndicatorCard from "./IndicatorCard.vue";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -104,11 +101,68 @@ function fmtSignal(signal) {
   return { text: signal, cls: "signal-down" };
 }
 
-function fmtTrend(trend) {
-  if (!trend) return { text: "--", cls: "signal-none" };
-  if (trend.includes("多头")) return { text: trend, cls: "signal-up" };
-  return { text: trend, cls: "signal-down" };
-}
+// ── 各指标卡片数据 ──
+const maRows = computed(() => {
+  const maValues = indicators.value?.maValues;
+  if (!maValues) return [];
+  return Object.entries(maValues)
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([p, v]) => ({ label: `MA${p}`, value: v.toFixed(2) }));
+});
+
+const maAlignmentObj = computed(() => {
+  const a = indicators.value?.maAlignment;
+  if (!a) return null;
+  return {
+    text: a,
+    cls: a.includes("多头排列") ? "signal-up" : a.includes("空头排列") ? "signal-down" : "signal-none",
+  };
+});
+
+const macdRows = computed(() => {
+  const m = indicators.value?.macd;
+  if (!m) return [];
+  return [
+    { label: "DIF", value: fmt(m.dif) },
+    { label: "DEA", value: fmt(m.dea) },
+    { label: "MACD", value: fmt(m.macd), cls: (m.macd ?? 0) >= 0 ? "up" : "down" },
+  ];
+});
+
+const kdjRows = computed(() => {
+  const k = indicators.value?.kdj;
+  if (!k) return [];
+  return [
+    { label: "K", value: fmt(k.k) },
+    { label: "D", value: fmt(k.d) },
+    { label: "J", value: fmt(k.j) },
+  ];
+});
+
+const kdjStatusCls = computed(() => {
+  const s = indicators.value?.kdjStatus;
+  if (!s) return "signal-none";
+  return s.includes("超买") ? "signal-down" : s.includes("超卖") ? "signal-up" : "signal-none";
+});
+
+const wrRows = computed(() => {
+  const w = indicators.value?.wr;
+  const cls = (w ?? 0) <= -80 ? "signal-up" : (w ?? 0) >= -20 ? "signal-down" : "";
+  return [{ label: "WR(14)", value: w != null ? fmt(w) + "%" : "--", cls }];
+});
+
+const rsiRows = computed(() => {
+  const r = indicators.value?.rsi;
+  const cls = (r ?? 50) > 70 ? "signal-down" : (r ?? 50) < 30 ? "signal-up" : "";
+  return [{ label: "RSI(14)", value: r != null ? fmt(r) : "--", cls }];
+});
+
+const rsiDetail = computed(() => {
+  const r = indicators.value?.rsi;
+  if (r == null) return "超买: &ge; 70 | 超卖: &le; 30";
+  const cls = r > 70 ? "signal-down" : r < 30 ? "signal-up" : "";
+  return `超买: &ge; 70 &nbsp;|&nbsp; 超卖: &le; 30 &nbsp;|&nbsp; 当前: <span class="${cls}">${fmt(r)}</span>`;
+});
 </script>
 
 <template>
@@ -141,118 +195,41 @@ function fmtTrend(trend) {
 
           <template v-else>
             <!-- 均线趋势 -->
-            <div class="tech-section">
-              <div class="tech-section-title">均线趋势</div>
-              <div class="tech-card">
-                <div class="tech-row">
-                  <span class="tech-label">趋势判断</span>
-                  <span class="tech-value-lg" :class="fmtTrend(indicators.maTrend).cls">
-                    {{ fmtTrend(indicators.maTrend).text }}
-                  </span>
-                </div>
-                <div class="tech-detail">{{ indicators.maTrendDetail }}</div>
-                <div class="tech-alignment">
-                  <span class="tech-label">排列形态</span>
-                  <span class="tech-value-lg" :class="indicators.maAlignment?.includes('多头排列') ? 'signal-up' : indicators.maAlignment?.includes('空头排列') ? 'signal-down' : 'signal-none'">
-                    {{ indicators.maAlignment || '--' }}
-                  </span>
-                </div>
-              </div>
-            </div>
+            <IndicatorCard
+              title="均线趋势"
+              :rows="maRows"
+              :detail="indicators.maTrendDetail"
+              :alignment="maAlignmentObj"
+            />
 
             <!-- MACD -->
-            <div class="tech-section">
-              <div class="tech-section-title">MACD</div>
-              <div class="tech-card">
-                <div class="tech-grid">
-                  <div class="tech-item">
-                    <span class="tech-label">DIF</span>
-                    <span class="tech-value">{{ fmt(indicators.macd?.dif) }}</span>
-                  </div>
-                  <div class="tech-item">
-                    <span class="tech-label">DEA</span>
-                    <span class="tech-value">{{ fmt(indicators.macd?.dea) }}</span>
-                  </div>
-                  <div class="tech-item">
-                    <span class="tech-label">MACD</span>
-                    <span class="tech-value" :class="(indicators.macd?.macd ?? 0) >= 0 ? 'up' : 'down'">
-                      {{ fmt(indicators.macd?.macd) }}
-                    </span>
-                  </div>
-                </div>
-                <div class="tech-signal">
-                  <span class="tech-label">信号</span>
-                  <span class="tech-value-lg" :class="fmtSignal(indicators.macdCross).cls">
-                    {{ fmtSignal(indicators.macdCross).text }}
-                  </span>
-                </div>
-              </div>
-            </div>
+            <IndicatorCard
+              title="MACD"
+              :rows="macdRows"
+              :signal="indicators.macdCross ? fmtSignal(indicators.macdCross) : null"
+            />
 
             <!-- KDJ -->
-            <div class="tech-section">
-              <div class="tech-section-title">KDJ</div>
-              <div class="tech-card">
-                <div class="tech-grid">
-                  <div class="tech-item">
-                    <span class="tech-label">K</span>
-                    <span class="tech-value">{{ fmt(indicators.kdj?.k) }}</span>
-                  </div>
-                  <div class="tech-item">
-                    <span class="tech-label">D</span>
-                    <span class="tech-value">{{ fmt(indicators.kdj?.d) }}</span>
-                  </div>
-                  <div class="tech-item">
-                    <span class="tech-label">J</span>
-                    <span class="tech-value">{{ fmt(indicators.kdj?.j) }}</span>
-                  </div>
-                </div>
-                <div class="tech-signal">
-                  <span class="tech-label">金叉/死叉</span>
-                  <span class="tech-value-lg" :class="fmtSignal(indicators.kdjCross).cls">
-                    {{ fmtSignal(indicators.kdjCross).text }}
-                  </span>
-                </div>
-                <div class="tech-status">
-                  <span class="tech-label">超买/超卖</span>
-                  <span class="tech-value-lg" :class="indicators.kdjStatus?.includes('超买') ? 'signal-down' : indicators.kdjStatus?.includes('超卖') ? 'signal-up' : 'signal-none'">
-                    {{ indicators.kdjStatus || '--' }}
-                  </span>
-                </div>
-              </div>
-            </div>
+            <IndicatorCard
+              title="KDJ"
+              :rows="kdjRows"
+              :signal="indicators.kdjCross ? fmtSignal(indicators.kdjCross) : null"
+              :status="{ label:'超买/超卖', text:indicators.kdjStatus||'--', cls: kdjStatusCls }"
+            />
 
             <!-- WR -->
-            <div class="tech-section">
-              <div class="tech-section-title">WR (Williams %R)</div>
-              <div class="tech-card">
-                <div class="tech-row">
-                  <span class="tech-label">WR(14)</span>
-                  <span class="tech-value-lg" :class="(indicators.wr ?? 0) <= -80 ? 'signal-up' : (indicators.wr ?? 0) >= -20 ? 'signal-down' : ''">
-                    {{ indicators.wr != null ? fmt(indicators.wr) + '%' : '--' }}
-                  </span>
-                </div>
-                <div class="tech-detail">
-                  超买: ≥ -20 &nbsp;|&nbsp; 超卖: ≤ -80
-                </div>
-              </div>
-            </div>
+            <IndicatorCard
+              title="WR (Williams %R)"
+              :rows="wrRows"
+              detail="超买: &ge; -20 &nbsp;|&nbsp; 超卖: &le; -80"
+            />
 
             <!-- RSI -->
-            <div class="tech-section">
-              <div class="tech-section-title">RSI (相对强弱)</div>
-              <div class="tech-card">
-                <div class="tech-row">
-                  <span class="tech-label">RSI(14)</span>
-                  <span class="tech-value-lg" :class="(indicators.rsi ?? 50) > 70 ? 'signal-down' : (indicators.rsi ?? 50) < 30 ? 'signal-up' : ''">
-                    {{ indicators.rsi != null ? fmt(indicators.rsi) : '--' }}
-                  </span>
-                </div>
-                <div class="tech-detail">
-                  超买: ≥ 70 &nbsp;|&nbsp; 超卖: ≤ 30 &nbsp;|&nbsp; 当前: <span :class="(indicators.rsi ?? 50) > 70 ? 'signal-down' : (indicators.rsi ?? 50) < 30 ? 'signal-up' : ''">{{ indicators.rsi != null ? fmt(indicators.rsi) : '--' }}</span>
-                </div>
-              </div>
-            </div>
+            <IndicatorCard
+              title="RSI (相对强弱)"
+              :rows="rsiRows"
+              :detail="rsiDetail"
+            />
           </template>
         </div>
       </div>
@@ -358,106 +335,7 @@ function fmtTrend(trend) {
   opacity: 0.6;
 }
 
-/* ===== Steep: 区块 ===== */
-.tech-section {
-  margin-bottom: 20px;
-}
-.tech-section:last-child {
-  margin-bottom: 0;
-}
-
-.tech-section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 10px;
-  padding-left: 12px;
-  position: relative;
-  letter-spacing: -0.009em;
-}
-.tech-section-title::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 3px;
-  bottom: 3px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--rust);
-}
-
-.tech-card {
-  background: var(--fog);
-  border-radius: 12px;
-  padding: 16px 18px;
-  border: 1px solid var(--border-light);
-  transition: box-shadow 0.15s;
-}
-
-.tech-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.tech-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  margin-bottom: 14px;
-}
-
-.tech-item {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 8px 12px;
-  background: var(--card-bg);
-  border-radius: 8px;
-}
-
-.tech-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.tech-value {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.3;
-}
-
-.tech-value-lg {
-  font-size: 18px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.tech-detail {
-  margin-top: 10px;
-  padding: 8px 12px;
-  background: var(--card-bg);
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.6;
-  word-break: break-all;
-}
-
-.tech-signal,
-.tech-status,
-.tech-alignment {
-  border-top: 1px solid var(--border-light);
-  padding-top: 12px;
-  margin-top: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+/* ===== Steep: 区块（样式已迁移到 IndicatorCard.vue，此处保留 color helpers） ===== */
 
 /* ===== Steep: 信号标签 — Rust tone ===== */
 .signal-up {

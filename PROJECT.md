@@ -29,7 +29,9 @@ stock-analysis/
 │   │   ├── AiAnalysisModal.vue / TechAnalysisModal.vue / IndustryModal.vue
 │   │   ├── ProfileModal.vue / PositionModal.vue / SettingsModal.vue
 │   │   ├── ChipDistribution.vue / SectorMoneyFlow.vue
-│   │   └── ai/   (AiApiKeySetup / AiChatMessages / AiChatFooter)
+│   │   ├── IndicatorCard.vue
+│   │   ├── settings/   (SettingsTabNotify / SettingsTabRefresh / SettingsTabChart / SettingsTabAi)
+│   │   └── ai/   (AiApiKeySetup / AiChatMessages / AiChatFooter / AiModelControls)
 │   ├── composables/            ← 有状态逻辑（详见 §3.2）
 │   ├── prompts/system-prompt.md ← AI 提示词模板
 │   ├── skills/                 ← AI 工具模块（详见 §3.3）
@@ -93,9 +95,12 @@ stock-analysis/
 | `PositionModal.vue` | 持仓管理弹窗：汇总、列表、添加/删除、股票搜索 |
 | `SearchDropdown.vue` | 股票搜索下拉组件（从 StockList.vue 拆分） |
 | `SettingsModal.vue` | 全局设置弹窗：4 个标签页（通知/刷新/图表/AI），全部选项实时生效、localStorage 持久化 |
+| `IndicatorCard.vue` | 可复用技术指标展示卡片（标题 + 网格 + 信号/状态行 + 描述，在 TechAnalysisModal 中使用） |
+| `settings/` | 设置子标签页（SettingsTabNotify、SettingsTabRefresh、SettingsTabChart、SettingsTabAi） |
 | `ai/AiApiKeySetup.vue` | API Key 配置面板 |
 | `ai/AiChatMessages.vue` | AI 对话消息列表（Markdown 渲染 + 流式内容实时滚动） |
 | `ai/AiChatFooter.vue` | AI 输入框 + 发送按钮 |
+| `ai/AiModelControls.vue` | AI 模型/思考/推理控制组件（从 AiAnalysisModal 分离，自包含状态管理） |
 
 ### 3.2 组合式函数 (composables/)
 
@@ -120,6 +125,7 @@ stock-analysis/
 | `llmClient.js` | `callLlmStream()` | 纯函数，从 `useAiAnalysis.js` 拆分出的 SSE 流式 LLM 调用客户端 |
 | `useWatchlistNotifications.js` | `useWatchlistNotifications()` | Windows 原生通知 (`@tauri-apps/plugin-notification`)；涨停/跌停/±7%/±5%/快速拉升/快速下跌，每股票每类型每日一次 |
 | `useSettings.js` | `useSettings()` | 全局设置单例，localStorage `stock-analysis-settings` 持久化；返回 `{ state, resetAll }`，所有模块通过 state 读取配置 |
+| `aiMessageStore.js` | `deleteStockMessages()`, `loadStockMessages()`, `saveStockMessages()` | 纯函数，AI 对话按股票隔离持久化（localStorage） |
 
 **模式**: 每个 composable 返回 `{ data, loading, loadData(), ... }`。`App.vue` 中调用所有 composable，通过 props 传递给子组件。
 

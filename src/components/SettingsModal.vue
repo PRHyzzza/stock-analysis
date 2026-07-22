@@ -1,11 +1,15 @@
 <script setup>
-import { computed } from "vue";
+import { ref } from "vue";
 import { useSettings } from "../composables/useSettings.js";
+import SettingsTabNotify from "./settings/SettingsTabNotify.vue";
+import SettingsTabRefresh from "./settings/SettingsTabRefresh.vue";
+import SettingsTabChart from "./settings/SettingsTabChart.vue";
+import SettingsTabAi from "./settings/SettingsTabAi.vue";
 
 defineProps({ show: { type: Boolean, default: false } });
 const emit = defineEmits(["close"]);
 
-const { state, resetAll } = useSettings();
+const { resetAll } = useSettings();
 
 const tabs = [
   { key: "notify", label: "通知", icon: "🔔" },
@@ -13,33 +17,18 @@ const tabs = [
   { key: "chart", label: "图表", icon: "📊" },
   { key: "ai", label: "AI", icon: "🤖" },
 ];
-const activeTab = computed({
-  get: () => {
+
+const activeTab = ref(
+  (() => {
     try { return localStorage.getItem("stock-analysis-settings-tab") || "notify"; }
     catch { return "notify"; }
-  },
-  set: (v) => {
-    try { localStorage.setItem("stock-analysis-settings-tab", v); }
-    catch { /* ignore */ }
-  },
-});
+  })()
+);
 
-/** 触发 activeTab 响应式更新 */
 function switchTab(key) {
   activeTab.value = key;
-  // Force reactivity via a simple trick
   try { localStorage.setItem("stock-analysis-settings-tab", key); } catch { /* */ }
 }
-
-// 刷新间隔选项
-const intervalOptions = [
-  { value: 10000, label: "10 秒" },
-  { value: 30000, label: "30 秒" },
-  { value: 60000, label: "1 分钟" },
-  { value: 120000, label: "2 分钟" },
-  { value: 300000, label: "5 分钟" },
-  { value: 0, label: "关闭" },
-];
 
 function closeModal() { emit("close"); }
 </script>
@@ -77,111 +66,11 @@ function closeModal() { emit("close"); }
           </button>
         </div>
 
-        <!-- ── 通知设置 ── -->
-        <div v-show="activeTab === 'notify'" class="tab-content">
-          <label class="setting-row">
-            <span class="setting-label">启用通知</span>
-            <input type="checkbox" v-model="state.notifyEnabled" class="toggle" />
-          </label>
-          <div class="setting-group" :class="{ disabled: !state.notifyEnabled }">
-            <p class="setting-group-title">上涨触发</p>
-            <label class="setting-row sub"><span>涨超 5%</span><input type="checkbox" v-model="state.notifyUp5" class="toggle" :disabled="!state.notifyEnabled" /></label>
-            <label class="setting-row sub"><span>涨超 7%</span><input type="checkbox" v-model="state.notifyUp7" class="toggle" :disabled="!state.notifyEnabled" /></label>
-            <label class="setting-row sub"><span>涨停</span><input type="checkbox" v-model="state.notifyLimitUp" class="toggle" :disabled="!state.notifyEnabled" /></label>
-          </div>
-          <div class="setting-group" :class="{ disabled: !state.notifyEnabled }">
-            <p class="setting-group-title">下跌触发</p>
-            <label class="setting-row sub"><span>跌超 5%</span><input type="checkbox" v-model="state.notifyDown5" class="toggle" :disabled="!state.notifyEnabled" /></label>
-            <label class="setting-row sub"><span>跌超 7%</span><input type="checkbox" v-model="state.notifyDown7" class="toggle" :disabled="!state.notifyEnabled" /></label>
-            <label class="setting-row sub"><span>跌停</span><input type="checkbox" v-model="state.notifyLimitDown" class="toggle" :disabled="!state.notifyEnabled" /></label>
-          </div>
-          <div class="setting-group" :class="{ disabled: !state.notifyEnabled }">
-            <p class="setting-group-title">动态触发</p>
-            <label class="setting-row sub"><span>快速拉升</span><input type="checkbox" v-model="state.notifyFastRise" class="toggle" :disabled="!state.notifyEnabled" /></label>
-            <label class="setting-row sub"><span>快速下跌</span><input type="checkbox" v-model="state.notifyFastFall" class="toggle" :disabled="!state.notifyEnabled" /></label>
-            <label class="setting-row sub">
-              <span>快速变动阈值</span>
-              <div class="slider-wrap">
-                <input type="range" min="1" max="5" step="0.5" v-model.number="state.notifyFastThreshold" class="slider" :disabled="!state.notifyEnabled" />
-                <span class="slider-val">{{ state.notifyFastThreshold }}%</span>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- ── 刷新设置 ── -->
-        <div v-show="activeTab === 'refresh'" class="tab-content">
-          <div class="setting-group">
-            <p class="setting-group-title">自动刷新间隔</p>
-            <label class="setting-row">
-              <span>大盘指数</span>
-              <select v-model.number="state.indicesRefreshMs" class="select">
-                <option v-for="opt in intervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-            </label>
-            <label class="setting-row">
-              <span>自选行情</span>
-              <select v-model.number="state.quotesRefreshMs" class="select">
-                <option v-for="opt in intervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-            </label>
-            <label class="setting-row">
-              <span>K 线数据</span>
-              <select v-model.number="state.klineRefreshMs" class="select">
-                <option v-for="opt in intervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <!-- ── 图表设置 ── -->
-        <div v-show="activeTab === 'chart'" class="tab-content">
-          <div class="setting-group">
-            <p class="setting-group-title">K 线均线周期</p>
-            <div class="ma-chips">
-              <label v-for="p in [5,10,20,30,60,120,250]" :key="p" class="ma-chip" :class="{ active: state.klineMaPeriods.includes(p) }">
-                <input type="checkbox" :value="p" v-model="state.klineMaPeriods" class="hidden-check" />
-                MA{{ p }}
-              </label>
-            </div>
-          </div>
-          <div class="setting-group">
-            <p class="setting-group-title">其他</p>
-            <label class="setting-row">
-              <span>显示 30 日最高/最低价参考线</span>
-              <input type="checkbox" v-model="state.klineShow30DayHL" class="toggle" />
-            </label>
-          </div>
-        </div>
-
-        <!-- ── AI 设置 ── -->
-        <div v-show="activeTab === 'ai'" class="tab-content">
-          <div class="setting-group">
-            <p class="setting-group-title">模型</p>
-            <label class="setting-row">
-              <span>默认模型</span>
-              <select v-model="state.aiModel" class="select">
-                <option value="deepseek-v4-flash">DeepSeek V4 Flash (更快)</option>
-                <option value="deepseek-v4-pro">DeepSeek V4 Pro (更准)</option>
-              </select>
-            </label>
-          </div>
-          <div class="setting-group">
-            <p class="setting-group-title">推理</p>
-            <label class="setting-row">
-              <span>启用思考模式</span>
-              <input type="checkbox" v-model="state.aiThinkingEnabled" class="toggle" />
-            </label>
-            <label class="setting-row">
-              <span>推理深度</span>
-              <select v-model="state.aiReasoningEffort" class="select">
-                <option value="low">低 (快速)</option>
-                <option value="high">高 (深入)</option>
-                <option value="max">最大 (最深入)</option>
-              </select>
-            </label>
-          </div>
-        </div>
+        <!-- Tab 内容 -->
+        <SettingsTabNotify v-show="activeTab === 'notify'" />
+        <SettingsTabRefresh v-show="activeTab === 'refresh'" />
+        <SettingsTabChart v-show="activeTab === 'chart'" />
+        <SettingsTabAi v-show="activeTab === 'ai'" />
 
         <!-- 底部操作 -->
         <div class="modal-footer">
@@ -285,20 +174,18 @@ function closeModal() { emit("close"); }
 }
 .tab-icon { font-size: 14px; }
 
-/* ── Content ── */
-.tab-content {
+/* ── Tab content (shared with sub-components via :deep) ── */
+:deep(.tab-content) {
   padding: 20px 24px;
   overflow-y: auto;
   flex: 1;
 }
 
-.setting-group {
-  margin-bottom: 20px;
-}
-.setting-group:last-child { margin-bottom: 0; }
-.setting-group.disabled { opacity: 0.4; pointer-events: none; }
+:deep(.setting-group) { margin-bottom: 20px; }
+:deep(.setting-group:last-child) { margin-bottom: 0; }
+:deep(.setting-group.disabled) { opacity: 0.4; pointer-events: none; }
 
-.setting-group-title {
+:deep(.setting-group-title) {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -308,7 +195,7 @@ function closeModal() { emit("close"); }
   margin-top: 0;
 }
 
-.setting-row {
+:deep(.setting-row) {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -319,11 +206,11 @@ function closeModal() { emit("close"); }
   cursor: pointer;
   user-select: none;
 }
-.setting-row:last-child { border-bottom: none; }
-.setting-row.sub { padding-left: 16px; }
+:deep(.setting-row:last-child) { border-bottom: none; }
+:deep(.setting-row.sub) { padding-left: 16px; }
 
 /* ── Toggle Switch ── */
-.toggle {
+:deep(.toggle) {
   appearance: none;
   width: 40px; height: 22px;
   border-radius: 11px;
@@ -333,7 +220,7 @@ function closeModal() { emit("close"); }
   transition: background 0.2s;
   flex-shrink: 0;
 }
-.toggle::after {
+:deep(.toggle::after) {
   content: '';
   position: absolute;
   top: 2px; left: 2px;
@@ -343,12 +230,12 @@ function closeModal() { emit("close"); }
   transition: transform 0.2s;
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
-.toggle:checked { background: var(--ink); }
-.toggle:checked::after { transform: translateX(18px); }
-.toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+:deep(.toggle:checked) { background: var(--ink); }
+:deep(.toggle:checked::after) { transform: translateX(18px); }
+:deep(.toggle:disabled) { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Select ── */
-.select {
+:deep(.select) {
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -360,19 +247,19 @@ function closeModal() { emit("close"); }
   outline: none;
   min-width: 120px;
 }
-.select:focus { border-color: var(--ink); }
+:deep(.select:focus) { border-color: var(--ink); }
 
 /* ── Slider ── */
-.slider-wrap {
+:deep(.slider-wrap) {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.slider {
+:deep(.slider) {
   width: 100px;
   accent-color: var(--ink);
 }
-.slider-val {
+:deep(.slider-val) {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
@@ -381,12 +268,12 @@ function closeModal() { emit("close"); }
 }
 
 /* ── MA Chips ── */
-.ma-chips {
+:deep(.ma-chips) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.ma-chip {
+:deep(.ma-chip) {
   display: flex;
   align-items: center;
   padding: 6px 14px;
@@ -399,13 +286,13 @@ function closeModal() { emit("close"); }
   transition: all 0.15s;
   user-select: none;
 }
-.ma-chip:hover { border-color: var(--ink); color: var(--ink); }
-.ma-chip.active {
+:deep(.ma-chip:hover) { border-color: var(--ink); color: var(--ink); }
+:deep(.ma-chip.active) {
   border-color: var(--ink);
   background: var(--ink);
   color: #fff;
 }
-.hidden-check { display: none; }
+:deep(.hidden-check) { display: none; }
 
 /* ── Footer ── */
 .modal-footer {
