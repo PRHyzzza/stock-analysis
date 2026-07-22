@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { createChart, ColorType, LineSeries, HistogramSeries } from "lightweight-charts";
+import { createChart, ColorType, LineSeries, HistogramSeries, AreaSeries } from "lightweight-charts";
 
 const props = defineProps({
   data: { type: Object, default: null },
@@ -9,7 +9,8 @@ const props = defineProps({
 
 const chartContainer = ref(null);
 let chart = null;
-let priceSeries = null;
+let areaSeries = null;
+let priceLineSeries = null;
 let avgPriceSeries = null;
 let vwapSeries = null;
 let volumeSeries = null;
@@ -56,10 +57,22 @@ function initChart() {
     handleScroll: { vertTouchDrag: false },
   });
 
-  // 价格线
-  priceSeries = chart.addSeries(LineSeries, {
+  // 价格区域填充（AreaSeries 填充价格线与图表底部之间）
+  areaSeries = chart.addSeries(AreaSeries, {
+    lineColor: "#e74c3c",
+    topColor: "rgba(231, 76, 60, 0.28)",
+    bottomColor: "rgba(39, 174, 96, 0.08)",
+    lineWidth: 0,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+    crosshairMarkerVisible: false,
+  });
+
+  // 价格线（叠加在面积填充上方，用于清晰的走势线）
+  priceLineSeries = chart.addSeries(LineSeries, {
     color: "#e74c3c",
-    lineWidth: 2,
+    lineWidth: 1.5,
     priceLineVisible: true,
     priceLineColor: "rgba(163, 166, 175, 0.3)",
     lastValueVisible: true,
@@ -101,11 +114,11 @@ function initChart() {
   });
 
   chart.priceScale("volume").applyOptions({
-    scaleMargins: { top: 0.80, bottom: 0 },
+    scaleMargins: { top: 0.72, bottom: 0.02 },
   });
 
   // 昨收基准线
-  baseLine = priceSeries.createPriceLine({
+  baseLine = priceLineSeries.createPriceLine({
     price: 0,
     color: "rgba(39, 174, 96, 0.5)",
     lineWidth: 1,
@@ -126,7 +139,7 @@ function initChart() {
 }
 
 function updateChartData(intradayData) {
-  if (!priceSeries || !avgPriceSeries || !volumeSeries || !baseLine || !intradayData) return;
+  if (!areaSeries || !avgPriceSeries || !volumeSeries || !baseLine || !intradayData) return;
 
   const { items, preClose, date } = intradayData;
   if (!items || items.length === 0) return;
@@ -140,6 +153,8 @@ function updateChartData(intradayData) {
   const avgPriceData = [];
   const vwapData = [];
   const volumeData = [];
+
+  let prevPrice = null;
 
   for (const item of items) {
     const [h, m] = item.time.split(':').map(Number);
@@ -164,15 +179,31 @@ function updateChartData(intradayData) {
       vwapData.push({ time: timestamp, value: item.vwap });
     }
 
-    const isUp = item.price >= preClose;
+    // 成交量柱颜色：对比上一分钟价格，红=买盘推动上涨，绿=卖盘打压下跌
+    let volColor;
+    if (prevPrice === null) {
+      // 第一根：与昨收比较
+      volColor = item.price >= preClose
+        ? "rgba(231, 76, 60, 0.45)"
+        : "rgba(39, 174, 96, 0.45)";
+    } else if (item.price > prevPrice) {
+      volColor = "rgba(231, 76, 60, 0.45)";
+    } else if (item.price < prevPrice) {
+      volColor = "rgba(39, 174, 96, 0.45)";
+    } else {
+      volColor = "rgba(163, 166, 175, 0.35)";
+    }
+    prevPrice = item.price;
+
     volumeData.push({
       time: timestamp,
       value: item.volume,
-      color: isUp ? "rgba(231, 76, 60, 0.4)" : "rgba(39, 174, 96, 0.4)",
+      color: volColor,
     });
   }
 
-  priceSeries.setData(priceData);
+  areaSeries.setData(priceData);
+  priceLineSeries.setData(priceData);
 
   if (avgPriceData.length > 0) {
     avgPriceSeries.setData(avgPriceData);
@@ -227,7 +258,8 @@ onUnmounted(() => {
     if (chart._observer) chart._observer.disconnect();
     chart.remove();
     chart = null;
-    priceSeries = null;
+    areaSeries = null;
+    priceLineSeries = null;
     avgPriceSeries = null;
     vwapSeries = null;
     volumeSeries = null;

@@ -283,8 +283,10 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
     };
 
     let mut items = Vec::new();
-    let mut cum_pv = 0.0; // ∑(price × volume)
-    let mut cum_vol = 0.0; // ∑(volume)
+    let mut cum_pv = 0.0; // ∑(price × volume per-minute)
+    let mut cum_vol = 0.0; // ∑(volume per-minute)
+    let mut prev_vol = 0.0; // 上一分钟的累计量，用于差分
+    let mut prev_turnover = 0.0; // 上一分钟的累计额，用于差分
     for point in points {
         let s = point.as_str().unwrap_or("");
         if s.is_empty() {
@@ -300,10 +302,24 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
                 raw_time.to_string()
             };
             let price: f64 = parts[1].parse().unwrap_or(0.0);
-            let volume: f64 = parts[2].parse().unwrap_or(0.0);
-            let turnover: f64 = parts.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+            let cum_volume: f64 = parts[2].parse().unwrap_or(0.0); // API 返回的是累计量
+            let cum_turnover: f64 = parts.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
 
-            // 计算累计 VWAP
+            // 差分：本分钟实际成交量 = 累计量 - 上分钟累计量
+            let volume = if cum_volume >= prev_vol {
+                cum_volume - prev_vol
+            } else {
+                cum_volume // 防御：跨天重置的情况
+            };
+            let turnover = if cum_turnover >= prev_turnover {
+                cum_turnover - prev_turnover
+            } else {
+                cum_turnover
+            };
+            prev_vol = cum_volume;
+            prev_turnover = cum_turnover;
+
+            // 计算累计 VWAP（用每分钟的实际量加权）
             cum_pv += price * volume;
             cum_vol += volume;
             let vwap = if cum_vol > 0.0 {
