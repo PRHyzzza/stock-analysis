@@ -223,37 +223,17 @@ function formatPrice(v) {
 </template>
 
 <style scoped>
-/* ===== Modal 覆盖层 (与 TechAnalysisModal 一致) ===== */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(23, 25, 28, 0.45);
-  animation: fadeIn 0.15s ease;
-  backdrop-filter: blur(2px);
-}
+@import "../assets/modal.css";
 
+/* ChipDistribution 特有覆盖 */
 .modal-container {
-  display: flex;
-  flex-direction: column;
   width: 540px;
   max-height: 640px;
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-modal);
-  overflow: hidden;
-  animation: slideUp 0.2s ease;
 }
 
-/* ===== 头部 ===== */
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 20px 24px 0;
+  border-bottom: none;
 }
 
 .modal-title-row {
@@ -284,23 +264,7 @@ function formatPrice(v) {
   font-variant-numeric: tabular-nums;
 }
 
-.btn-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 8px;
-  transition: all 0.15s;
-}
-.btn-close:hover {
-  background: var(--fog);
-  color: var(--text-primary);
-}
+
 
 /* ===== 摘要统计 ===== */
 .chip-summary {
@@ -478,15 +442,5 @@ function formatPrice(v) {
   font-size: 14px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 </style>

@@ -21,12 +21,13 @@ stock-analysis/
 ├── index.html
 ├── src/                        ← Vue 前端
 │   ├── main.js / App.vue
-│   ├── assets/main.css         ← 全局样式
+│   ├── assets/main.css         ← 全局样式 + 设计 token
+│   ├── assets/modal.css        ← 弹窗共享样式（8 个 modal 复用）
 │   ├── components/             ← UI 组件（详见 §3.1）
 │   │   ├── MarketHeader.vue / TitleBar.vue
 │   │   ├── StockList.vue / HotList.vue / SearchDropdown.vue
 │   │   ├── StockDetail.vue / KlineChart.vue / IntradayChart.vue
-│   │   ├── AiAnalysisModal.vue / TechAnalysisModal.vue / IndustryModal.vue
+│   │   ├── AiAnalysisModal.vue / GlobalAiModal.vue / TechAnalysisModal.vue / IndustryModal.vue
 │   │   ├── ProfileModal.vue / PositionModal.vue / SettingsModal.vue
 │   │   ├── ChipDistribution.vue / SectorMoneyFlow.vue
 │   │   ├── IndicatorCard.vue
@@ -40,9 +41,9 @@ stock-analysis/
 │   ├── Cargo.toml / tauri.conf.json
 │   └── src/
 │       ├── main.rs / lib.rs
-│       ├── commands.rs         ← 13 个 Tauri 命令（详见 §4.1）
+│       ├── commands.rs         ← 15 个 Tauri 命令（详见 §4.1）
 │       ├── types.rs / helpers.rs
-│       └── api/  (tencent / eastmoney / hotlist / llm)
+│       └── api/  (tencent / eastmoney / hotlist / llm / web)
 └── public/
 ```
 
@@ -88,18 +89,20 @@ stock-analysis/
 | `IntradayChart.vue` | 分时图 (lightweight-charts)，价格+均价+成交量 |
 | `IndustryModal.vue` | 行业分析弹窗（营收排名 + 市场表现） |
 | `TechAnalysisModal.vue` | 技术分析弹窗（MACD/KDJ/RSI/布林带） |
-| `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools + 模型/思考/推理控制） |
+| `AiAnalysisModal.vue` | AI 分析弹窗（DeepSeek Chat + Tools + 模型/思考/推理控制，依赖选中股票） |
+| `GlobalAiModal.vue` | 全局 AI 助手弹窗（独立于股票，带联网搜索，任意问题对话） |
 | `ProfileModal.vue` | 用户画像编辑弹窗：左侧 Markdown 编辑 + 右侧实时预览（marked 渲染） |
 | `ChipDistribution.vue` | 筹码峰可视化面板（水平条形图，自包含可折叠） |
 | `SectorMoneyFlow.vue` | 行业板块资金流向面板（rank + 资金/涨跌切换模式） |
 | `PositionModal.vue` | 持仓管理弹窗：汇总、列表、添加/删除、股票搜索 |
 | `SearchDropdown.vue` | 股票搜索下拉组件（从 StockList.vue 拆分） |
 | `SettingsModal.vue` | 全局设置弹窗：4 个标签页（通知/刷新/图表/AI），全部选项实时生效、localStorage 持久化 |
+| `ConfirmDialog.vue` | 通用确认对话框（标题 + 消息 + 确认/取消，支持危险操作样式） |
 | `IndicatorCard.vue` | 可复用技术指标展示卡片（标题 + 网格 + 信号/状态行 + 描述，在 TechAnalysisModal 中使用） |
 | `settings/` | 设置子标签页（SettingsTabNotify、SettingsTabRefresh、SettingsTabChart、SettingsTabAi） |
 | `ai/AiApiKeySetup.vue` | API Key 配置面板 |
 | `ai/AiChatMessages.vue` | AI 对话消息列表（Markdown 渲染 + 流式内容实时滚动） |
-| `ai/AiChatFooter.vue` | AI 输入框 + 发送按钮 |
+| `ai/AiChatFooter.vue` | AI 输入框 + 发送按钮（支持 globalMode 属性） |
 | `ai/AiModelControls.vue` | AI 模型/思考/推理控制组件（从 AiAnalysisModal 分离，自包含状态管理） |
 
 ### 3.2 组合式函数 (composables/)
@@ -120,7 +123,8 @@ stock-analysis/
 | `useSectorMoneyFlow.js` | `useSectorMoneyFlow()` | `get_sector_money_flow` |
 | `usePositions.js` | `usePositions()` | 纯前端，localStorage 持久化（code/name/buyPrice/quantity/buyDate + 盈亏计算） |
 | `useUserProfile.js` | `useUserProfile()`, `useUserProfileSingleton()` | `read_user_profile` + `save_user_profile`（Tauri invoke，文件存储在 app_data_dir） |
-| `aiContext.js` | `computeMA()`, `serializeContext()`, `buildSystemPrompt()` | 纯函数，构建 AI 系统提示词（含用户画像和持仓注入） |
+| `aiContext.js` | `serializeContext()`, `buildSystemPrompt()` | 纯函数，构建 AI 系统提示词（含用户画像和持仓注入） |
+| `fetcher.js` | `createDataFetcher(commandName, options?)` | 数据加载工厂函数，消除 ref+invoke+loading/error 样板代码 |
 | `useSupportResistance.js` | `calcSupportResistance()` | 纯函数，从 `KlineChart.vue` 拆分出的支撑/阻力位算法（聚类 + 斐波那契） |
 | `llmClient.js` | `callLlmStream()` | 纯函数，从 `useAiAnalysis.js` 拆分出的 SSE 流式 LLM 调用客户端 |
 | `useWatchlistNotifications.js` | `useWatchlistNotifications()` | Windows 原生通知 (`@tauri-apps/plugin-notification`)；涨停/跌停/±7%/±5%/快速拉升/快速下跌，每股票每类型每日一次 |
@@ -141,6 +145,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `MoneyFlow.js` | `get_stock_money_flow` — 主力资金流向 |
 | `Industry.js` | `get_stock_industry` — 行业分析 |
 | `MarketIndices.js` | `get_market_indices` — 大盘指数 |
+| `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索与网页抓取（DuckDuckGo Lite，免费无需 API Key） |
 
 **每个 skill 导出格式**:
 ```js
@@ -155,7 +160,6 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 
 | 函数 | 职责 |
 |------|------|
-| `computeMA(data, period)` | 计算移动平均线 |
 | `serializeContext(contextData)` | 将 klineData / moneyFlow / industryData / indices / positions / chipData 序列化为 Markdown |
 | `buildSystemPrompt(currentStock, contextData, userProfile)` | 组装完整系统提示词，填充 `{{USER_PROFILE}}` 等占位符 |
 
@@ -176,7 +180,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 
 ### 4.1 Tauri 命令 (commands.rs)
 
-所有 `#[tauri::command]` 位于此文件，共 13 个：
+所有 `#[tauri::command]` 位于此文件，共 15 个：
 
 | 命令 | 功能 | 调用的 API |
 |------|------|-----------|
@@ -193,6 +197,8 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `call_llm_stream` | AI 对话（SSE 流式） | DeepSeek API → Tauri 事件 `llm-chunk`/`llm-done`/`llm-error` |
 | `read_user_profile` | 读取用户画像 Markdown 文件 | 本地 `app_data_dir/user-profile.md` |
 | `save_user_profile` | 保存用户画像 Markdown 文件 | 本地 `app_data_dir/user-profile.md` |
+| `web_search` | 网页搜索（DuckDuckGo Lite） | DuckDuckGo `lite.duckduckgo.com` |
+| `web_fetch` | 网页抓取（提取纯文本） | 目标 URL（去 HTML 标签，限 50000 字符） |
 
 **Tauri 插件**: `tauri-plugin-opener` (打开外部链接) + `tauri-plugin-notification` (Windows 原生通知)
 
@@ -204,6 +210,7 @@ AI Agent 的工具系统，受 OpenClaw SKILL.md 启发：
 | `eastmoney.rs` | **东方财富** | JSON/JSONP/HTML 解析 |
 | `hotlist.rs` | **同花顺** | JSON API |
 | `llm.rs` | **DeepSeek** | OpenAI 兼容格式；`call_llm()` 非流式 + `call_llm_stream()` SSE 流式（依赖 [`futures-util`](https://docs.rs/futures-util/) + [`reqwest`](https://docs.rs/reqwest/) stream feature） |
+| `web.rs` | **DuckDuckGo** | `web_search()` 搜索（DDG Lite HTML） + `web_fetch()` 网页抓取（去标签提取纯文本）；免费无需 API Key |
 
 ### 4.3 AI 流式调用
 

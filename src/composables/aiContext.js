@@ -13,7 +13,7 @@ const TOOLS = getMergedTools();
  * @param {number} period - 周期
  * @returns {Array} [{ time, value }]
  */
-export function computeMA(data, period) {
+function computeMA(data, period) {
   const result = [];
   for (let i = 0; i < data.length; i++) {
     if (i < period - 1) continue;

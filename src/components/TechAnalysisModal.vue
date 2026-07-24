@@ -238,44 +238,23 @@ const rsiDetail = computed(() => {
 </template>
 
 <style scoped>
-/* ===== Steep: 技术分析 Modal ===== */
+@import "../assets/modal.css";
+
+/* TechAnalysisModal 特有覆盖 */
 .modal-overlay {
-  position: fixed;
-  inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.15s ease;
+  backdrop-filter: none;
 }
 
 .modal-container {
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
   width: 520px;
   max-width: 92vw;
   max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow-modal);
-  overflow: hidden;
-  animation: slideUp 0.2s ease;
 }
 
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 20px 28px;
-  border-bottom: 1px solid var(--border-light);
-  flex-shrink: 0;
-}
-
-.modal-header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  border-bottom-color: var(--border-light);
 }
 
 .tech-icon {
@@ -299,26 +278,12 @@ const rsiDetail = computed(() => {
 }
 
 .modal-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  padding: 6px;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-}
-.modal-close:hover {
-  background: var(--fog);
-  color: var(--ink);
 }
 
 .modal-body {
   padding: 24px 28px;
   overflow-y: auto;
-  flex: 1;
 }
 
 .modal-loading {
@@ -365,7 +330,4 @@ const rsiDetail = computed(() => {
   font-weight: 500;
   font-size: 14px;
 }
-
-.up { color: var(--red); }
-.down { color: var(--green); }
 </style>

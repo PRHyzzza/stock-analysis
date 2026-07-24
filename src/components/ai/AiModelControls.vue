@@ -16,6 +16,8 @@ const {
   reasoningEffort,
   setThinkingEnabled,
   setReasoningEffort,
+  webSearchEnabled,
+  setWebSearchEnabled,
 } = useAiAnalysis();
 
 // ── 自定义下拉状态 ──
@@ -83,6 +85,20 @@ onUnmounted(() => window.removeEventListener("click", onWindowClick, true));
         <span class="ctrl-toggle-knob"></span>
       </span>
       <span class="ctrl-toggle-label">思考</span>
+    </label>
+
+    <!-- 联网搜索开关 -->
+    <label class="ctrl-toggle" :title="webSearchEnabled ? '联网搜索已开启（DuckDuckGo）' : '联网搜索已关闭'">
+      <input
+        type="checkbox"
+        class="ctrl-toggle-input"
+        :checked="webSearchEnabled"
+        @change="setWebSearchEnabled(($event.target).checked)"
+      />
+      <span class="ctrl-toggle-track">
+        <span class="ctrl-toggle-knob"></span>
+      </span>
+      <span class="ctrl-toggle-label">联网</span>
     </label>
 
     <!-- 推理深度 -->

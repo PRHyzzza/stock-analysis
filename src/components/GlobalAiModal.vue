@@ -5,16 +5,9 @@ import AiApiKeySetup from "./ai/AiApiKeySetup.vue";
 import AiChatMessages from "./ai/AiChatMessages.vue";
 import AiChatFooter from "./ai/AiChatFooter.vue";
 import AiModelControls from "./ai/AiModelControls.vue";
-import { calcChipDistribution } from "../composables/useChipDistribution";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
-  selectedStock: { type: Object, default: null },
-  klineData: { type: Array, default: null },
-  moneyFlow: { type: Object, default: null },
-  industryData: { type: Object, default: null },
-  indices: { type: Array, default: null },
-  positions: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["close"]);
@@ -25,21 +18,15 @@ const {
   error,
   apiKey,
   setApiKey,
-  sendMessage,
+  sendGlobalMessage,
   clearHistory,
-  switchStock,
-} = useAiAnalysis();
+  switchGlobal,
+} = useAiAnalysis(true);
 
-// 弹窗打开或切换股票时加载对应对话
+// 弹窗打开时加载全局对话
 watch(() => props.show, (val) => {
-  if (val && props.selectedStock) {
-    switchStock(props.selectedStock.code);
-  }
-});
-
-watch(() => props.selectedStock?.code, (newCode) => {
-  if (props.show && newCode) {
-    switchStock(newCode);
+  if (val) {
+    switchGlobal();
   }
 });
 
@@ -74,16 +61,7 @@ async function handleSend() {
   inputText.value = "";
 
   try {
-    const chipData = calcChipDistribution(props.klineData || []);
-    const contextData = {
-      klineData: props.klineData,
-      moneyFlow: props.moneyFlow,
-      industryData: props.industryData,
-      indices: props.indices,
-      chipData,
-      positions: props.positions,
-    };
-    await sendMessage(text, props.selectedStock, contextData);
+    await sendGlobalMessage(text);
   } catch (e) {
     if (e.message === "NO_API_KEY") {
       showApiKeyInput.value = true;
@@ -110,7 +88,7 @@ function doSuggestion(text) {
         <div class="modal-header">
           <div class="modal-header-left">
             <span class="modal-title">AI</span>
-            <span class="ai-badge">Agent</span>
+            <span class="ai-badge">助手</span>
 
             <span class="ctrl-divider"></span>
 
@@ -151,7 +129,8 @@ function doSuggestion(text) {
             v-else
             :messages="messages"
             :loading="loading"
-            :selected-stock="selectedStock"
+            :selected-stock="null"
+            :global-mode="true"
             @suggestion="doSuggestion"
           />
         </div>
@@ -160,9 +139,10 @@ function doSuggestion(text) {
         <AiChatFooter
           v-if="!showApiKeyInput"
           :input-text="inputText"
-          :disabled="loading || !selectedStock"
-          :selected-stock="selectedStock"
+          :disabled="loading"
+          :selected-stock="null"
           :loading="loading"
+          :global-mode="true"
           @send="handleSend"
           @update:input-text="inputText = $event"
         />
@@ -174,10 +154,9 @@ function doSuggestion(text) {
 <style scoped>
 @import "../assets/modal.css";
 
-/* AiAnalysisModal 特有样式：覆盖宽高（与 GlobalAiModal 保持一致） */
+/* GlobalAiModal 特有样式：覆盖宽高（与 AiAnalysisModal 保持一致） */
 .modal-container {
   width: 900px;
   height: 680px;
 }
-
 </style>

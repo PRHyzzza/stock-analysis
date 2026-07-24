@@ -7,6 +7,7 @@ defineProps({
   selectedStock: { type: Object, default: null },
   inputText: { type: String, default: "" },
   loading: { type: Boolean, default: false },
+  globalMode: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["send", "update:inputText", "keydown-catch"]);
@@ -28,7 +29,7 @@ function onKeydown(e) {
       <textarea
         :value="inputText"
         class="msg-input"
-        :placeholder="selectedStock ? `问关于 ${selectedStock.name} 的问题...` : '请先选中一只股票...'"
+        :placeholder="globalMode ? '输入你的问题，如：最近有什么热点新闻？' : selectedStock ? `问关于 ${selectedStock.name} 的问题...` : '请先选中一只股票...'"
         :disabled="disabled"
         rows="1"
         @input="emit('update:inputText', $event.target.value)"

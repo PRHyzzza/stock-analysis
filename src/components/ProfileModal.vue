@@ -97,41 +97,23 @@ function closeModal() {
 </template>
 
 <style scoped>
-/* ===== Overlay ===== */
+@import "../assets/modal.css";
+
+/* ProfileModal 特有覆盖 */
 .modal-overlay {
-  position: fixed;
-  inset: 0;
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+  animation: none;
 }
 
 .modal-container {
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
   width: 1100px;
   max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  animation: none;
 }
 
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.modal-header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .modal-header-right {
@@ -177,21 +159,7 @@ function closeModal() {
 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .modal-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
   border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.modal-close:hover {
-  background: var(--fog);
-  color: var(--ink);
 }
 
 /* ===== 主体 ===== */

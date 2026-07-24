@@ -31,6 +31,8 @@ pub fn run() {
             commands::call_llm_stream,
             commands::read_user_profile,
             commands::save_user_profile,
+            commands::web_search,
+            commands::web_fetch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

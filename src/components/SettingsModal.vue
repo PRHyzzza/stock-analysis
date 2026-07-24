@@ -83,44 +83,32 @@ function closeModal() { emit("close"); }
 </template>
 
 <style scoped>
+@import "../assets/modal.css";
+
 /* ── Overlay ── */
 .modal-overlay {
-  position: fixed;
-  inset: 0;
   background: rgba(23, 25, 28, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  backdrop-filter: none;
   z-index: 2000;
 }
 
 .modal-container {
   width: 480px;
   max-height: 80vh;
-  background: var(--card-bg, #fff);
   border-radius: 24px;
-  border: 1px solid var(--border);
   box-shadow:
     0 1px 0 var(--ink),
     0 20px 25px rgba(23, 25, 28, 0.06),
     0 8px 10px rgba(23, 25, 28, 0.03);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  animation: none;
 }
 
 /* ── Header ── */
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 20px 24px 0;
-  flex-shrink: 0;
+  border-bottom: none;
 }
 .modal-header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   color: var(--ink);
 }
 .modal-title {
@@ -130,16 +118,7 @@ function closeModal() { emit("close"); }
   letter-spacing: -0.01em;
 }
 .modal-close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px; height: 32px;
   border-radius: var(--radius-full);
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
 }
 .modal-close-btn:hover { background: var(--border); color: var(--ink); }
 

@@ -7,6 +7,7 @@ import StockDetail from "./components/StockDetail.vue";
 import IndustryModal from "./components/IndustryModal.vue";
 import TechAnalysisModal from "./components/TechAnalysisModal.vue";
 import AiAnalysisModal from "./components/AiAnalysisModal.vue";
+import GlobalAiModal from "./components/GlobalAiModal.vue";
 import ChipDistribution from "./components/ChipDistribution.vue";
 import PositionModal from "./components/PositionModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
@@ -70,6 +71,11 @@ function openAiModal() {
   }
 }
 function closeAiModal() { showAiModal.value = false; }
+
+// ---- 全局 AI 弹窗 ----
+const showGlobalAiModal = ref(false);
+function openGlobalAiModal() { showGlobalAiModal.value = true; }
+function closeGlobalAiModal() { showGlobalAiModal.value = false; }
 
 // ---- 筹码峰弹窗 ----
 const showChipModal = ref(false);
@@ -209,6 +215,7 @@ function onKeydown(e) {
     closeIndustryModal();
     closeTechModal();
     closeAiModal();
+    closeGlobalAiModal();
     closeChipModal();
     closePositionsModal();
     closeSettingsModal();
@@ -307,6 +314,7 @@ onUnmounted(() => {
       @open-positions="openPositionsModal"
       @open-profile="openProfileModal"
       @open-settings="openSettingsModal"
+      @open-global-ai="openGlobalAiModal"
     />
 
     <!-- 主体区域: 左-列表 | 右-详情 -->
@@ -380,6 +388,12 @@ onUnmounted(() => {
       :indices="indices"
       :positions="positions"
       @close="closeAiModal"
+    />
+
+    <!-- 全局 AI 助手弹窗 -->
+    <GlobalAiModal
+      :show="showGlobalAiModal"
+      @close="closeGlobalAiModal"
     />
 
     <!-- 筹码峰弹窗 -->

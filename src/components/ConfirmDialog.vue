@@ -53,11 +53,6 @@ const emit = defineEmits(["confirm", "cancel"]);
   animation: fadeIn 0.15s ease;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 .confirm-card {
   background: var(--card-bg);
   border-radius: var(--radius-lg);

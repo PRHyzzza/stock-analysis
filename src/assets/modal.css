@@ -1,0 +1,159 @@
+/**
+ * 共享 Modal 基础样式
+ * 所有弹窗组件统一使用此文件中的样式，避免重复
+ *
+ * 使用方式：在组件 <style scoped> 中 @import "../assets/modal.css";
+ * 组件只需覆写 width/height 等差异属性
+ */
+
+/* ===== 覆盖层 ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(23, 25, 28, 0.45);
+  animation: fadeIn 0.15s ease;
+  backdrop-filter: blur(2px);
+}
+
+/* ===== 容器 ===== */
+.modal-container {
+  display: flex;
+  flex-direction: column;
+  width: 700px;
+  max-width: 95vw;
+  max-height: 90vh;
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+  animation: slideUp 0.2s ease;
+}
+
+/* ===== 头部（左标题 + 右操作） ===== */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ===== 主体 ===== */
+.modal-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ===== 关闭按钮（通用） ===== */
+.btn-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-close:hover {
+  background: var(--fog);
+  color: var(--text-primary);
+}
+
+/* ===== AI Badge 标签 ===== */
+.ai-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rust);
+  background: var(--apricot-wash);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+/* ===== 控件分隔线 ===== */
+.ctrl-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+/* ===== 错误横幅 ===== */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  margin: 12px 20px 0;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.error-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.error-text {
+  font-size: 13px;
+  color: #dc2626;
+  line-height: 1.4;
+}
+
+/* ===== 涨跌颜色（全局复用） ===== */
+.up {
+  color: var(--red);
+}
+
+.down {
+  color: var(--green);
+}
+
+/* ===== 动画（全局注册一次） ===== */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

@@ -9,6 +9,7 @@ import KlineAnalysis from "./KlineAnalysis.js";
 import MoneyFlow from "./MoneyFlow.js";
 import Industry from "./Industry.js";
 import MarketIndices from "./MarketIndices.js";
+import WebSearch from "./WebSearch.js";
 
 /** 所有技能列表 */
 export const SKILLS = [
@@ -17,16 +18,23 @@ export const SKILLS = [
   MoneyFlow,
   Industry,
   MarketIndices,
+  WebSearch,
 ];
 
 /** 合并所有工具的 tool_definitions（发给 LLM 用） */
-export function getMergedTools() {
-  return SKILLS.flatMap((s) => s.tools);
+export function getMergedTools(opts = {}) {
+  const exclude = opts.excludeSkills || [];
+  return SKILLS
+    .filter((s) => !exclude.includes(s.name))
+    .flatMap((s) => s.tools);
 }
 
 /** 合并所有工具的 toolImpl（本地执行用） */
-export function getMergedToolImpl() {
-  return SKILLS.reduce((acc, s) => Object.assign(acc, s.toolImpl), {});
+export function getMergedToolImpl(opts = {}) {
+  const exclude = opts.excludeSkills || [];
+  return SKILLS
+    .filter((s) => !exclude.includes(s.name))
+    .reduce((acc, s) => Object.assign(acc, s.toolImpl), {});
 }
 
 /** 合并所有技能的 systemPrompt 描述 */
@@ -39,6 +47,6 @@ export function getMergedSystemPrompt() {
  * @param {string} name - 工具/函数名称
  * @returns {Function|undefined}
  */
-export function getToolImpl(name) {
-  return getMergedToolImpl()[name];
+export function getToolImpl(name, opts = {}) {
+  return getMergedToolImpl(opts)[name];
 }

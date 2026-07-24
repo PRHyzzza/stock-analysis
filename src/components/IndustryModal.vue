@@ -112,44 +112,24 @@ function retryLoad() {
 </template>
 
 <style scoped>
+@import "../assets/modal.css";
+
 /* ===== Steep: Modal — 24px radius, ink shadow ===== */
+/* 覆盖默认值 */
 .modal-overlay {
-  position: fixed;
-  inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.15s ease;
+  backdrop-filter: none;
 }
 
 .modal-container {
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
   width: 780px;
   max-width: 92vw;
   max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow-modal);
-  overflow: hidden;
-  animation: slideUp 0.2s ease;
 }
 
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 20px 28px;
-  border-bottom: 1px solid var(--border-light);
-  flex-shrink: 0;
-}
-
-.modal-header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  border-bottom-color: var(--border-light);
 }
 
 .industry-icon {
@@ -174,26 +154,12 @@ function retryLoad() {
 .modal-close {
   width: 34px;
   height: 34px;
-  border: none;
   border-radius: 50%;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-}
-
-.modal-close:hover {
-  background: var(--fog);
-  color: var(--ink);
 }
 
 .modal-body {
   padding: 24px 28px;
   overflow-y: auto;
-  flex: 1;
 }
 
 .modal-loading {

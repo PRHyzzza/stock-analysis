@@ -4,7 +4,7 @@ defineProps({
   refreshing: { type: Boolean, default: false },
 });
 
-defineEmits(["refresh", "open-positions", "open-profile", "open-settings"]);
+defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open-global-ai"]);
 </script>
 
 <template>
@@ -26,6 +26,12 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings"]);
       </div>
     </div>
     <div class="header-right">
+      <button class="btn-ai" @click="$emit('open-global-ai')" title="AI 助手">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" stroke="currentColor" stroke-width="0.5" />
+        </svg>
+        <span>AI</span>
+      </button>
       <button class="btn-positions" @click="$emit('open-positions')">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M3 13V5l5-3 5 3v8" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -121,6 +127,27 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings"]);
   width: 1px;
   height: 16px;
   background: var(--border);
+}
+
+.btn-ai {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-ai:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: rgba(93, 42, 26, 0.04);
 }
 
 .btn-positions {

@@ -1,6 +1,6 @@
 import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { getMergedTools, getToolImpl } from "../skills/index.js";
+import { getMergedTools, getMergedToolImpl, getToolImpl, getMergedSystemPrompt } from "../skills/index.js";
 import { buildSystemPrompt } from "./aiContext.js";
 import { callLlmStream } from "./llmClient.js";
 import { useUserProfileSingleton } from "./useUserProfile.js";
@@ -21,14 +21,52 @@ const DEFAULT_MODEL = "deepseek-v4-flash";
 
 // ============ 从 Skills 架构加载工具 ============
 
-const TOOLS = getMergedTools();
+/** 根据是否开启联网搜索，返回当前激活的工具 */
+function buildTools(webSearchEnabled) {
+  const exclude = webSearchEnabled ? [] : ["web-search"];
+  return {
+    tools: getMergedTools({ excludeSkills: exclude }),
+    toolImpl: getMergedToolImpl({ excludeSkills: exclude }),
+  };
+}
+
+/**
+ * 构建全局 AI 对话的系统提示词（无股票上下文）
+ */
+function buildGlobalSystemPrompt(userProfile) {
+  const skillsPrompt = (() => { try { return getMergedSystemPrompt(); } catch { return ""; } })();
+
+  return `你是一个专业的 A 股投资分析助手。你可以帮助用户：
+- 查询任意 A 股股票的实时行情、K 线数据、资金流向
+- 搜索最新的财经新闻、公司公告、市场热点
+- 分析行业板块、大盘指数走势
+- 回答投资相关的各类问题
+
+## 可用工具
+你拥有以下工具可以调用：
+${skillsPrompt}
+
+## 联网搜索
+你具备联网搜索能力（web_search / web_fetch），当用户询问最新新闻、实时资讯时主动搜索。
+搜索策略：先用 web_search 发现信息源，再选择性用 web_fetch 深入阅读。
+回答中引用网络信息时标注来源 URL。
+
+## 用户画像
+${userProfile ? `当前用户画像：\n${userProfile}\n\n请结合用户画像提供个性化建议。` : "用户尚未设置画像。"}
+
+## 注意事项
+- 数据仅供参考，不构成投资建议
+- 优先使用工具获取实时数据，而非凭记忆回答
+- 用中文回复，简洁专业`;
+}
 
 // ============ Composable ============
 
 const { state: settings } = useSettings();
+const GLOBAL_CHAT_KEY = "__global__";
 
-export function useAiAnalysis() {
-  const currentStockCode = ref(null);
+export function useAiAnalysis(globalMode = false) {
+  const currentStockCode = ref(globalMode ? GLOBAL_CHAT_KEY : null);
   const currentModel = ref(localStorage.getItem(MODEL_KEY) || settings.aiModel);
   const thinkingEnabled = ref(
     localStorage.getItem(THINKING_ENABLED_KEY) !== null
@@ -36,19 +74,28 @@ export function useAiAnalysis() {
       : settings.aiThinkingEnabled
   );
   const reasoningEffort = ref(localStorage.getItem(REASONING_EFFORT_KEY) || settings.aiReasoningEffort);
+  const webSearchEnabled = ref(globalMode ? true : (settings.aiWebSearchEnabled !== false));
   const messages = ref([]);
   const loading = ref(false);
   const error = ref("");
   const apiKey = ref(localStorage.getItem(API_KEY_KEY) || "");
 
+  // 当前激活的工具（根据 webSearchEnabled 动态切换）
+  function activeTools() {
+    return buildTools(webSearchEnabled.value);
+  }
+
   // 设置变更时同步到 AI 状态（SettingsModal → AiModelControls）
   watch(() => settings.aiModel, (m) => { if (m) currentModel.value = m; });
   watch(() => settings.aiThinkingEnabled, (v) => { thinkingEnabled.value = v; });
   watch(() => settings.aiReasoningEffort, (v) => { if (v) reasoningEffort.value = v; });
+  watch(() => settings.aiWebSearchEnabled, (v) => { webSearchEnabled.value = v !== false; });
 
-  // 自动持久化当前股票的消息（仅自选股才保存）
+  // 自动持久化当前股票的消息（仅自选股才保存；全局模式始终保存）
   watch(messages, (val) => {
-    if (currentStockCode.value && isStockInWatchlist(currentStockCode.value)) {
+    if (globalMode && currentStockCode.value) {
+      saveStockMessages(currentStockCode.value, val);
+    } else if (currentStockCode.value && isStockInWatchlist(currentStockCode.value)) {
       saveStockMessages(currentStockCode.value, val);
     }
   }, { deep: true });
@@ -137,7 +184,9 @@ AI: ${aiResponse.slice(0, 800)}
       // 获取用户画像注入系统提示词
       const { getProfileForContext } = useUserProfileSingleton();
       const userProfile = getProfileForContext();
-      const systemPrompt = buildSystemPrompt(currentStock, contextData, userProfile);
+      const systemPrompt = globalMode
+        ? buildGlobalSystemPrompt(userProfile)
+        : buildSystemPrompt(currentStock, contextData, userProfile);
       const recentMessages = messages.value
         .filter((m) => m.role !== "system" && !m._streaming)
         .slice(-20);
@@ -178,7 +227,7 @@ AI: ${aiResponse.slice(0, 800)}
           // 依次执行工具
           for (const tc of toolCallsArr) {
             const fnName = tc.function?.name || tc.function_name;
-            const toolFn = getToolImpl(fnName);
+            const toolFn = getToolImpl(fnName, { excludeSkills: webSearchEnabled.value ? [] : ["web-search"] });
             if (!toolFn) {
               currentMessages.push({
                 role: "tool",
@@ -229,8 +278,8 @@ AI: ${aiResponse.slice(0, 800)}
       delete messages.value[streamMsgIdx]._streaming;
       delete messages.value[streamMsgIdx]._reasoning;
 
-      // 后台异步更新用户画像（不阻塞 UI）
-      updateUserProfileBackground(text, finalContent);
+      // 后台异步更新用户画像（全局模式跳过）
+      if (!globalMode) updateUserProfileBackground(text, finalContent);
 
       return finalContent;
     } catch (e) {
@@ -269,13 +318,32 @@ AI: ${aiResponse.slice(0, 800)}
     localStorage.setItem(REASONING_EFFORT_KEY, effort);
   }
 
+  function setWebSearchEnabled(enabled) {
+    if (globalMode) return; // 全局模式始终开启联网
+    webSearchEnabled.value = enabled;
+    settings.aiWebSearchEnabled = enabled;
+  }
+
+  /** 全局模式：切换到全局对话 */
+  function switchGlobal() {
+    currentStockCode.value = GLOBAL_CHAT_KEY;
+    messages.value = loadStockMessages(GLOBAL_CHAT_KEY);
+    error.value = "";
+  }
+
+  /** 全局模式：发送消息（无需股票上下文） */
+  async function sendGlobalMessage(text) {
+    return sendMessage(text, null, null);
+  }
+
   /** 非流式调用（兼容旧逻辑，不再使用） */
   async function callLlm(messagesList) {
+    const { tools } = activeTools();
     return await invoke("call_llm", {
       apiKey: apiKey.value,
       model: currentModel.value,
       messages: messagesList,
-      tools: TOOLS,
+      tools,
       reasoningEffort: reasoningEffort.value,
       thinkingEnabled: thinkingEnabled.value,
     });
@@ -285,13 +353,14 @@ AI: ${aiResponse.slice(0, 800)}
    * 流式调用（已拆分到 llmClient.js，此处为适配封装）
    */
   function callLlmStreamWrapped(messagesList, onContentDelta) {
+    const { tools } = activeTools();
     return callLlmStream({
       apiKey: apiKey.value,
       model: currentModel.value,
       thinkingEnabled: thinkingEnabled.value,
       reasoningEffort: reasoningEffort.value,
       messages: messagesList,
-      tools: TOOLS,
+      tools,
       onDelta: onContentDelta,
     });
   }
@@ -310,7 +379,12 @@ AI: ${aiResponse.slice(0, 800)}
     setModel,
     setThinkingEnabled,
     setReasoningEffort,
+    setWebSearchEnabled,
+    webSearchEnabled,
     sendMessage,
+    sendGlobalMessage,
+    switchGlobal,
+    globalMode,
     clearHistory,
     switchStock,
   };

@@ -306,41 +306,23 @@ function handleCancelRemove() {
 </template>
 
 <style scoped>
-/* ===== Overlay ===== */
+@import "../assets/modal.css";
+
+/* PositionModal 特有覆盖 */
 .modal-overlay {
-  position: fixed;
-  inset: 0;
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+  animation: none;
 }
 
 .modal-container {
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
   width: 520px;
   max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  animation: none;
 }
 
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 20px 24px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.modal-header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .modal-title {
@@ -350,30 +332,15 @@ function handleCancelRemove() {
 }
 
 .modal-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
   border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.modal-close:hover {
-  background: var(--fog);
-  color: var(--ink);
 }
 
 .modal-body {
-  flex: 1;
   overflow-y: auto;
   padding: 20px 24px;
+  gap: 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
 /* ===== 汇总 ===== */
@@ -619,10 +586,6 @@ function handleCancelRemove() {
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
   margin-right: 6px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 /* 已选股票徽标 */

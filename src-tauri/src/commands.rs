@@ -183,3 +183,19 @@ pub fn save_user_profile(app_handle: tauri::AppHandle, content: String) -> Resul
     fs::write(&path, &content).map_err(|e| format!("写入画像文件失败: {}", e))
 }
 
+// ──────────────────────────────────────────
+// Web 搜索与网页抓取
+// ──────────────────────────────────────────
+
+/// 网页搜索（使用 DuckDuckGo Lite，免费无需 API Key）
+#[tauri::command]
+pub async fn web_search(query: String, max_results: Option<usize>) -> Result<Vec<crate::api::WebSearchResult>, String> {
+    crate::api::web_search(&query, max_results.unwrap_or(10)).await
+}
+
+/// 网页抓取（获取指定 URL 的纯文本内容）
+#[tauri::command]
+pub async fn web_fetch(url: String) -> Result<String, String> {
+    crate::api::web_fetch(&url).await
+}
+

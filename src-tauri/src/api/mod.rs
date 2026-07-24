@@ -3,6 +3,7 @@ pub mod eastmoney;
 pub mod hotlist;
 pub mod llm;
 pub mod tencent;
+pub mod web;
 
 /// 构建项目统一的 HTTP 客户端
 pub fn build_http_client() -> Result<reqwest::Client, String> {
@@ -18,3 +19,4 @@ pub use eastmoney::{fetch_industry_analysis, fetch_industry_name, fetch_money_fl
 pub use hotlist::fetch_hot_list;
 pub use llm::{call_llm, call_llm_stream};
 pub use tencent::{fetch_index_quote, fetch_intraday_data, fetch_kline_data, fetch_money_flow, fetch_search_results, fetch_stock_quote};
+pub use web::{web_fetch, web_search, WebSearchResult};
