@@ -1,13 +1,20 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { createChart, ColorType, LineSeries, HistogramSeries, AreaSeries } from "lightweight-charts";
+import { createChart, ColorType, LineSeries, HistogramSeries, AreaSeries, createSeriesMarkers } from "lightweight-charts";
 
 const props = defineProps({
   data: { type: Object, default: null },
   loading: { type: Boolean, default: false },
+  signalMarkers: { type: Array, default: () => [] },
 });
 
 const chartContainer = ref(null);
+
+/** 图例信号标记提示 */
+function markerLegendTooltip() {
+  return '🔴 ▼ = 偏离均价 >3%，高抛信号\n🟢 ▲ = 偏离均价 <-3%，低吸信号';
+}
+
 let chart = null;
 let areaSeries = null;
 let priceLineSeries = null;
@@ -15,6 +22,9 @@ let avgPriceSeries = null;
 let vwapSeries = null;
 let volumeSeries = null;
 let baseLine = null;
+let signalMarkersPlugin = null;
+/** 缓存的 timestamp 映射 (timeStr → unixTs)，供信号标记使用 */
+let _timeMap = new Map();
 
 function initChart() {
   if (!chartContainer.value || chart) return;
@@ -127,6 +137,9 @@ function initChart() {
     title: "昨收",
   });
 
+  // T+0 信号标记插件
+  signalMarkersPlugin = createSeriesMarkers(priceLineSeries);
+
   // ResizeObserver
   const observer = new ResizeObserver(() => {
     if (chartContainer.value && chart) {
@@ -155,11 +168,13 @@ function updateChartData(intradayData) {
   const volumeData = [];
 
   let prevPrice = null;
+  const newTimeMap = new Map();
 
   for (const item of items) {
     const [h, m] = item.time.split(':').map(Number);
     // 用 Date.UTC 把东八区时间当作 UTC 对待，保证 crosshair 显示正确
     const timestamp = Math.floor(Date.UTC(year, month, day, h, m) / 1000);
+    newTimeMap.set(item.time, timestamp);
 
     priceData.push({ time: timestamp, value: item.price });
 
@@ -222,6 +237,12 @@ function updateChartData(intradayData) {
   // 更新昨收基准线
   baseLine.applyOptions({ price: preClose });
 
+  // 存储时间映射供信号标记使用
+  _timeMap = newTimeMap;
+
+  // 渲染 T+0 信号标记
+  renderSignalMarkers();
+
   chart.timeScale().fitContent();
 }
 
@@ -229,6 +250,24 @@ function ensureChart() {
   if (!chart) {
     initChart();
   }
+}
+
+/** 将 signalMarkers 的 time (HH:mm) 转为 Unix timestamp 并渲染 */
+function renderSignalMarkers() {
+  if (!signalMarkersPlugin) return;
+  const markers = props.signalMarkers;
+  if (!markers || markers.length === 0) {
+    signalMarkersPlugin.setMarkers([]);
+    return;
+  }
+  const converted = markers
+    .map(m => {
+      const ts = _timeMap.get(m.time);
+      if (ts == null) return null;
+      return { time: ts, position: m.position, color: m.color, shape: m.shape, text: m.text, size: m.size };
+    })
+    .filter(Boolean);
+  signalMarkersPlugin.setMarkers(converted);
 }
 
 watch(
@@ -242,6 +281,17 @@ watch(
     }
   },
   { deep: true, immediate: true }
+);
+
+// 信号标记独立更新
+watch(
+  () => props.signalMarkers,
+  () => {
+    if (signalMarkersPlugin && _timeMap.size > 0) {
+      renderSignalMarkers();
+    }
+  },
+  { deep: true }
 );
 
 onMounted(() => {
@@ -264,6 +314,8 @@ onUnmounted(() => {
     vwapSeries = null;
     volumeSeries = null;
     baseLine = null;
+    signalMarkersPlugin = null;
+    _timeMap = new Map();
   }
 });
 </script>
@@ -285,6 +337,18 @@ onUnmounted(() => {
           <span class="legend-dot" style="background: #2196F3"></span>
           VWAP
         </span>
+        <template v-if="signalMarkers.length > 0">
+          <span class="legend-sep">|</span>
+          <span class="legend-item signal-legend" :title="markerLegendTooltip()">
+            <span class="legend-dot" style="background: #e74c3c"></span>
+            ▼
+          </span>
+          <span class="legend-item signal-legend" :title="markerLegendTooltip()">
+            <span class="legend-dot" style="background: #27ae60"></span>
+            ▲
+          </span>
+          <span class="legend-label">T+0 信号</span>
+        </template>
       </div>
     </div>
     <div class="intraday-chart-wrap">
@@ -297,6 +361,8 @@ onUnmounted(() => {
         <span class="intraday-empty-icon">—</span>
         <p class="intraday-empty-text">暂无分时数据（非交易时段）</p>
       </div>
+
+
     </div>
   </div>
 </template>
@@ -389,5 +455,20 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* 信号图例 */
+.legend-sep {
+  color: var(--border-light);
+  font-size: 12px;
+  margin: 0 2px;
+  user-select: none;
+}
+
+.legend-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-left: 2px;
 }
 </style>

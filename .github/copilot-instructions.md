@@ -2,28 +2,23 @@
 
 ## 首要规则：先读 PROJECT.md
 
-**每次对话开始或收到新问题时，必须首先阅读 `e:\stock-analysis\PROJECT.md`** 以获取：
-- 项目技术栈（Tauri 2 + Vue 3 + Rust）
-- 完整文件结构和各文件职责
-- 数据流架构（composable → invoke → Rust command → HTTP API）
-- 所有 Tauri 命令列表及对应数据源
-- Skills 架构和 AI Agent 工具系统
-- 设计系统约束（Steep Design System）
-- 关键约定（GBK 编码、竞态保护、reasoning_content 回传等）
+**每次对话开始或收到新问题时，必须首先阅读 `e:\stock-analysis\PROJECT.md`**，其中包含项目全貌：技术栈、文件结构、数据流、15 个 Tauri 命令、Skills 系统、设计约束等。以下为高频编码约定的补充速查。
 
-## 项目文档索引
+## 代码约定
 
-| 文件 | 用途 |
-|------|------|
-| `PROJECT.md` | **主文档** — 项目全貌，每次必读 |
-| `src/prompts/system-prompt.md` | AI Agent 系统提示词模板 |
-| `src/skills/index.js` | Skills 注册器，定义所有 LLM 工具 |
+### 修改与验证
+1. **前端** → `src/` → `pnpm build` 验证
+2. **Rust 后端** → `src-tauri/` → `cargo check` 验证
+3. **文件变动后** → 同步更新 `PROJECT.md` 对应章节
 
-## 关键约定速查
+### 新增文件模式
+4. **Tauri 命令** → `commands.rs` 添加 `#[tauri::command]` → `lib.rs` 的 `.invoke_handler()` 注册 → 更新 `PROJECT.md` §4.1
+5. **AI Skill** → 创建 `skills/Xxx.js`（导出 `{ tools, toolImpl, systemPrompt }`）→ `index.js` 的 `SKILLS` 数组追加 → 更新 `PROJECT.md` §3.2
+6. **Composable** → `composables/useXxx.js`，返回 `{ data, loading, load(), ... }` → `App.vue` 调用 → 更新 `PROJECT.md` §3.1
 
-1. **前端修改** → 改 `src/` 下对应文件 → `pnpm build` 验证
-2. **Rust 后端修改** → 改 `src-tauri/` → `cargo check` 验证
-3. **新增 Tauri 命令** → `commands.rs` + `lib.rs` 注册 + `PROJECT.md` 更新
-4. **新增 AI Skill** → 创建 `skills/Xxx.js` + `index.js` 注册 + `PROJECT.md` 更新
-5. **文件变动** → 同步更新 `PROJECT.md` 对应章节
-6. **新对话/新问题** → 先读 `PROJECT.md`
+## 关键陷阱
+
+7. **腾讯 API 返回 GBK** → Rust 端必须 `encoding_rs::GBK.decode()` 解码，不可直接用 UTF-8
+8. **DeepSeek V4 工具调用** → assistant 消息须回传 `reasoning_content` 字段，否则 HTTP 400
+9. **竞态保护** → 切换股票时丢弃旧请求结果（`useMoneyFlow` / `useKlineData` 已内置，新增 data fetcher 须复用 `fetcher.js` 的 `createDataFetcher()`）
+10. **资金流向双数据源** → 腾讯优先，东方财富 push2 备选（偶发连接重置）

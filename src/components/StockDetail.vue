@@ -2,7 +2,8 @@
 import KlineChart from "./KlineChart.vue";
 import IntradayChart from "./IntradayChart.vue";
 import { signChar, fmtMoney, fmtPct } from "../utils/format";
-import { ref, computed } from "vue";
+import { useT0Signals } from "../composables/useT0Signals.js";
+import { ref, computed, watch } from "vue";
 
 const props = defineProps({
   selectedStock: { type: Object, default: null },
@@ -31,9 +32,32 @@ const chartMode = ref("intraday"); // "kline" | "intraday"
 const showSR = ref(false);
 const klineChartRef = ref(null);
 
+/** T+0 信号系统 */
+const { signalMarkers, summary: t0Summary, compute: computeT0Signals } = useT0Signals();
+
+// 当分时数据或K线数据变化时重新计算信号
+watch(
+  [() => props.klineData, () => props.intradayData],
+  ([kline, intraday]) => {
+    if (intraday && intraday.items && intraday.items.length > 0) {
+      computeT0Signals(kline, intraday);
+    }
+  },
+  { immediate: true, deep: false }
+);
+
 function handleToggleSR() {
   showSR.value = !showSR.value;
   klineChartRef.value?.toggleSR();
+}
+
+function t0DirectionTooltip(summary) {
+  if (!summary) return '';
+  const d = summary.direction;
+  const trend = summary.raw.trend;
+  if (d === '正T为主') return `日线趋势「${trend}」→ 低吸高抛，先买后卖`;
+  if (d === '反T为主') return `日线趋势「${trend}」→ 高抛低吸，先卖后买`;
+  return `日线趋势「${trend}」→ 方向不明，建议观望`;
 }
 
 function switchChartMode(mode) {
@@ -130,6 +154,7 @@ const sinceAddedPct = computed(() => {
         <IntradayChart
           :data="intradayData"
           :loading="intradayLoading"
+          :signal-markers="signalMarkers"
         />
       </div>
 
@@ -170,7 +195,7 @@ const sinceAddedPct = computed(() => {
         </div>
       </div>
 
-      <!-- 主力资金流向 -->
+      <!-- 主力资金流向 + T+0 信号 -->
       <div v-if="selectedStock" class="flow-section">
         <div class="flow-header">
           <span class="flow-title">主力资金</span>
@@ -186,6 +211,26 @@ const sinceAddedPct = computed(() => {
             <span class="flow-text">--</span>
           </template>
           <span v-if="moneyFlowLoading" class="flow-loading">加载中...</span>
+
+          <!-- T+0 信号 -->
+          <template v-if="chartMode === 'intraday' && t0Summary && t0Summary.hasSignal">
+            <span class="flow-sep">|</span>
+            <span
+              class="t0-badge-inline"
+              :class="{
+                'dir-up': t0Summary.direction === '正T为主',
+                'dir-down': t0Summary.direction === '反T为主',
+                'dir-wait': t0Summary.direction === '观望',
+              }"
+              :title="t0DirectionTooltip(t0Summary)"
+            >{{ t0Summary.direction }}</span>
+            <span
+              v-for="(sig, idx) in t0Summary.signals"
+              :key="idx"
+              class="t0-chip-inline"
+              :title="sig.desc + '\n💡 ' + sig.action"
+            >{{ sig.name }}</span>
+          </template>
         </div>
       </div>
 
@@ -445,6 +490,48 @@ const sinceAddedPct = computed(() => {
   color: var(--text-muted);
 }
 
+/* T+0 信号内联 */
+.flow-sep {
+  color: var(--border-light);
+  font-size: 16px;
+  margin: 0 6px;
+  user-select: none;
+}
+
+.t0-badge-inline {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 4px;
+  letter-spacing: -0.009em;
+  white-space: nowrap;
+  cursor: help;
+}
+.t0-badge-inline.dir-up {
+  color: var(--red);
+  background: rgba(231, 76, 60, 0.1);
+}
+.t0-badge-inline.dir-down {
+  color: var(--green);
+  background: rgba(39, 174, 96, 0.1);
+}
+.t0-badge-inline.dir-wait {
+  color: var(--text-secondary);
+  background: rgba(163, 166, 175, 0.12);
+}
+
+.t0-chip-inline {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--rust);
+  background: rgba(201, 94, 54, 0.1);
+  white-space: nowrap;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+}
+
 .flow-text {
   font-size: 18px;
   font-weight: 700;
@@ -643,5 +730,4 @@ const sinceAddedPct = computed(() => {
   height: 100%;
   min-height: 200px;
 }
-
 </style>

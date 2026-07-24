@@ -10,7 +10,7 @@ const props = defineProps({
   positions: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(["close", "add", "remove"]);
+const emit = defineEmits(["close", "add", "edit", "remove"]);
 
 // 盈亏计算（从 composable）
 const { positionStats, totalProfit, totalCost, totalMarketValue, totalProfitPct } = usePositions();

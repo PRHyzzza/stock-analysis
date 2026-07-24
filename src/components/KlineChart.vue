@@ -12,6 +12,7 @@ const props = defineProps({
   period: { type: String, default: "day" },
   markers: { type: Array, default: () => [] },
   showSR: { type: Boolean, default: false },
+  signalMarkers: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["change-period"]);
@@ -24,6 +25,8 @@ let chart = null;
 let candleSeries = null;
 let volumeSeries = null;
 let markersPlugin = null;
+/** T+0 信号标记插件 */
+let signalMarkersPlugin = null;
 /** 30日高低价线引用 */
 let highPriceLine = null;
 let lowPriceLine = null;
@@ -217,8 +220,11 @@ function initChart() {
     maSeries[p] = series;
   });
 
-  // 创建标记插件
+  // 创建标记插件（自选标记）
   markersPlugin = createSeriesMarkers(candleSeries);
+
+  // 创建 T+0 信号标记插件
+  signalMarkersPlugin = createSeriesMarkers(candleSeries);
 
   // 响应式 resize
   const observer = new ResizeObserver(() => {
@@ -359,6 +365,15 @@ function updateChartData(newData) {
     }
   }
 
+  // 渲染 T+0 信号标记
+  if (signalMarkersPlugin) {
+    if (props.signalMarkers && props.signalMarkers.length > 0) {
+      signalMarkersPlugin.setMarkers(props.signalMarkers);
+    } else {
+      signalMarkersPlugin.setMarkers([]);
+    }
+  }
+
   chart.timeScale().fitContent();
 }
 
@@ -406,6 +421,21 @@ watch(
   { deep: true }
 );
 
+// T+0 信号标记独立更新
+watch(
+  () => props.signalMarkers,
+  (markers) => {
+    if (signalMarkersPlugin) {
+      if (markers && markers.length > 0) {
+        signalMarkersPlugin.setMarkers(markers);
+      } else {
+        signalMarkersPlugin.setMarkers([]);
+      }
+    }
+  },
+  { deep: true }
+);
+
 // 均线周期 / 30日高低线设置变更时自动重绘
 watch([activeMaPeriods, show30DayHL], () => {
   if (props.data && props.data.length > 0 && candleSeries) {
@@ -441,6 +471,8 @@ onUnmounted(() => {
     chart = null;
     candleSeries = null;
     volumeSeries = null;
+    markersPlugin = null;
+    signalMarkersPlugin = null;
     highPriceLine = null;
     lowPriceLine = null;
     srPriceLines = [];
