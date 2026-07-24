@@ -82,8 +82,131 @@ function closeModal() { emit("close"); }
   </Teleport>
 </template>
 
-<style scoped>
+<style>
 @import "../assets/modal.css";
+
+/* ── Tab 子组件样式（非 scoped：穿透 Teleport + 子组件边界） ── */
+.tab-content {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.setting-group { margin-bottom: 20px; }
+.setting-group:last-child { margin-bottom: 0; }
+.setting-group.disabled { opacity: 0.4; pointer-events: none; }
+
+.setting-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  margin-top: 0;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(163, 166, 175, 0.15);
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.setting-row:last-child { border-bottom: none; }
+.setting-row.sub { padding-left: 16px; }
+
+/* ── Toggle Switch ── */
+.toggle {
+  appearance: none;
+  width: 40px; height: 22px;
+  border-radius: 11px;
+  background: var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.toggle:checked { background: var(--ink); }
+.toggle:checked::after { transform: translateX(18px); }
+.toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Select ── */
+.select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  min-width: 120px;
+}
+.select:focus { border-color: var(--ink); }
+
+/* ── Slider ── */
+.slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.slider {
+  width: 100px;
+  accent-color: var(--ink);
+}
+.slider-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 32px;
+  text-align: right;
+}
+
+/* ── MA Chips ── */
+.ma-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ma-chip {
+  display: flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+.ma-chip:hover { border-color: var(--ink); color: var(--ink); }
+.ma-chip.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+.hidden-check { display: none; }
+</style>
+
+<style scoped>
 
 /* ── Overlay ── */
 .modal-overlay {
@@ -153,126 +276,6 @@ function closeModal() { emit("close"); }
 }
 .tab-icon { font-size: 14px; }
 
-/* ── Tab content (shared with sub-components via :deep) ── */
-:deep(.tab-content) {
-  padding: 20px 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-:deep(.setting-group) { margin-bottom: 20px; }
-:deep(.setting-group:last-child) { margin-bottom: 0; }
-:deep(.setting-group.disabled) { opacity: 0.4; pointer-events: none; }
-
-:deep(.setting-group-title) {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-  margin-top: 0;
-}
-
-:deep(.setting-row) {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(163, 166, 175, 0.15);
-  font-size: 14px;
-  color: var(--text-primary);
-  cursor: pointer;
-  user-select: none;
-}
-:deep(.setting-row:last-child) { border-bottom: none; }
-:deep(.setting-row.sub) { padding-left: 16px; }
-
-/* ── Toggle Switch ── */
-:deep(.toggle) {
-  appearance: none;
-  width: 40px; height: 22px;
-  border-radius: 11px;
-  background: var(--border);
-  position: relative;
-  cursor: pointer;
-  transition: background 0.2s;
-  flex-shrink: 0;
-}
-:deep(.toggle::after) {
-  content: '';
-  position: absolute;
-  top: 2px; left: 2px;
-  width: 18px; height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-}
-:deep(.toggle:checked) { background: var(--ink); }
-:deep(.toggle:checked::after) { transform: translateX(18px); }
-:deep(.toggle:disabled) { opacity: 0.4; cursor: not-allowed; }
-
-/* ── Select ── */
-:deep(.select) {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  outline: none;
-  min-width: 120px;
-}
-:deep(.select:focus) { border-color: var(--ink); }
-
-/* ── Slider ── */
-:deep(.slider-wrap) {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-:deep(.slider) {
-  width: 100px;
-  accent-color: var(--ink);
-}
-:deep(.slider-val) {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  min-width: 32px;
-  text-align: right;
-}
-
-/* ── MA Chips ── */
-:deep(.ma-chips) {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-:deep(.ma-chip) {
-  display: flex;
-  align-items: center;
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
-  user-select: none;
-}
-:deep(.ma-chip:hover) { border-color: var(--ink); color: var(--ink); }
-:deep(.ma-chip.active) {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: #fff;
-}
-:deep(.hidden-check) { display: none; }
-
 /* ── Footer ── */
 .modal-footer {
   display: flex;
@@ -294,6 +297,8 @@ function closeModal() { emit("close"); }
 }
 .btn-reset:hover { border-color: var(--rust); color: var(--rust); }
 .btn-close {
+  width: auto;
+  height: auto;
   padding: 8px 24px;
   border: none;
   border-radius: var(--radius-full);

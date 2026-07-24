@@ -194,42 +194,50 @@ const rsiDetail = computed(() => {
           </div>
 
           <template v-else>
-            <!-- 均线趋势 -->
+            <!-- 均线趋势（Hero，全宽） -->
             <IndicatorCard
               title="均线趋势"
+              accent="var(--rust)"
+              layout="chips"
               :rows="maRows"
               :detail="indicators.maTrendDetail"
               :alignment="maAlignmentObj"
             />
 
-            <!-- MACD -->
-            <IndicatorCard
-              title="MACD"
-              :rows="macdRows"
-              :signal="indicators.macdCross ? fmtSignal(indicators.macdCross) : null"
-            />
+            <!-- 2 列网格：MACD + KDJ -->
+            <div class="indicator-grid">
+              <IndicatorCard
+                title="MACD"
+                accent="var(--ink)"
+                :rows="macdRows"
+                :signal="indicators.macdCross ? fmtSignal(indicators.macdCross) : null"
+              />
+              <IndicatorCard
+                title="KDJ"
+                accent="#8b5cf6"
+                :rows="kdjRows"
+                :signal="indicators.kdjCross ? fmtSignal(indicators.kdjCross) : null"
+                :status="{ label:'超买/超卖', text:indicators.kdjStatus||'--', cls: kdjStatusCls }"
+              />
+            </div>
 
-            <!-- KDJ -->
-            <IndicatorCard
-              title="KDJ"
-              :rows="kdjRows"
-              :signal="indicators.kdjCross ? fmtSignal(indicators.kdjCross) : null"
-              :status="{ label:'超买/超卖', text:indicators.kdjStatus||'--', cls: kdjStatusCls }"
-            />
-
-            <!-- WR -->
-            <IndicatorCard
-              title="WR (Williams %R)"
-              :rows="wrRows"
-              detail="超买: &ge; -20 &nbsp;|&nbsp; 超卖: &le; -80"
-            />
-
-            <!-- RSI -->
-            <IndicatorCard
-              title="RSI (相对强弱)"
-              :rows="rsiRows"
-              :detail="rsiDetail"
-            />
+            <!-- 2 列网格：WR + RSI -->
+            <div class="indicator-grid">
+              <IndicatorCard
+                title="WR"
+                accent="#f59e0b"
+                layout="single"
+                :rows="wrRows"
+                detail="超买 ≥ -20 | 超卖 ≤ -80"
+              />
+              <IndicatorCard
+                title="RSI"
+                accent="#06b6d4"
+                layout="single"
+                :rows="rsiRows"
+                :detail="rsiDetail"
+              />
+            </div>
           </template>
         </div>
       </div>
@@ -237,8 +245,11 @@ const rsiDetail = computed(() => {
   </Teleport>
 </template>
 
-<style scoped>
+<style>
 @import "../assets/modal.css";
+</style>
+
+<style scoped>
 
 /* TechAnalysisModal 特有覆盖 */
 .modal-overlay {
@@ -247,8 +258,8 @@ const rsiDetail = computed(() => {
 }
 
 .modal-container {
-  width: 520px;
-  max-width: 92vw;
+  width: 600px;
+  max-width: 94vw;
   max-height: 85vh;
 }
 
@@ -282,8 +293,15 @@ const rsiDetail = computed(() => {
 }
 
 .modal-body {
-  padding: 24px 28px;
+  padding: 20px 28px;
   overflow-y: auto;
+}
+
+/* ── 2 列指标网格 ── */
+.indicator-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
 }
 
 .modal-loading {
@@ -298,36 +316,5 @@ const rsiDetail = computed(() => {
 .kline-icon {
   font-size: 36px;
   opacity: 0.6;
-}
-
-/* ===== Steep: 区块（样式已迁移到 IndicatorCard.vue，此处保留 color helpers） ===== */
-
-/* ===== Steep: 信号标签 — Rust tone ===== */
-.signal-up {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 14px;
-  border-radius: var(--radius-full);
-  background: var(--red-bg);
-  color: var(--red);
-  font-weight: 600;
-  font-size: 14px;
-}
-.signal-down {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 14px;
-  border-radius: var(--radius-full);
-  background: var(--green-bg);
-  color: var(--green);
-  font-weight: 600;
-  font-size: 14px;
-}
-.signal-none {
-  color: var(--text-muted);
-  font-weight: 500;
-  font-size: 14px;
 }
 </style>

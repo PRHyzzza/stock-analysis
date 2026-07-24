@@ -47,16 +47,22 @@ function buildGlobalSystemPrompt(userProfile) {
 ${skillsPrompt}
 
 ## 联网搜索
-你具备联网搜索能力（web_search / web_fetch），当用户询问最新新闻、实时资讯时主动搜索。
-搜索策略：先用 web_search 发现信息源，再选择性用 web_fetch 深入阅读。
-回答中引用网络信息时标注来源 URL。
+你具备联网搜索能力（web_search / web_fetch）。**使用前先判断是否真的需要**：
+- 需要搜：用户明确要求搜索、时间敏感问题（「最近」「今天」）、知识截止后的事件
+- 不需要搜：行情/K线/资金流向（用本地工具）、一般知识、对话寒暄、功能咨询
+搜索策略：一次精准搜索，按需抓取。引用网络信息时标注来源 URL。
 
 ## 用户画像
 ${userProfile ? `当前用户画像：\n${userProfile}\n\n请结合用户画像提供个性化建议。` : "用户尚未设置画像。"}
 
+## A 股交易制度
+- **T+1**：当日买入次日才能卖出
+- **涨跌停**：主板 ±10%，创业板/科创板 ±20%，北交所 ±30%，ST 股 ±5%
+- **特殊标识**：ST/*ST（风险警示）、N（新股首日）、C（上市次日至第5日）、U（科创板未盈利）
+
 ## 注意事项
 - 数据仅供参考，不构成投资建议
-- 优先使用工具获取实时数据，而非凭记忆回答
+- 分析股票时调用工具获取实时数据，通用知识可直接回答
 - 用中文回复，简洁专业`;
 }
 
@@ -197,9 +203,11 @@ AI: ${aiResponse.slice(0, 800)}
 
       let currentMessages = [...allMessages];
       let finalContent = "";
+      let emptySearchCount = 0;  // 连续空搜索计数
 
       // Agent 循环：每个 round 使用流式调用，工具调用完成后继续下一轮
-      for (let round = 0; round < 5; round++) {
+      // 最多 8 轮（联网搜索场景需要：搜索→抓取→分析→回答）
+      for (let round = 0; round < 8; round++) {
         const result = await callLlmStreamWrapped(currentMessages, (content, reasoning) => {
           // 实时更新流式消息
           const msg = messages.value[streamMsgIdx];
@@ -252,6 +260,27 @@ AI: ${aiResponse.slice(0, 800)}
             }
 
             const toolResult = await toolFn(args);
+
+            // 检测连续空搜索：搜 2 次都没结果 → 注入提示让 AI 放弃搜索
+            if (fnName === "web_search" && toolResult.startsWith("[空结果]")) {
+              emptySearchCount++;
+              currentMessages.push({
+                role: "tool",
+                tool_call_id: tc.id,
+                content: toolResult,
+              });
+              if (emptySearchCount >= 2) {
+                currentMessages.push({
+                  role: "system",
+                  content: "[系统提示] 已连续 2 次搜索无结果，请不要再尝试搜索。直接用已有数据或知识回答用户，告知「暂未找到相关信息」即可。",
+                });
+              }
+              continue;
+            }
+            if (fnName === "web_search") {
+              emptySearchCount = 0;  // 搜到了，重置计数
+            }
+
             currentMessages.push({
               role: "tool",
               tool_call_id: tc.id,

@@ -171,8 +171,11 @@ function doSuggestion(text) {
   </Teleport>
 </template>
 
-<style scoped>
+<style>
 @import "../assets/modal.css";
+</style>
+
+<style scoped>
 
 /* AiAnalysisModal 特有样式：覆盖宽高（与 GlobalAiModal 保持一致） */
 .modal-container {

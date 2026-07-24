@@ -305,8 +305,11 @@ function handleCancelRemove() {
   </Teleport>
 </template>
 
-<style scoped>
+<style>
 @import "../assets/modal.css";
+</style>
+
+<style scoped>
 
 /* PositionModal 特有覆盖 */
 .modal-overlay {

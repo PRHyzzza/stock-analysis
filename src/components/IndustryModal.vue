@@ -111,8 +111,11 @@ function retryLoad() {
   </Teleport>
 </template>
 
-<style scoped>
+<style>
 @import "../assets/modal.css";
+</style>
+
+<style scoped>
 
 /* ===== Steep: Modal — 24px radius, ink shadow ===== */
 /* 覆盖默认值 */

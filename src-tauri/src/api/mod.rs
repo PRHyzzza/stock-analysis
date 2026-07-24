@@ -5,11 +5,16 @@ pub mod llm;
 pub mod tencent;
 pub mod web;
 
+use std::time::Duration;
+
 /// 构建项目统一的 HTTP 客户端
+/// 连接超时 10s，总超时 15s，防止单个请求卡死整个流程
 pub fn build_http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .danger_accept_invalid_certs(true)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))
 }

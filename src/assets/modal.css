@@ -71,7 +71,9 @@
 }
 
 /* ===== 关闭按钮（通用） ===== */
-.btn-close {
+.btn-close,
+.modal-close,
+.modal-close-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -85,7 +87,9 @@
   transition: all 0.15s;
 }
 
-.btn-close:hover {
+.btn-close:hover,
+.modal-close:hover,
+.modal-close-btn:hover {
   background: var(--fog);
   color: var(--text-primary);
 }

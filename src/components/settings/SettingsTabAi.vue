@@ -34,8 +34,8 @@ const { state } = useSettings();
     <div class="setting-group">
       <p class="setting-group-title">搜索</p>
       <label class="setting-row">
-        <span>启用联网搜索</span>
-        <span class="setting-hint">AI 可搜索最新财经新闻、公司公告等实时信息（免费，DuckDuckGo）</span>
+        <span>联网搜索</span>
+        <span class="setting-hint">AI 可搜索最新财经新闻、公司公告等实时信息</span>
         <input type="checkbox" v-model="state.aiWebSearchEnabled" class="toggle" />
       </label>
     </div>

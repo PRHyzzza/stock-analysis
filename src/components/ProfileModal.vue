@@ -96,8 +96,11 @@ function closeModal() {
   </Teleport>
 </template>
 
-<style scoped>
+<style>
 @import "../assets/modal.css";
+</style>
+
+<style scoped>
 
 /* ProfileModal 特有覆盖 */
 .modal-overlay {

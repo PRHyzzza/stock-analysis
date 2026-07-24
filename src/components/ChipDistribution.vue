@@ -222,8 +222,11 @@ function formatPrice(v) {
   </Teleport>
 </template>
 
-<style scoped>
+<style>
 @import "../assets/modal.css";
+</style>
+
+<style scoped>
 
 /* ChipDistribution 特有覆盖 */
 .modal-container {
