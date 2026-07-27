@@ -285,8 +285,6 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
     let mut items = Vec::new();
     let mut cum_pv = 0.0; // ∑(price × volume per-minute) for VWAP
     let mut cum_vol = 0.0; // ∑(volume per-minute) for VWAP
-    let mut cum_turnover_total = 0.0; // 累计总成交额（元），按分钟差分自算
-    let mut cum_vol_total = 0.0; // 累计总成交量（手），按分钟差分自算
     let mut prev_vol = 0.0; // 上一分钟的累计量，用于差分
     let mut prev_turnover = 0.0; // 上一分钟的累计额，用于差分
     for point in points {
@@ -304,8 +302,8 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
                 raw_time.to_string()
             };
             let price: f64 = parts[1].parse().unwrap_or(0.0);
-            let cum_volume: f64 = parts[2].parse().unwrap_or(0.0); // API 返回的是累计量
-            let cum_turnover: f64 = parts.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+            let cum_volume: f64 = parts[2].parse().unwrap_or(0.0); // API 返回的是累计量（手）
+            let cum_turnover: f64 = parts.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0); // 累计成交额（元）
 
             // 差分：本分钟实际成交量 = 累计量 - 上分钟累计量
             let volume = if cum_volume >= prev_vol {
@@ -330,13 +328,13 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
                 0.0
             };
 
-            // 累计均价：仅累加有成交额的分钟，避免分母含无成交额数据导致均价偏低
-            if turnover > 0.0 && volume > 0.0 {
-                cum_turnover_total += turnover;
-                cum_vol_total += volume;
-            }
-            let avg_price = if cum_vol_total > 0.0 {
-                (cum_turnover_total / (cum_vol_total * 100.0) * 100.0).round() / 100.0
+            // 均价 = 累计成交额 / 累计成交量（股）
+            // 直接用 API 返回的累计值，避免差分→再累加的精度损失和条件遗漏
+            let avg_price = if cum_volume > 0.0 && cum_turnover > 0.0 {
+                (cum_turnover / (cum_volume * 100.0) * 100.0).round() / 100.0
+            } else if cum_volume > 0.0 && cum_vol > 0.0 {
+                // 成交额缺失时（API 只返回3个字段），用 VWAP 近似均价
+                (cum_pv / cum_vol * 100.0).round() / 100.0
             } else {
                 0.0
             };
