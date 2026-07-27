@@ -19,6 +19,17 @@ pub fn build_http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))
 }
 
+/// 构建 LLM 专用 HTTP 客户端（无总超时，流式响应可能持续数分钟）
+pub fn build_llm_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .danger_accept_invalid_certs(true)
+        .connect_timeout(Duration::from_secs(10))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|e| format!("创建 LLM HTTP 客户端失败: {}", e))
+}
+
 // 重导出高频 API 函数，保持与 commands.rs 兼容
 pub use eastmoney::{fetch_industry_analysis, fetch_industry_name, fetch_money_flow as fetch_money_flow_eastmoney, fetch_sector_money_flow, parse_industry_analysis};
 pub use hotlist::fetch_hot_list;

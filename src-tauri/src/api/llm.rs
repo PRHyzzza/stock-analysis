@@ -81,7 +81,7 @@ pub async fn call_llm_stream(
     reasoning_effort: &str,
     thinking_enabled: bool,
 ) -> Result<(), String> {
-    let client = super::build_http_client()?;
+    let client = super::build_llm_http_client()?;
     let url = "https://api.deepseek.com/chat/completions";
 
     let mut body = serde_json::Map::new();
@@ -137,7 +137,17 @@ pub async fn call_llm_stream(
     let sid = stream_id.to_string();
 
     while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.map_err(|e| format!("读取流数据失败: {}", e))?;
+        let chunk = match chunk_result {
+            Ok(c) => c,
+            Err(e) => {
+                // 连接中断或超时：保留已收到的内容，优雅退出
+                let _ = app_handle.emit("llm-done", StreamChunk {
+                    id: sid.clone(),
+                    data: serde_json::json!({"warning": format!("流读取中断: {}", e)}),
+                });
+                return Ok(());
+            }
+        };
         let chunk_str = String::from_utf8_lossy(&chunk);
         buffer.push_str(&chunk_str);
 
