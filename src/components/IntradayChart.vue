@@ -178,14 +178,9 @@ function updateChartData(intradayData) {
 
     priceData.push({ time: timestamp, value: item.price });
 
-    // 计算均价（成交额 / 成交量），如果 API 没提供的话
-    // turnover 是元, volume 是手 (1手=100股), 所以 avgPrice = turnover / (volume * 100)
     let avgPrice = item.avgPrice;
-    if (avgPrice <= 0 && item.volume > 0 && item.turnover > 0) {
-      avgPrice = item.turnover / (item.volume * 100);
-    }
-    // 安全校验：均价应在当前价的 ±50% 范围内，避免异常值拉伸价格轴
-    if (avgPrice > 0 && avgPrice > item.price * 0.5 && avgPrice < item.price * 1.5) {
+    // 安全校验：跳过异常值（0 或超出当前价 ±80%），避免拉伸价格轴
+    if (avgPrice > 0 && avgPrice > item.price * 0.2 && avgPrice < item.price * 1.8) {
       avgPriceData.push({ time: timestamp, value: avgPrice });
     }
 

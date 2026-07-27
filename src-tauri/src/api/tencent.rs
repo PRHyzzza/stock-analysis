@@ -283,8 +283,10 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
     };
 
     let mut items = Vec::new();
-    let mut cum_pv = 0.0; // ∑(price × volume per-minute)
-    let mut cum_vol = 0.0; // ∑(volume per-minute)
+    let mut cum_pv = 0.0; // ∑(price × volume per-minute) for VWAP
+    let mut cum_vol = 0.0; // ∑(volume per-minute) for VWAP
+    let mut cum_turnover_total = 0.0; // 累计总成交额（元），按分钟差分自算
+    let mut cum_vol_total = 0.0; // 累计总成交量（手），按分钟差分自算
     let mut prev_vol = 0.0; // 上一分钟的累计量，用于差分
     let mut prev_turnover = 0.0; // 上一分钟的累计额，用于差分
     for point in points {
@@ -319,7 +321,7 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
             prev_vol = cum_volume;
             prev_turnover = cum_turnover;
 
-            // 计算累计 VWAP（用每分钟的实际量加权）
+            // 累计 VWAP：∑(price × minute_volume) / ∑(minute_volume)
             cum_pv += price * volume;
             cum_vol += volume;
             let vwap = if cum_vol > 0.0 {
@@ -328,7 +330,18 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
                 0.0
             };
 
-            items.push(IntradayItem { time, price, avg_price: 0.0, volume, turnover, vwap });
+            // 累计均价：仅累加有成交额的分钟，避免分母含无成交额数据导致均价偏低
+            if turnover > 0.0 && volume > 0.0 {
+                cum_turnover_total += turnover;
+                cum_vol_total += volume;
+            }
+            let avg_price = if cum_vol_total > 0.0 {
+                (cum_turnover_total / (cum_vol_total * 100.0) * 100.0).round() / 100.0
+            } else {
+                0.0
+            };
+
+            items.push(IntradayItem { time, price, avg_price, volume, turnover, vwap });
         }
     }
 
