@@ -505,7 +505,7 @@ const sinceAddedPct = computed(() => {
   border-radius: 4px;
   letter-spacing: -0.009em;
   white-space: nowrap;
-  cursor: help;
+  cursor: pointer;
 }
 .t0-badge-inline.dir-up {
   color: var(--red);

@@ -21,6 +21,7 @@
     "@tauri-apps/cli": "^2.11.4",
     "@vitejs/plugin-vue": "^6.0.8",
     "esbuild": "^0.28.1",
+    "lightningcss": "^1.33.0",
     "sharp": "^0.35.3",
     "vite": "^8.1.5"
   }
