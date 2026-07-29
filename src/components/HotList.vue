@@ -1,17 +1,30 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
 const props = defineProps({
   watchlist: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(["select-stock", "remove-stock"]);
+const emit = defineEmits(["select-stock"]);
 
 const hotList = ref([]);
 const loading = ref(false);
 const error = ref("");
 const selectedCode = ref("");
+const selectedTag = ref("");
+
+// 按标签筛选后的列表
+const filteredHotList = computed(() => {
+  if (!selectedTag.value) return hotList.value;
+  return hotList.value.filter((item) =>
+    item.tags?.includes(selectedTag.value)
+  );
+});
+
+function selectTag(tag) {
+  selectedTag.value = selectedTag.value === tag ? "" : tag;
+}
 
 async function loadHotList() {
   loading.value = true;
@@ -86,10 +99,13 @@ onUnmounted(() => {
   <div class="hotlist-section">
     <div class="list-header">
       <span class="list-title">热榜</span>
+      <span v-if="selectedTag" class="tag-filter-indicator" @click="selectTag(selectedTag)">「{{ selectedTag }}」✕</span>
       <button class="hot-refresh-btn" :class="{ loading }" @click="loadHotList" :disabled="loading">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path d="M2 8a6 6 0 0 1 10.47-4M14 8a6 6 0 0 1-10.47 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M13.5 2v4h-4M2.5 14v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 8a6 6 0 0 1 10.47-4M14 8a6 6 0 0 1-10.47 4" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" />
+          <path d="M13.5 2v4h-4M2.5 14v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+            stroke-linejoin="round" />
         </svg>
       </button>
     </div>
@@ -105,16 +121,10 @@ onUnmounted(() => {
       </div>
 
       <template v-else>
-        <div
-          v-for="item in hotList"
-          :key="item.code"
-          class="stock-item"
-          :class="{
-            active: selectedCode === item.code,
-            'in-watchlist': isInWatchlist(item.code),
-          }"
-          @click="selectStock(item)"
-        >
+        <div v-for="item in filteredHotList" :key="item.code" class="stock-item" :class="{
+          active: selectedCode === item.code,
+          'in-watchlist': isInWatchlist(item.code),
+        }" @click="selectStock(item)">
           <div class="hot-rank-col">
             <span class="hot-rank-num" :class="{ 'rank-top': item.order <= 3 }">{{ item.order }}</span>
           </div>
@@ -122,10 +132,12 @@ onUnmounted(() => {
             <div class="hot-name-row">
               <span class="item-name">{{ item.name }}</span>
               <span class="item-code">{{ item.code }}</span>
-              <span class="hot-market" :class="item.market === 17 ? 'market-sh' : 'market-sz'">{{ marketLabel(item.market) }}</span>
+              <span class="hot-market" :class="item.market === 17 ? 'market-sh' : 'market-sz'">{{
+                marketLabel(item.market) }}</span>
             </div>
             <div class="hot-tags" v-if="item.tags?.length">
-              <span class="hot-tag" v-for="tag in item.tags.slice(0, 2)" :key="tag">{{ tag }}</span>
+              <span class="hot-tag" v-for="tag in item.tags.slice(0, 2)" :key="tag" @click.stop="selectTag(tag)">{{ tag
+                }}</span>
               <span v-if="item.popularity_tag" class="hot-pop-tag">{{ item.popularity_tag }}</span>
             </div>
           </div>
@@ -139,8 +151,11 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div v-if="hotList.length === 0" class="empty-state">
+        <div v-if="filteredHotList.length === 0 && !selectedTag" class="empty-state">
           暂无数据
+        </div>
+        <div v-else-if="filteredHotList.length === 0 && selectedTag" class="empty-state">
+          没有匹配「{{ selectedTag }}」的股票
         </div>
       </template>
     </div>
@@ -187,16 +202,36 @@ onUnmounted(() => {
   justify-content: center;
   transition: all 0.15s;
 }
+
 .hot-refresh-btn:hover {
   color: var(--ink);
   border-color: var(--ink);
 }
+
 .hot-refresh-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
 .hot-refresh-btn.loading svg {
   animation: spin 0.8s linear infinite;
+}
+
+.tag-filter-indicator {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--rust);
+  background: var(--apricot-wash);
+  padding: 2px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-left: auto;
+  margin-right: 8px;
+}
+.tag-filter-indicator:hover {
+  background: var(--rust);
+  color: #fff;
 }
 
 .stock-list {
@@ -252,7 +287,7 @@ onUnmounted(() => {
   border-radius: 0 2px 2px 0;
 }
 
-.stock-item + .stock-item {
+.stock-item+.stock-item {
   border-top: 1px solid var(--border-light);
 }
 
@@ -314,10 +349,12 @@ onUnmounted(() => {
   border-radius: 3px;
   flex-shrink: 0;
 }
+
 .market-sh {
   background: var(--sky-wash);
   color: #2563eb;
 }
+
 .market-sz {
   background: var(--apricot-wash);
   color: var(--rust);
@@ -339,6 +376,13 @@ onUnmounted(() => {
   color: var(--text-secondary);
   font-weight: 500;
   white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.hot-tag:hover {
+  background: var(--border);
+  color: var(--text-primary);
 }
 
 .hot-pop-tag {
@@ -387,9 +431,18 @@ onUnmounted(() => {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.rank-up { color: var(--red); }
-.rank-down { color: var(--green); }
-.rank-flat { color: var(--text-muted); }
+
+.rank-up {
+  color: var(--red);
+}
+
+.rank-down {
+  color: var(--green);
+}
+
+.rank-flat {
+  color: var(--text-muted);
+}
 
 /* 加载 & 错误 & 空状态 */
 .hot-loading,
