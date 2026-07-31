@@ -1,46 +1,85 @@
 /// 腾讯财经数据源
-use crate::helpers::to_tencent_code;
+use crate::helpers::{is_hk_stock, to_tencent_code};
 use crate::types::{IntradayData, IntradayItem, KlineItem, MarketIndex, MoneyFlow, SearchResult, StockQuote};
 use regex::Regex;
 
 /// 获取个股实时行情（来自腾讯财经）
+/// 港股: qt.gtimg.cn 返回延迟约 15 分钟的行情（缓存节点轮询、价格来回跳），
+///       改用分时接口 web.ifzq.gtimg.cn 获取实时数据，与分时图完全同源
 pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
     let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
-    let url = format!("https://qt.gtimg.cn/q={}", t_code);
 
-    let resp = client
-        .get(&url)
-        .header("Referer", "https://qt.gtimg.cn/")
-        .send()
-        .await
-        .map_err(|e| format!("请求腾讯行情失败: {}", e))?;
+    let fields: Vec<String> = if is_hk_stock(code) {
+        // 港股：分时接口（实时行情，qt 字段布局与 qt.gtimg.cn 一致）
+        let url = format!(
+            "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={}",
+            t_code
+        );
+        let resp = client
+            .get(&url)
+            .header("Referer", "https://web.ifzq.gtimg.cn/")
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .map_err(|e| format!("请求港股实时行情失败: {}", e))?;
 
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("读取响应失败: {}", e))?;
-    let (text, _, _) = encoding_rs::GBK.decode(&bytes);
-    let text = text.to_string();
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("解析 JSON 失败: {}", e))?;
 
-    let fields: Vec<&str> = text.split('~').collect();
+        data.get("data")
+            .and_then(|d| d.get(&t_code))
+            .and_then(|s| s.get("qt"))
+            .and_then(|q| q.get(&t_code))
+            .and_then(|a| a.as_array())
+            .ok_or_else(|| "未找到港股行情字段".to_string())?
+            .iter()
+            .map(|v| v.as_str().unwrap_or("").to_string())
+            .collect()
+    } else {
+        // A股：qt.gtimg.cn（实时行情）
+        let url = format!("https://qt.gtimg.cn/q={}", t_code);
+
+        let resp = client
+            .get(&url)
+            .header("Referer", "https://qt.gtimg.cn/")
+            .send()
+            .await
+            .map_err(|e| format!("请求腾讯行情失败: {}", e))?;
+
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| format!("读取响应失败: {}", e))?;
+        let (text, _, _) = encoding_rs::GBK.decode(&bytes);
+        let text = text.to_string();
+        text.split('~').map(|s| s.to_string()).collect()
+    };
+
     if fields.len() < 40 {
         return Err(format!("腾讯API返回格式异常: {} 个字段", fields.len()));
     }
 
-    let name = fields.get(1).unwrap_or(&"").to_string();
-    let price = fields.get(3).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let prev_close = fields.get(4).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let open = fields.get(5).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let volume = fields.get(6).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let change = fields.get(31).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let change_pct = fields.get(32).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let high = fields.get(33).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let low = fields.get(34).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let turnover = fields.get(37).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let turnover_rate = fields.get(38).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let pe = fields.get(39).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
-    let amplitude = fields.get(46).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
+    let name = fields.get(1).cloned().unwrap_or_default();
+    let price = fields.get(3).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let prev_close = fields.get(4).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let open = fields.get(5).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let volume = fields.get(6).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let change = fields.get(31).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let change_pct = fields.get(32).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let high = fields.get(33).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let low = fields.get(34).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let turnover = fields.get(37).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let turnover_rate = fields.get(38).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    let pe = fields.get(39).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    // 字段布局差异：A 股振幅在 [46]，港股 [46] 是英文名、振幅在 [43]
+    let amplitude = if is_hk_stock(code) {
+        fields.get(43).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0)
+    } else {
+        fields.get(46).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0)
+    };
 
     Ok(StockQuote {
         code: code.to_string(),
@@ -148,12 +187,13 @@ pub async fn fetch_search_results(keyword: &str) -> Result<Vec<SearchResult>, St
             let fields: Vec<&str> = item.split('~').collect();
             if fields.len() < 3 { continue; }
             let market_raw = fields[0].trim();
-            let code = fields[1].trim().to_string();
+            let raw_code = fields[1].trim();
             let name = unescape_unicode(fields[2].trim());
-            let market = match market_raw {
-                "sh" => "SH".to_string(),
-                "sz" => "SZ".to_string(),
-                "hk" => "HK".to_string(),
+            let (market, code) = match market_raw {
+                "sh" => ("SH".to_string(), raw_code.to_string()),
+                "sz" => ("SZ".to_string(), raw_code.to_string()),
+                // 港股代码归一化为 5 位（如 700 → 00700），确保下游 is_hk_stock / to_tencent_code 正确识别
+                "hk" => ("HK".to_string(), format!("{:0>5}", raw_code)),
                 _ => continue,
             };
             results.push(SearchResult { code, name, market });
