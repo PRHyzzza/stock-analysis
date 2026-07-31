@@ -25,7 +25,7 @@ pub struct StockQuote {
 pub struct SearchResult {
     pub code: String,
     pub name: String,
-    pub market: String, // "SH" / "SZ"
+    pub market: String, // "SH" / "SZ" / "HK"
 }
 
 /// 营收排名数据

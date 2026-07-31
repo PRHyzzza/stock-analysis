@@ -4,7 +4,7 @@ const STORAGE_KEY = "stock-analysis-watchlist";
 
 /** 默认股票池 */
 const DEFAULT_STOCKS = [
-  { code: "300750", name: "宁德时代", price: 256.80, change: -3.12, changePct: -1.20 },
+  { code: "300750", name: "宁德时代", market: "SZ", price: 256.80, change: -3.12, changePct: -1.20 },
 ];
 
 function loadWatchlist() {

@@ -113,10 +113,11 @@ function removeStock(code) {
             <div class="item-left">
               <span class="item-name">{{ stock.name }}</span>
               <span class="item-code">{{ stock.code }}</span>
+              <span v-if="stock.market === 'HK' || stock.code?.length === 5" class="market-badge-sm market-hk">HK</span>
             </div>
             <div class="item-right">
               <span class="item-price" :class="stock.change >= 0 ? 'up' : 'down'">
-                ¥{{ stock.price.toFixed(2) }}
+                {{ (stock.market === 'HK' || stock.code?.length === 5) ? 'HK$' : '¥' }}{{ stock.price.toFixed(2) }}
               </span>
               <span class="item-change" :class="stock.change >= 0 ? 'up' : 'down'">
                 {{ stock.changePct > 0 ? '+' : '' }}{{ stock.changePct.toFixed(2) }}%
@@ -289,6 +290,18 @@ function removeStock(code) {
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 500;
+}
+
+.market-badge-sm {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.market-badge-sm.market-hk {
+  color: #b45309;
+  background: #fef3c7;
 }
 
 .item-right {

@@ -129,11 +129,7 @@ fn parse_fflow_jsonp(text: &str) -> Result<(String, serde_json::Value), String> 
 /// 获取个股主力资金流向（来自东方财富，作为腾讯 API 的备选）
 /// 优先使用 push2 实时接口，回退到 push2his 历史接口
 pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
-    let secid = if code.starts_with("6") {
-        format!("1.{}", code)
-    } else {
-        format!("0.{}", code)
-    };
+    let secid = crate::helpers::to_em_secid(code);
 
     let client = super::build_http_client()?;
 

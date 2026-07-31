@@ -35,6 +35,12 @@ const intervalOptions = [
           <option v-for="opt in intervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
         </select>
       </label>
+      <label class="setting-row">
+        <span>分时数据</span>
+        <select v-model.number="state.intradayRefreshMs" class="select">
+          <option v-for="opt in intervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+        </select>
+      </label>
     </div>
   </div>
 </template>

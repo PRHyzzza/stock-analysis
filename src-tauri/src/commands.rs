@@ -14,8 +14,18 @@ use tauri::Manager;
 /// 用户画像持久化路径（app data dir 下的 user-profile.md）
 
 /// 获取个股行业数据（行业名称 + 行业分析）
+/// 港股不支持东方财富 HSF10 行业分析，返回空数据
 #[tauri::command]
 pub async fn get_stock_industry(code: String) -> Result<IndustryData, String> {
+    // 港股暂不支持东方财富行业分析，返回空数据
+    if crate::helpers::is_hk_stock(&code) {
+        return Ok(IndustryData {
+            industry_name: "港股".to_string(),
+            market_performance: vec![],
+            revenue_ranking: vec![],
+        });
+    }
+
     let em_code = crate::helpers::to_em_code(&code);
 
     let (name_result, analysis_result) = tokio::join!(

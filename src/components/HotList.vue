@@ -46,6 +46,7 @@ function selectStock(item) {
   const stock = {
     code: item.code,
     name: item.name,
+    market: item.market === 1 ? "SH" : "SZ",
     price: 0,
     change: 0,
     changePct: item.rise_and_fall,

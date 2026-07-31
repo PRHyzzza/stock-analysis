@@ -176,6 +176,7 @@ function addStockFromSearch(result) {
   const stock = {
     code: result.code,
     name: result.name,
+    market: result.market || (result.code.length === 5 ? "HK" : (result.code.startsWith("6") ? "SH" : "SZ")),
     price: 0,
     change: 0,
     changePct: 0,
@@ -225,12 +226,14 @@ function onKeydown(e) {
 let indicesTimer;
 let quotesTimer;
 let klineTimer;
+let intradayTimer;
 
 /** 重新设置所有定时器（设置变更时调用） */
 function rescheduleTimers() {
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
+  clearInterval(intradayTimer);
 
   if (settings.indicesRefreshMs > 0) {
     indicesTimer = setInterval(loadIndices, settings.indicesRefreshMs);
@@ -242,6 +245,11 @@ function rescheduleTimers() {
     klineTimer = setInterval(() => {
       if (selectedStock.value) loadKlineData(selectedStock.value);
     }, settings.klineRefreshMs);
+  }
+  if (settings.intradayRefreshMs > 0) {
+    intradayTimer = setInterval(() => {
+      if (selectedStock.value) loadIntradayData(selectedStock.value);
+    }, settings.intradayRefreshMs);
   }
 }
 
@@ -298,6 +306,7 @@ onUnmounted(() => {
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
+  clearInterval(intradayTimer);
 });
 </script>
 

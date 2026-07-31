@@ -1,4 +1,4 @@
-# stock-analysis — A 股桌面分析工具
+# stock-analysis — A 股 + 港股桌面分析工具
 
 > **Tauri 2 + Vue 3 + Rust** · 数据源: 腾讯财经 / 东方财富 / 同花顺 · AI: DeepSeek API · 图表: Lightweight Charts™ · 构建: Vite + pnpm
 
@@ -141,8 +141,10 @@ App.vue ──调用──> composables/useXxx.js
 ### 4.3 代码转换 (helpers.rs)
 
 ```
-600xxx → "SH600xxx" | 其他 → "SZxxxxxx"         (东方财富)
-600xxx → "sh600xxx" | 其他 → "szxxxxxx"         (腾讯)
+A 股:  600xxx → "SH600xxx" / "sh600xxx"  (东方财富 / 腾讯)
+       其他   → "SZxxxxxx" / "szxxxxxx"
+港股:  00700  → "HK00700"  / "hk00700"    (5 位数字代码)
+       secid  → "116.00700"              (东方财富资金流向)
 ```
 
 ---
@@ -176,5 +178,6 @@ cargo check        # Rust 编译检查 (src-tauri/)
 2. **竞态保护**: 切换股票时丢弃旧请求结果 (`useMoneyFlow` / `useKlineData`)
 3. **V4 reasoning_content**: 思考模式下 assistant 消息须回传此字段，否则 400
 4. **资金双数据源**: 腾讯优先 → 东方财富备选（push2 偶发连接重置）
-5. **文件变动 → 同步更新本文档**（新增/删除文件、Tauri 命令、composable/skill 等）
+5. **港股兼容**: `helpers.rs` 中 `is_hk_stock()` 通过代码长度（5 位）检测港股；腾讯 API 前缀 `hk`，东方财富 secid `116.xxx`，前端自动切换 HK$ 货币符号和市场标签
+6. **文件变动 → 同步更新本文档**（新增/删除文件、Tauri 命令、composable/skill 等）
 

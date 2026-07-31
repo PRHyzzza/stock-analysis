@@ -153,6 +153,7 @@ pub async fn fetch_search_results(keyword: &str) -> Result<Vec<SearchResult>, St
             let market = match market_raw {
                 "sh" => "SH".to_string(),
                 "sz" => "SZ".to_string(),
+                "hk" => "HK".to_string(),
                 _ => continue,
             };
             results.push(SearchResult { code, name, market });

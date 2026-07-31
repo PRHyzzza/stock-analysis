@@ -32,6 +32,14 @@ const chartMode = ref("intraday"); // "kline" | "intraday"
 const showSR = ref(false);
 const klineChartRef = ref(null);
 
+/** 港股识别与货币符号 */
+const isHK = computed(() => {
+  const stock = props.selectedStock;
+  if (!stock) return false;
+  return stock.market === "HK" || (stock.code && stock.code.length === 5);
+});
+const currencySymbol = computed(() => isHK.value ? "HK$" : "¥");
+
 /** T+0 信号系统 */
 const { signalMarkers, summary: t0Summary, compute: computeT0Signals } = useT0Signals();
 
@@ -97,6 +105,7 @@ const sinceAddedPct = computed(() => {
         <div class="stock-identity">
           <h2 class="stock-name">{{ selectedStock.name }}</h2>
           <span class="stock-code">{{ selectedStock.code }}</span>
+          <span v-if="isHK" class="market-badge market-hk">港股</span>
           <span
             v-if="sinceAddedPct != null"
             class="since-added"
@@ -111,7 +120,7 @@ const sinceAddedPct = computed(() => {
       <div class="price-area">
         <div class="price-main">
           <span class="price" :class="selectedStock.change >= 0 ? 'up' : 'down'">
-            ¥{{ selectedStock.price.toFixed(2) }}
+            {{ currencySymbol }}{{ selectedStock.price.toFixed(2) }}
           </span>
           <span class="price-change" :class="selectedStock.change >= 0 ? 'up' : 'down'">
             {{ signChar(selectedStock.change) }}{{ selectedStock.change.toFixed(2) }}
@@ -235,7 +244,7 @@ const sinceAddedPct = computed(() => {
       </div>
 
       <div class="action-bar">
-        <button class="btn btn-industry" @click="$emit('open-industry-modal')">
+        <button v-if="!isHK" class="btn btn-industry" @click="$emit('open-industry-modal')">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="2" y="8" width="3" height="6" rx="0.5"/>
             <rect x="6.5" y="5.5" width="3" height="8.5" rx="0.5"/>
@@ -355,6 +364,19 @@ const sinceAddedPct = computed(() => {
   font-size: 13px;
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+/* 市场标签 */
+.market-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 6px;
+  margin-left: 6px;
+}
+.market-badge.market-hk {
+  color: #b45309;
+  background: #fef3c7;
 }
 
 /* 自选以来涨跌幅徽标 */

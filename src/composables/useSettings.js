@@ -8,6 +8,7 @@ const DEFAULTS = {
   indicesRefreshMs: 60000,   // 指数
   quotesRefreshMs: 30000,    // 行情
   klineRefreshMs: 120000,    // K线
+  intradayRefreshMs: 60000,  // 分时
 
   // ── 通知 ──
   notifyEnabled: true,

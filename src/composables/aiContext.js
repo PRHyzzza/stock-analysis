@@ -103,13 +103,17 @@ export function buildSystemPrompt(currentStock, contextData, userProfile) {
   // 北京时间（始终计算，每次请求都附带最新时间）
   const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
 
+  // 判断是否为港股
+  const isHK = currentStock?.market === "HK" || currentStock?.code?.length === 5;
+  const currency = isHK ? "HK$" : "¥";
+
   // 构建当前股票上下文
   let context = "";
   if (currentStock) {
     context = `
 ## 当前上下文
-用户正在查看的股票：${currentStock.name}（${currentStock.code}）
-当前价格：¥${currentStock.price?.toFixed(2) ?? "--"}
+用户正在查看的股票：${currentStock.name}（${currentStock.code}）${isHK ? " [港股]" : ""}
+当前价格：${currency}${currentStock.price?.toFixed(2) ?? "--"}
 涨跌幅：${currentStock.changePct != null
         ? (currentStock.changePct >= 0 ? "+" : "") +
         currentStock.changePct.toFixed(2) +
@@ -119,8 +123,24 @@ export function buildSystemPrompt(currentStock, contextData, userProfile) {
 今开：${currentStock.open?.toFixed(2) ?? "--"}　最高：${currentStock.high?.toFixed(2) ?? "--"}　最低：${currentStock.low?.toFixed(2) ?? "--"}
 昨收：${currentStock.prevClose?.toFixed(2) ?? "--"}　成交量：${currentStock.volume != null ? (currentStock.volume / 10000).toFixed(2) + '万手' : "--"}　成交额：${currentStock.turnover != null ? (currentStock.turnover / 10000).toFixed(2) + '亿' : "--"}
 换手率：${currentStock.turnoverRate != null ? currentStock.turnoverRate.toFixed(2) + '%' : "--"}　市盈率：${currentStock.pe?.toFixed(2) ?? "--"}
+货币单位：${isHK ? "港元 (HKD)" : "人民币 (CNY)"}
 `;
   }
+
+  // 市场交易规则
+  const marketRules = isHK ? `## 港股市场须知
+- **交易制度**：港股实行 T+0 交易，当日买入可当日卖出
+- **无涨跌停限制**：港股不设涨跌停板，价格可大幅波动
+- **交易时段**：早市 9:30-12:00，午市 13:00-16:00（全日交易）
+- **交收制度**：T+2 交收（交易日后的第二个工作日完成资金与股票交割）
+- **货币单位**：以港元 (HKD) 计价
+- **费用结构**：涉及印花税、交易征费、交易费等多个项目，成本高于 A 股`
+    : `## A 股市场须知
+- **交易制度**：A 股实行 T+1 交易，当日买入次日才能卖出
+- **涨跌停限制**：主板 ±10%，创业板 ±20%，科创板 ±20%，北交所 ±30%，ST 股 ±5%，退市整理期 ±10%
+- **交易时段**：集合竞价 9:15-9:25，连续竞价 9:30-11:30、13:00-15:00
+- **特殊标识**：ST/*ST 为风险警示股，N 为新股首日，C 为上市次日至第 5 日，U 为科创板未盈利
+- **关键资金指标**：北向资金（沪深港通）是 A 股重要的外资风向标`;
 
   // 预加载数据
   const preloadedData = serializeContext(contextData);
@@ -151,5 +171,6 @@ ${preloadedData}
     .replace("{{TOOLS}}", toolsList)
     .replace("{{SKILL_PROMPTS}}", getMergedSystemPrompt())
     .replace("{{USER_PROFILE}}", profileSection)
+    .replace("{{MARKET_RULES}}", marketRules)
     .replace("{{STOCK_CONTEXT}}", context);
 }
