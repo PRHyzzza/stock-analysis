@@ -127,7 +127,7 @@ App.vue ──调用──> composables/useXxx.js
 | `save_user_profile` | 本地文件 | 保存画像 md |
 | `web_search` | DuckDuckGo Lite | 网页搜索 |
 | `web_fetch` | 目标 URL | 网页抓取（限 50000 字符） |
-| `get_fx_rate` | Tencent | 港元兑人民币汇率（CNY/HKD） |
+| `get_fx_rate` | Frankfurter API | 港元兑人民币汇率（CNY/HKD） |
 
 ### 4.2 数据源特征
 

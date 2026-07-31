@@ -351,31 +351,30 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
     Ok(IntradayData { items, pre_close, date })
 }
 
-/// 获取港元兑人民币汇率（来自腾讯财经外汇行情）
-/// URL: qt.gtimg.cn/q=fx_cnyhkd
-/// 返回 CNY/HKD 汇率（1 港元 = x 人民币）
+/// 获取港元兑人民币汇率（来自 Frankfurter API，免费无需 Key）
+/// GET https://api.frankfurter.app/latest?from=HKD&to=CNY
+/// 返回 1 港元 = x 人民币
 pub async fn fetch_fx_rate() -> Result<f64, String> {
     let client = super::build_http_client()?;
-    let url = "https://qt.gtimg.cn/q=fx_cnyhkd";
+    let url = "https://api.frankfurter.app/latest?from=HKD&to=CNY";
 
     let resp = client
         .get(url)
-        .header("Referer", "https://qt.gtimg.cn/")
         .send()
         .await
         .map_err(|e| format!("请求汇率失败: {}", e))?;
 
-    let bytes = resp.bytes().await.map_err(|e| format!("读取响应失败: {}", e))?;
-    let (text, _, _) = encoding_rs::GBK.decode(&bytes);
-    let text = text.to_string();
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析汇率 JSON 失败: {}", e))?;
 
-    // 腾讯外汇行情格式类似股票：v_fx_cnyhkd="1~港元人民币~0.9123~..."
-    // 字段 3 为当前价（1 港元兑多少人民币）
-    let fields: Vec<&str> = text.split('~').collect();
-    if fields.len() < 5 {
-        return Err(format!("腾讯外汇API返回格式异常: {} 个字段", fields.len()));
-    }
-    let rate = fields.get(3).unwrap_or(&"0").parse::<f64>().unwrap_or(0.0);
+    let rate = data
+        .get("rates")
+        .and_then(|r| r.get("CNY"))
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "汇率数据中未找到 CNY".to_string())?;
+
     if rate <= 0.0 {
         return Err("汇率解析为零".to_string());
     }
