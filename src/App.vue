@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import TitleBar from "./components/TitleBar.vue";
 import MarketHeader from "./components/MarketHeader.vue";
 import StockList from "./components/StockList.vue";
@@ -84,7 +85,7 @@ function closeChipModal() { showChipModal.value = false; }
 
 // ---- 持仓弹窗 ----
 const showPositionsModal = ref(false);
-const { positions, addPosition, removePosition, updatePositionQuote } = usePositions();
+const { positions, addPosition, removePosition, updatePositionQuote, setFxRate } = usePositions();
 const { loadProfile } = useUserProfileSingleton();
 
 async function handleAddPosition(pos) {
@@ -255,6 +256,8 @@ function rescheduleTimers() {
 
 onMounted(() => {
   document.addEventListener("keydown", onKeydown);
+  // 拉取港元兑人民币汇率
+  invoke("get_fx_rate").then((rate) => setFxRate(rate)).catch(() => {});
   // 加载用户画像
   loadProfile();
   // 加载指数行情

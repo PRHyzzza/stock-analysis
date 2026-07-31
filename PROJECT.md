@@ -72,7 +72,7 @@ App.vue ──调用──> composables/useXxx.js
 | `useMarketIndices.js` | 六大指数行情 | `get_market_indices` |
 | `useSectorMoneyFlow.js` | 板块资金流向 | `get_sector_money_flow` |
 | `useAiAnalysis.js` | AI 对话（个股/全局） | `call_llm` + `call_llm_stream` |
-| `usePositions.js` | 持仓管理 + 盈亏计算 | 纯前端 (localStorage) |
+| `usePositions.js` | 持仓管理 + 盈亏计算（含港币→人民币汇率换算） | `get_fx_rate` (汇率) |
 | `useUserProfile.js` | 用户画像读写 | `read_user_profile` / `save_user_profile` |
 | `useSettings.js` | 全局设置单例 | 纯前端 (localStorage) |
 | `useWatchlistNotifications.js` | Windows 原生通知 | 纯前端 (`tauri-plugin-notification`) |
@@ -99,7 +99,7 @@ App.vue ──调用──> composables/useXxx.js
 
 ### 3.3 核心子系统
 
-- **持仓**: `usePositions` + `PositionModal`，localStorage 持久化，每 30s 刷新实时价计算盈亏，AI 对话时自动注入
+- **持仓**: `usePositions` + `PositionModal`，localStorage 持久化，每 30s 刷新实时价计算盈亏，AI 对话时自动注入。港股自动识别（5 位代码），按港币→人民币汇率换算后汇总显示
 - **用户画像**: `useUserProfile` + `ProfileModal`，Markdown 文件存 `app_data_dir`，AI 每次回复后自动更新（`deepseek-v4-flash` 静默失败），支持手动编辑
 - **自选通知**: `useWatchlistNotifications`，涨停/跌停/±7%/±5%/快速拉升下跌(30s≥2%)，每股票每类型每日一次
 - **全局设置**: `useSettings` + `SettingsModal`，4 标签页（通知/刷新/图表/AI），实时生效
@@ -108,7 +108,7 @@ App.vue ──调用──> composables/useXxx.js
 
 ## 4. Rust 后端
 
-### 4.1 Tauri 命令（15 个）
+### 4.1 Tauri 命令（16 个）
 
 | 命令 | 数据源 | 说明 |
 |------|--------|------|
@@ -127,6 +127,7 @@ App.vue ──调用──> composables/useXxx.js
 | `save_user_profile` | 本地文件 | 保存画像 md |
 | `web_search` | DuckDuckGo Lite | 网页搜索 |
 | `web_fetch` | 目标 URL | 网页抓取（限 50000 字符） |
+| `get_fx_rate` | Tencent | 港元兑人民币汇率（CNY/HKD） |
 
 ### 4.2 数据源特征
 

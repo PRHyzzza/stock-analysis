@@ -13,7 +13,7 @@ const props = defineProps({
 const emit = defineEmits(["close", "add", "edit", "remove"]);
 
 // 盈亏计算（从 composable）
-const { positionStats, totalProfit, totalCost, totalMarketValue, totalProfitPct } = usePositions();
+const { positionStats, totalProfit, totalCost, totalMarketValue, totalProfitPct, hasHK, fxRate } = usePositions();
 
 const showForm = ref(false);
 const editingCode = ref(null); // null = 新增, 非 null = 编辑对应 code
@@ -177,16 +177,16 @@ function handleCancelRemove() {
           <div v-if="positionStats.length > 0" class="position-summary">
             <div class="summary-item">
               <span class="summary-label">总成本</span>
-              <span class="summary-value">{{ totalCost.toFixed(2) }}</span>
+              <span class="summary-value">¥{{ totalCost.toFixed(2) }}</span>
             </div>
             <div class="summary-item">
               <span class="summary-label">总市值</span>
-              <span class="summary-value">{{ totalMarketValue.toFixed(2) }}</span>
+              <span class="summary-value">¥{{ totalMarketValue.toFixed(2) }}</span>
             </div>
             <div class="summary-item">
               <span class="summary-label">总盈亏</span>
               <span class="summary-value" :class="totalProfit >= 0 ? 'up' : 'down'">
-                {{ signChar(totalProfit) }}{{ totalProfit.toFixed(2) }}
+                {{ signChar(totalProfit) }}¥{{ Math.abs(totalProfit).toFixed(2) }}
               </span>
             </div>
             <div class="summary-item">
@@ -195,6 +195,9 @@ function handleCancelRemove() {
                 {{ fmtPct(totalProfitPct) }}
               </span>
             </div>
+          </div>
+          <div v-if="hasHK" class="fx-rate-note">
+            * 港股已按 1 港元 ≈ {{ fxRate.toFixed(4) }} 人民币换算
           </div>
 
           <!-- 持仓列表 -->
@@ -211,12 +214,12 @@ function handleCancelRemove() {
                 <span class="position-buy-date" v-if="p.buyDate">{{ p.buyDate }}</span>
               </div>
               <div class="position-meta">
-                <span class="position-detail">成本 {{ (p.buyPrice || 0).toFixed(2) }}</span>
-                <span class="position-detail">现价 {{ (p.currentPrice || 0).toFixed(2) }}</span>
+                <span class="position-detail">成本 {{ p.currency }}{{ (p.buyPrice || 0).toFixed(2) }}</span>
+                <span class="position-detail">现价 {{ p.currency }}{{ (p.currentPrice || 0).toFixed(2) }}</span>
                 <span class="position-detail">{{ p.quantity || 0 }} 股</span>
               </div>
               <div class="position-profit" :class="p.profit >= 0 ? 'up' : 'down'">
-                <span class="profit-amount">{{ signChar(p.profit) }}{{ p.profit.toFixed(2) }}</span>
+                <span class="profit-amount">{{ signChar(p.profit) }}{{ p.currency }}{{ Math.abs(p.profit).toFixed(2) }}</span>
                 <span class="profit-pct">{{ fmtPct(p.profitPct) }}</span>
               </div>
               <button class="position-remove" @click.stop="confirmRemove(p.code, p.name)" title="删除持仓">✕</button>
@@ -379,6 +382,14 @@ function handleCancelRemove() {
 
 .summary-value.up { color: var(--red); }
 .summary-value.down { color: var(--green); }
+
+/* 汇率换算提示 */
+.fx-rate-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: -8px;
+}
 
 /* ===== 空状态 ===== */
 .position-empty {

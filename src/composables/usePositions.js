@@ -13,6 +13,11 @@ function loadPositions() {
   return [];
 }
 
+/** 判断是否为港股（5 位数字代码） */
+function isHK(code) {
+  return /^\d{5}$/.test(code);
+}
+
 /** 单例实例 */
 let _instance = null;
 
@@ -25,10 +30,17 @@ export function usePositions() {
   if (_instance) return _instance;
   const positions = ref(loadPositions());
 
+  // 港元兑人民币汇率（由 App.vue 启动时拉取）
+  const fxRate = ref(0.91); // 默认值，避免首次渲染为零
+
   // 持久化
   watch(positions, (val) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(val));
   }, { deep: true });
+
+  function setFxRate(rate) {
+    if (rate > 0) fxRate.value = rate;
+  }
 
   function addPosition(pos) {
     if (!pos || !pos.code) return;
@@ -64,7 +76,7 @@ export function usePositions() {
     }
   }
 
-  // ── 盈亏计算 ──
+  // ── 盈亏计算（原始币种）──
   const positionStats = computed(() => {
     return positions.value.map((p) => {
       const currentPrice = p.price || p.buyPrice;
@@ -73,22 +85,39 @@ export function usePositions() {
       const profitPct = buyPrice > 0 ? ((currentPrice - buyPrice) / buyPrice) * 100 : 0;
       const totalCost = buyPrice * (p.quantity || 0);
       const marketValue = currentPrice * (p.quantity || 0);
-      return { ...p, profit, profitPct, totalCost, marketValue, currentPrice };
+      const hk = isHK(p.code);
+      return { ...p, profit, profitPct, totalCost, marketValue, currentPrice, isHK: hk, currency: hk ? "HK$" : "¥" };
     });
   });
 
-  const totalProfit = computed(() =>
-    positionStats.value.reduce((s, p) => s + p.profit, 0)
+  /** 是否有港股持仓 */
+  const hasHK = computed(() =>
+    positionStats.value.some((p) => p.isHK)
   );
-  const totalCost = computed(() =>
-    positionStats.value.reduce((s, p) => s + p.totalCost, 0)
+
+  // ── 汇总（含汇率换算）──
+  /** 折合人民币的总成本 */
+  const totalCostCNY = computed(() =>
+    positionStats.value.reduce((s, p) => s + (p.isHK ? p.totalCost * fxRate.value : p.totalCost), 0)
   );
-  const totalMarketValue = computed(() =>
-    positionStats.value.reduce((s, p) => s + p.marketValue, 0)
+  /** 折合人民币的总市值 */
+  const totalMarketValueCNY = computed(() =>
+    positionStats.value.reduce((s, p) => s + (p.isHK ? p.marketValue * fxRate.value : p.marketValue), 0)
   );
-  const totalProfitPct = computed(() =>
-    totalCost.value > 0 ? (totalProfit.value / totalCost.value) * 100 : 0
+  /** 折合人民币的总盈亏 */
+  const totalProfitCNY = computed(() =>
+    totalMarketValueCNY.value - totalCostCNY.value
   );
+  /** 折合人民币的总盈亏率 */
+  const totalProfitPctCNY = computed(() =>
+    totalCostCNY.value > 0 ? (totalProfitCNY.value / totalCostCNY.value) * 100 : 0
+  );
+
+  // 保持旧名兼容（无港股时等价）
+  const totalProfit = computed(() => totalProfitCNY.value);
+  const totalCost = computed(() => totalCostCNY.value);
+  const totalMarketValue = computed(() => totalMarketValueCNY.value);
+  const totalProfitPct = computed(() => totalProfitPctCNY.value);
 
   _instance = {
     positions,
@@ -97,6 +126,13 @@ export function usePositions() {
     totalCost,
     totalMarketValue,
     totalProfitPct,
+    totalCostCNY,
+    totalMarketValueCNY,
+    totalProfitCNY,
+    totalProfitPctCNY,
+    hasHK,
+    fxRate,
+    setFxRate,
     addPosition,
     removePosition,
     updatePositionQuote,

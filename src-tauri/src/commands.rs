@@ -209,3 +209,9 @@ pub async fn web_fetch(url: String) -> Result<String, String> {
     crate::api::web_fetch(&url).await
 }
 
+/// 获取港元兑人民币汇率（CNY/HKD）
+#[tauri::command]
+pub async fn get_fx_rate() -> Result<f64, String> {
+    crate::api::tencent::fetch_fx_rate().await
+}
+

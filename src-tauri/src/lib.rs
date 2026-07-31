@@ -33,6 +33,7 @@ pub fn run() {
             commands::save_user_profile,
             commands::web_search,
             commands::web_fetch,
+            commands::get_fx_rate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
