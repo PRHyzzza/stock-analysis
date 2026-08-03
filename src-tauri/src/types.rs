@@ -98,12 +98,20 @@ pub struct KlineItem {
     pub turnover: f64,
 }
 
-/// 主力资金流向数据（仅保留主力净流入）
+/// 个股资金流向数据（全部分档净流入 + 占比）
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MoneyFlow {
-    pub main_net_inflow: f64,  // 主力净流入（万元）
-    pub main_net_pct: f64,     // 主力净占比 (%)
+    pub main_net_inflow: f64,     // 主力净流入（万元）
+    pub main_net_pct: f64,        // 主力净占比 (%)
+    pub super_large_net: f64,     // 超大单净流入（万元）
+    pub super_large_pct: f64,     // 超大单净占比 (%)
+    pub large_net: f64,           // 大单净流入（万元）
+    pub large_pct: f64,           // 大单净占比 (%)
+    pub medium_net: f64,          // 中单净流入（万元）
+    pub medium_pct: f64,          // 中单净占比 (%)
+    pub small_net: f64,           // 小单净流入（万元）
+    pub small_pct: f64,           // 小单净占比 (%)
 }
 
 /// 热榜股票条目

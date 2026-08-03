@@ -127,10 +127,10 @@ function initChart() {
     scaleMargins: { top: 0.72, bottom: 0.02 },
   });
 
-  // 昨收基准线
+  // 昨收基准线（中性灰虚线 — 昨收是参考线非涨跌方向，绿色易误读为"支撑/跌"）
   baseLine = priceLineSeries.createPriceLine({
     price: 0,
-    color: "rgba(39, 174, 96, 0.5)",
+    color: "rgba(128, 134, 142, 0.55)",
     lineWidth: 1,
     lineStyle: 3,
     axisLabelVisible: true,

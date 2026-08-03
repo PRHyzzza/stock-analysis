@@ -123,7 +123,10 @@ pub async fn fetch_index_quote(code: &str) -> Result<MarketIndex, String> {
     Ok(MarketIndex { code: code.to_string(), name, price, change, change_pct })
 }
 
-/// 获取个股主力资金流向（来自腾讯财经）
+/// 获取个股资金流向（来自腾讯财经，ff_ 接口为「标签~值」交替格式）
+/// 索引布局：0=代码 2=主力流入 4=主力流出 6=主力净流入 8=主力净占比(%)
+///          14=超大单净流入 16=超大单占比 22=大单净流入 24=大单占比
+///          30=中单净流入 32=中单占比 38=小单净流入 40=小单占比
 pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
     let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
@@ -145,11 +148,34 @@ pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
         return Err("NO_DATA".to_string());
     }
 
-    let p = |idx: usize| -> f64 {
+    // 金额可能带「亿/万」后缀（如 1.23亿），统一转为万元；占比为纯数字
+    let parse_money = |idx: usize| -> f64 {
+        let raw = fields.get(idx).unwrap_or(&"0").trim();
+        if raw.is_empty() { return 0.0; }
+        if raw.ends_with('亿') {
+            raw.trim_end_matches('亿').parse::<f64>().unwrap_or(0.0) * 10000.0
+        } else if raw.ends_with('万') {
+            raw.trim_end_matches('万').parse::<f64>().unwrap_or(0.0)
+        } else {
+            raw.parse::<f64>().unwrap_or(0.0)
+        }
+    };
+    let pct = |idx: usize| -> f64 {
         fields.get(idx).unwrap_or(&"0").trim().parse::<f64>().unwrap_or(0.0)
     };
 
-    Ok(MoneyFlow { main_net_inflow: p(2), main_net_pct: p(3) })
+    Ok(MoneyFlow {
+        main_net_inflow: parse_money(6),
+        main_net_pct: pct(8),
+        super_large_net: parse_money(14),
+        super_large_pct: pct(16),
+        large_net: parse_money(22),
+        large_pct: pct(24),
+        medium_net: parse_money(30),
+        medium_pct: pct(32),
+        small_net: parse_money(38),
+        small_pct: pct(40),
+    })
 }
 
 /// 将 `\uXXXX` 转义序列还原为 Unicode 字符

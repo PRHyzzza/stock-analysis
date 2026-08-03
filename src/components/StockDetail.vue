@@ -92,6 +92,23 @@ const sinceAddedPct = computed(() => {
   if (!currentPrice || currentPrice === 0) return null;
   return ((currentPrice - addedKline.close) / addedKline.close) * 100;
 });
+
+/** 资金流向分档明细（超大单/大单/中单/小单） */
+const flowTiers = computed(() => {
+  const mf = props.moneyFlow;
+  if (!mf) return [];
+  const tiers = [
+    { key: "super", label: "超大单", net: mf.superLargeNet, pct: mf.superLargePct },
+    { key: "large", label: "大单", net: mf.largeNet, pct: mf.largePct },
+    { key: "medium", label: "中单", net: mf.mediumNet, pct: mf.mediumPct },
+    { key: "small", label: "小单", net: mf.smallNet, pct: mf.smallPct },
+  ];
+  return tiers.map((t) => ({
+    ...t,
+    net: t.net ?? 0,
+    pct: t.pct ?? 0,
+  }));
+});
 </script>
 
 <template>
@@ -240,6 +257,19 @@ const sinceAddedPct = computed(() => {
               :title="sig.desc + '\n💡 ' + sig.action"
             >{{ sig.name }}</span>
           </template>
+        </div>
+
+        <!-- 全部分档资金 -->
+        <div v-if="moneyFlow" class="flow-tiers">
+          <div class="flow-tier" v-for="tier in flowTiers" :key="tier.key">
+            <span class="tier-name">{{ tier.label }}</span>
+            <span class="tier-value" :class="tier.net >= 0 ? 'inflow' : 'outflow'">
+              {{ fmtMoney(tier.net) }}
+            </span>
+            <span class="tier-pct" :class="tier.net >= 0 ? 'inflow' : 'outflow'">
+              {{ fmtPct(tier.pct) }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -569,6 +599,42 @@ const sinceAddedPct = computed(() => {
 .flow-pct-text.inflow { color: var(--red); }
 .flow-text.outflow,
 .flow-pct-text.outflow { color: var(--green); }
+
+/* 分档资金明细（超大单/大单/中单/小单） */
+.flow-tiers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+  margin-top: 10px;
+}
+
+.flow-tier {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.tier-name {
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.tier-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tier-pct {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tier-value.inflow,
+.tier-pct.inflow { color: var(--red); }
+.tier-value.outflow,
+.tier-pct.outflow { color: var(--green); }
 
 /* ===== Steep: 操作按钮 ===== */
 .action-bar {

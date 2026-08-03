@@ -92,10 +92,16 @@ App.vue ──调用──> composables/useXxx.js
 |-------|---------|
 | `StockQuote.js` | `get_stock_quote` — 个股实时行情 |
 | `KlineAnalysis.js` | `get_stock_kline` — K 线数据 |
-| `MoneyFlow.js` | `get_stock_money_flow` — 主力资金流向 |
+| `MoneyFlow.js` | `get_stock_money_flow` — 全档资金流向（主力/超大单/大单/中单/小单） |
 | `Industry.js` | `get_stock_industry` — 行业分析 |
 | `MarketIndices.js` | `get_market_indices` — 大盘指数 |
 | `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索（DuckDuckGo 免费） |
+| `Intraday.js` | `get_stock_intraday` — 当日分时走势 |
+| `MarketOverview.js` | `get_hot_list` — 实时热榜 / `get_sector_money_flow` — 板块资金流向 |
+| `StockSearch.js` | `search_stocks` — 股票名称/代码搜索 |
+| `UserContext.js` | `read_user_profile` / `save_user_profile` — 用户画像 / `get_fx_rate` — 港元汇率 |
+
+> 除 `call_llm` / `call_llm_stream`（AI 对话自身接口）外，全部 16 个 Rust 命令已开放为 AI 工具。
 
 ### 3.3 核心子系统
 
@@ -115,7 +121,7 @@ App.vue ──调用──> composables/useXxx.js
 | `get_stock_quote` | Tencent | 个股实时行情 |
 | `get_stock_kline` | Tencent | K 线（日/周/月） |
 | `get_stock_intraday` | Tencent AppStock | 分时数据（当日分钟） |
-| `get_stock_money_flow` | Tencent → East Money 备选 | 资金流向 |
+| `get_stock_money_flow` | Tencent → East Money 备选 | 资金流向（5 档净流入+占比） |
 | `get_sector_money_flow` | East Money push2 | 板块资金排行 |
 | `get_stock_industry` | East Money HSF10 | 行业分析 |
 | `get_market_indices` | Tencent（并行） | 六大指数 |

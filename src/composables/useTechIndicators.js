@@ -101,11 +101,13 @@ export function calcRSI(closePrices, period = 14) {
   }
   let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
   let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  const rsi = [avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss))];
+  const rsiOf = (gain, loss) =>
+    loss === 0 ? (gain === 0 ? 50 : 100) : 100 - (100 / (1 + gain / loss));
+  const rsi = [rsiOf(avgGain, avgLoss)];
   for (let i = period; i < gains.length; i++) {
     avgGain = (avgGain * (period - 1) + gains[i]) / period;
     avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
-    rsi.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
+    rsi.push(rsiOf(avgGain, avgLoss));
   }
   return rsi;
 }

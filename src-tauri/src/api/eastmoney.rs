@@ -156,16 +156,42 @@ pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
                 let pf = |idx: usize| -> f64 {
                     fields.get(idx).unwrap_or(&"0").trim().parse::<f64>().unwrap_or(0.0)
                 };
+                // f52=主力, f53=小单, f54=中单, f55=大单, f56=超大单（单位：元 → 万元）
                 let main_net_inflow = pf(1) / 10000.0;
+                let small_net = pf(2) / 10000.0;
+                let medium_net = pf(3) / 10000.0;
+                let large_net = pf(4) / 10000.0;
+                let super_large_net = pf(5) / 10000.0;
 
-                // 尝试获取今日成交额来计算主力净占比
-                let mut main_net_pct = 0.0;
-                if let Ok(quote) = super::tencent::fetch_stock_quote(code).await {
-                    if quote.turnover > 0.0 {
-                        main_net_pct = (main_net_inflow / quote.turnover) * 100.0;
+                // 实时接口不含占比字段，用今日成交额计算各档占比
+                // 注意单位：A 股腾讯行情成交额为「万元」，港股分时接口为「元」→ 统一转万元
+                let nets_wan = [main_net_inflow, super_large_net, large_net, medium_net, small_net];
+                let pcts = if let Ok(quote) = super::tencent::fetch_stock_quote(code).await {
+                    let turnover_wan = if crate::helpers::is_hk_stock(code) {
+                        quote.turnover / 10000.0
+                    } else {
+                        quote.turnover
+                    };
+                    if turnover_wan > 0.0 {
+                        nets_wan.map(|n| (n / turnover_wan) * 100.0)
+                    } else {
+                        [0.0; 5]
                     }
-                }
-                return Ok(MoneyFlow { main_net_inflow, main_net_pct });
+                } else {
+                    [0.0; 5]
+                };
+                return Ok(MoneyFlow {
+                    main_net_inflow,
+                    main_net_pct: pcts[0],
+                    super_large_net,
+                    super_large_pct: pcts[1],
+                    large_net,
+                    large_pct: pcts[2],
+                    medium_net,
+                    medium_pct: pcts[3],
+                    small_net,
+                    small_pct: pcts[4],
+                });
             }
         }
     }
@@ -199,6 +225,14 @@ pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
     Ok(MoneyFlow {
         main_net_inflow: pf(1) / 10000.0,
         main_net_pct: pf(6),
+        super_large_net: pf(5) / 10000.0,
+        super_large_pct: pf(10),
+        large_net: pf(4) / 10000.0,
+        large_pct: pf(9),
+        medium_net: pf(3) / 10000.0,
+        medium_pct: pf(8),
+        small_net: pf(2) / 10000.0,
+        small_pct: pf(7),
     })
 }
 

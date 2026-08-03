@@ -10,6 +10,10 @@ import MoneyFlow from "./MoneyFlow.js";
 import Industry from "./Industry.js";
 import MarketIndices from "./MarketIndices.js";
 import WebSearch from "./WebSearch.js";
+import Intraday from "./Intraday.js";
+import MarketOverview from "./MarketOverview.js";
+import StockSearch from "./StockSearch.js";
+import UserContext from "./UserContext.js";
 
 /** 所有技能列表 */
 export const SKILLS = [
@@ -19,6 +23,10 @@ export const SKILLS = [
   Industry,
   MarketIndices,
   WebSearch,
+  Intraday,
+  MarketOverview,
+  StockSearch,
+  UserContext,
 ];
 
 /** 合并所有工具的 tool_definitions（发给 LLM 用） */
