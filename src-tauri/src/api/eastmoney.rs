@@ -164,14 +164,10 @@ pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
                 let super_large_net = pf(5) / 10000.0;
 
                 // 实时接口不含占比字段，用今日成交额计算各档占比
-                // 注意单位：A 股腾讯行情成交额为「万元」，港股分时接口为「元」→ 统一转万元
+                // fetch_stock_quote 已统一成交额单位为万元（含港股归一化）
                 let nets_wan = [main_net_inflow, super_large_net, large_net, medium_net, small_net];
                 let pcts = if let Ok(quote) = super::tencent::fetch_stock_quote(code).await {
-                    let turnover_wan = if crate::helpers::is_hk_stock(code) {
-                        quote.turnover / 10000.0
-                    } else {
-                        quote.turnover
-                    };
+                    let turnover_wan = quote.turnover;
                     if turnover_wan > 0.0 {
                         nets_wan.map(|n| (n / turnover_wan) * 100.0)
                     } else {

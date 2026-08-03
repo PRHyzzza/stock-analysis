@@ -81,6 +81,19 @@ pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
         fields.get(46).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0)
     };
 
+    // 港股单位归一化（腾讯港股接口与 A 股语义不同）：
+    //   volume: 股 → 手（/100）；turnover: 元 → 万元（/10000）
+    //   换手率在 [59]（[38] 恒为 0，不是换手率字段）
+    let (volume, turnover, turnover_rate) = if is_hk_stock(code) {
+        (
+            volume / 100.0,
+            turnover / 10000.0,
+            fields.get(59).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0),
+        )
+    } else {
+        (volume, turnover, turnover_rate)
+    };
+
     Ok(StockQuote {
         code: code.to_string(),
         name, price, prev_close, open, volume, turnover, change, change_pct, high, low,
