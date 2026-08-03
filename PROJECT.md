@@ -49,7 +49,7 @@ App.vue ──调用──> composables/useXxx.js
                           ──> api/eastmoney.rs  (东方财富)
                           ──> api/hotlist.rs    (同花顺热榜)
                           ──> api/llm.rs        (DeepSeek SSE)
-                          ──> api/web.rs        (DuckDuckGo)
+                          ──> api/web.rs        (搜索 + 正文提取)
 ```
 
 模式: 每个 composable 返回 `{ data, loading, load(), ... }`，`App.vue` 统一调用，通过 props 下发。
@@ -95,7 +95,7 @@ App.vue ──调用──> composables/useXxx.js
 | `MoneyFlow.js` | `get_stock_money_flow` — 全档资金流向（主力/超大单/大单/中单/小单） |
 | `Industry.js` | `get_stock_industry` — 行业分析 |
 | `MarketIndices.js` | `get_market_indices` — 大盘指数 |
-| `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索（DuckDuckGo 免费） |
+| `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索（东方财富新闻库，按时间倒序返回最新财经新闻）；systemPrompt 教 AI 生成搜索词（用户说"帮我搜 XXX"时直接拆 2-3 组词搜索）+ 权威来源优先（证券时报/巨潮/交易所等官方媒体） |
 | `Intraday.js` | `get_stock_intraday` — 当日分时走势 |
 | `MarketOverview.js` | `get_hot_list` — 实时热榜 / `get_sector_money_flow` — 板块资金流向 |
 | `StockSearch.js` | `search_stocks` — 股票名称/代码搜索 |
@@ -131,8 +131,8 @@ App.vue ──调用──> composables/useXxx.js
 | `call_llm_stream` | DeepSeek SSE | AI 流式 → `llm-chunk`/`llm-done`/`llm-error` |
 | `read_user_profile` | 本地文件 | 读取画像 md |
 | `save_user_profile` | 本地文件 | 保存画像 md |
-| `web_search` | DuckDuckGo Lite | 网页搜索 |
-| `web_fetch` | 目标 URL | 网页抓取（限 50000 字符） |
+| `web_search` | 东方财富搜索 API | 财经新闻搜索（按时间倒序返回最新新闻，带发布时间/来源媒体；本地 site: 域名过滤兼容） |
+| `web_fetch` | 目标 URL | 网页抓取（JSON-LD→转义HTML→正文容器→meta 四级提取，限 50000 字符） |
 | `get_fx_rate` | Frankfurter API | 港元兑人民币汇率（CNY/HKD） |
 
 ### 4.2 数据源特征
@@ -143,7 +143,7 @@ App.vue ──调用──> composables/useXxx.js
 | `eastmoney.rs` | UTF-8 | JSON/JSONP/HTML，有 CDN/WAF |
 | `hotlist.rs` | UTF-8 | JSON API |
 | `llm.rs` | UTF-8 | OpenAI 兼容；V4 工具调用需回传 `reasoning_content`（否则 400）；`thinking_enabled` 控制思考模式 |
-| `web.rs` | UTF-8 | DuckDuckGo Lite HTML 解析 |
+| `web.rs` | UTF-8（charset 自动解码 GBK） | 东财搜索 API（search-api-web.eastmoney.com JSONP，sort=time 最新优先）；正文提取: JSON-LD articleBody → JSON 转义 HTML（腾讯）→ 正文容器/class → meta description；反爬站过滤（zhihu/baike/douban 等 8 个）；`site:域名` 本地过滤兼容 |
 
 ### 4.3 代码转换 (helpers.rs)
 

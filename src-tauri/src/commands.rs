@@ -197,7 +197,7 @@ pub fn save_user_profile(app_handle: tauri::AppHandle, content: String) -> Resul
 // Web 搜索与网页抓取
 // ──────────────────────────────────────────
 
-/// 网页搜索（使用 DuckDuckGo Lite，免费无需 API Key）
+/// 网页搜索（东方财富新闻库，按时间倒序返回最新财经新闻）
 #[tauri::command]
 pub async fn web_search(query: String, max_results: Option<usize>) -> Result<Vec<crate::api::WebSearchResult>, String> {
     crate::api::web_search(&query, max_results.unwrap_or(10)).await
