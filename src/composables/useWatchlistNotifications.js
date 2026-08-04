@@ -63,26 +63,7 @@ function saveHistory(history) {
   }
 }
 
-/**
- * 判断股票所属板块类型
- * @param {string} code - 股票代码
- * @returns {'main'|'cyb'|'kcb'}
- */
-function getStockBoard(code) {
-  if (code.startsWith("30")) return "cyb"; // 创业板 ±20%
-  if (code.startsWith("68")) return "kcb"; // 科创板 ±20%
-  return "main"; // 主板/中小板 ±10%
-}
-
-/**
- * 获取涨停/跌停阈值
- * @param {string} code
- * @returns {number}
- */
-function getLimitThreshold(code) {
-  const board = getStockBoard(code);
-  return board === "main" ? 9.5 : 19.5;
-}
+import { getLimitThreshold } from "../utils/limit";
 
 /** 触发类型 → 通知文案 */
 const TRIGGER_LABELS = {
@@ -175,21 +156,23 @@ export function useWatchlistNotifications() {
     const limit = getLimitThreshold(code);
     const triggeredTypes = [];
 
-    // ── 静态阈值检测 ──
-    if (settings.notifyLimitUp && changePct >= limit) {
-      triggeredTypes.push("limit_up");
-    } else if (settings.notifyUp7 && changePct >= 7) {
-      triggeredTypes.push("+7%");
-    } else if (settings.notifyUp5 && changePct >= 5) {
-      triggeredTypes.push("+5%");
-    }
+    // ── 静态阈值检测（港股无涨跌停，limit 为 0 时跳过）──
+    if (limit > 0) {
+      if (settings.notifyLimitUp && changePct >= limit) {
+        triggeredTypes.push("limit_up");
+      } else if (settings.notifyUp7 && changePct >= 7) {
+        triggeredTypes.push("+7%");
+      } else if (settings.notifyUp5 && changePct >= 5) {
+        triggeredTypes.push("+5%");
+      }
 
-    if (settings.notifyLimitDown && changePct <= -limit) {
-      triggeredTypes.push("limit_down");
-    } else if (settings.notifyDown7 && changePct <= -7) {
-      triggeredTypes.push("-7%");
-    } else if (settings.notifyDown5 && changePct <= -5) {
-      triggeredTypes.push("-5%");
+      if (settings.notifyLimitDown && changePct <= -limit) {
+        triggeredTypes.push("limit_down");
+      } else if (settings.notifyDown7 && changePct <= -7) {
+        triggeredTypes.push("-7%");
+      } else if (settings.notifyDown5 && changePct <= -5) {
+        triggeredTypes.push("-5%");
+      }
     }
 
     // ── 快速拉升 / 快速下跌检测 ──

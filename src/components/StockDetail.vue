@@ -45,10 +45,10 @@ const { signalMarkers, summary: t0Summary, compute: computeT0Signals } = useT0Si
 
 // 当分时数据或K线数据变化时重新计算信号
 watch(
-  [() => props.klineData, () => props.intradayData],
-  ([kline, intraday]) => {
+  [() => props.klineData, () => props.intradayData, () => props.selectedStock],
+  ([kline, intraday, stock]) => {
     if (intraday && intraday.items && intraday.items.length > 0) {
-      computeT0Signals(kline, intraday);
+      computeT0Signals(kline, intraday, stock);
     }
   },
   { immediate: true, deep: false }

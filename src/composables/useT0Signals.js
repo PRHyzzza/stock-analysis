@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { getLimitPct } from '../utils/limit'
 
 /**
  * useT0Signals — 日内 T+0 交易信号系统（基于分时数据 + 日K趋势）
@@ -6,6 +7,7 @@ import { ref } from 'vue'
  * 输入：
  *   - klineData: 日K数据（用于判断日线趋势、MA5、MACD背离等）
  *   - intradayData: 分时数据 { items: [{ time, price, avgPrice, volume, turnover, vwap }, ...], preClose, date }
+ *   - stock: { code } 用于按板块判断涨跌停幅度（创业板/科创板 ±20%、北交所 ±30%、港股无限制，ST 与所属板块一致）
  *
  * 输出：
  *   - signalMarkers: 分时图标记数组
@@ -94,8 +96,9 @@ export function useT0Signals() {
   /**
    * @param {Array} klineData - 日K 数组
    * @param {Object} intradayData - 分时数据对象
+   * @param {Object} [stock] - 股票信息 { code, name }，用于按板块判断涨跌停幅度
    */
-  function compute(klineData, intradayData) {
+  function compute(klineData, intradayData, stock) {
     signalMarkers.value = []
     summary.value = null
 
@@ -104,6 +107,11 @@ export function useT0Signals() {
     const items = intradayData.items
     const preClose = intradayData.preClose || 0
     const N = items.length
+
+    // 涨跌停幅度：创业板/科创板 ±20%、北交所 ±30%、港股无限制（0）；ST 与所属板块一致
+    const limitPct = getLimitPct(stock?.code)
+    // "接近"判定线：涨停幅度的 70%（约等于原 7% 对 10% 的比例）
+    const nearLimitPct = limitPct > 0 ? limitPct * 0.7 : 0
 
     // ======== 日K趋势 ========
     let trendDir = 'sideways'
@@ -278,16 +286,16 @@ export function useT0Signals() {
     }
 
     // 3. 日内涨跌幅极端情况
-    if (changePct > 7) {
+    if (nearLimitPct > 0 && changePct > nearLimitPct) {
       signalList.push({
         name: '接近涨停',
-        desc: `当日涨幅 ${changePct.toFixed(1)}%，接近涨停板`,
+        desc: `当日涨幅 ${changePct.toFixed(1)}%，接近涨停板（${limitPct.toFixed(0)}%）`,
         action: '追高风险极大，不宜做正T买入；有底仓可考虑高抛做反T',
       })
-    } else if (changePct < -7) {
+    } else if (nearLimitPct > 0 && changePct < -nearLimitPct) {
       signalList.push({
         name: '接近跌停',
-        desc: `当日跌幅 ${changePct.toFixed(1)}%，接近跌停板`,
+        desc: `当日跌幅 ${changePct.toFixed(1)}%，接近跌停板（${limitPct.toFixed(0)}%）`,
         action: '恐慌杀跌风险大，不宜做反T卖出；企稳后可关注正T低吸',
       })
     }
@@ -313,12 +321,12 @@ export function useT0Signals() {
     const directionReason = []
 
     // 日内极端涨跌覆盖趋势判断
-    if (changePct > 7) {
+    if (nearLimitPct > 0 && changePct > nearLimitPct) {
       direction = '反T为主'
-      directionReason.push(`日内大涨 ${changePct.toFixed(1)}%，接近涨停 → 不宜追高，偏反T高抛`)
-    } else if (changePct < -7) {
+      directionReason.push(`日内大涨 ${changePct.toFixed(1)}%，接近涨停板（${limitPct.toFixed(0)}%）→ 不宜追高，偏反T高抛`)
+    } else if (nearLimitPct > 0 && changePct < -nearLimitPct) {
       direction = '正T为主'
-      directionReason.push(`日内大跌 ${changePct.toFixed(1)}%，接近跌停 → 不宜杀跌，偏正T低吸`)
+      directionReason.push(`日内大跌 ${changePct.toFixed(1)}%，接近跌停板（${limitPct.toFixed(0)}%）→ 不宜杀跌，偏正T低吸`)
     } else if (trendDir === 'up') {
       direction = '正T为主'
       directionReason.push('日线 MA5 向上，上升趋势')
@@ -358,8 +366,8 @@ export function useT0Signals() {
     if (intraVolRatio > 2) risks.push('分时放量明显，警惕主力对倒出货')
     if (intraVolRatio < 0.3 && N > 30) risks.push('极度缩量，流动性可能影响 T+0 执行')
     if (N < 30) risks.push('开盘数据量不足，信号可靠性低')
-    if (changePct > 9) risks.push('已逼近涨停板，追涨挂单可能成交后回落')
-    if (changePct < -9) risks.push('已逼近跌停板，明日可能继续低开')
+    if (nearLimitPct > 0 && changePct > limitPct - 1) risks.push(`已逼近涨停板（${limitPct.toFixed(0)}%），追涨挂单可能成交后回落`)
+    if (nearLimitPct > 0 && changePct < -(limitPct - 1)) risks.push(`已逼近跌停板（${limitPct.toFixed(0)}%），明日可能继续低开`)
     risks.push('A 股 T+1 制度，做T需依托底仓，分析仅供参考')
 
     // ======== 图表标记 ========

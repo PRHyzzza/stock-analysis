@@ -24,7 +24,7 @@ stock-analysis/
 │   ├── composables/  (19 个 — 数据加载/纯计算/持久化)
 │   ├── skills/       (AI Agent 工具系统 — 6 个 skill)
 │   ├── prompts/      (system-prompt.md)
-│   └── utils/        (format.js)
+│   └── utils/        (format.js / limit.js 涨跌停幅度按板块判断)
 ├── src-tauri/                  ← Rust 后端
 │   ├── Cargo.toml / tauri.conf.json
 │   └── src/
@@ -107,7 +107,7 @@ App.vue ──调用──> composables/useXxx.js
 
 - **持仓**: `usePositions` + `PositionModal`，localStorage 持久化，每 30s 刷新实时价计算盈亏，AI 对话时自动注入。港股自动识别（5 位代码），按港币→人民币汇率换算后汇总显示
 - **用户画像**: `useUserProfile` + `ProfileModal`，Markdown 文件存 `app_data_dir`，AI 每次回复后自动更新（`deepseek-v4-flash` 静默失败），支持手动编辑
-- **自选通知**: `useWatchlistNotifications`，涨停/跌停/±7%/±5%/快速拉升下跌(30s≥2%)，每股票每类型每日一次
+- **自选通知**: `useWatchlistNotifications`，涨停/跌停/±7%/±5%/快速拉升下跌(30s≥2%)，每股票每类型每日一次；涨跌停阈值按板块判断（主板 ±10%/创业板科创板 ±20%/北交所 ±30%/港股无涨跌停，ST 与所属板块一致）
 - **全局设置**: `useSettings` + `SettingsModal`，4 标签页（通知/刷新/图表/AI），实时生效
 
 ---
