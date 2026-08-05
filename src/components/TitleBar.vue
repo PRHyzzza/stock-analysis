@@ -5,12 +5,20 @@ const appWindow = getCurrentWindow();
 function windowMinimize() { appWindow.minimize(); }
 function windowToggleMax() { appWindow.toggleMaximize(); }
 function windowClose() { appWindow.close(); }
+
+const emit = defineEmits(["open-mini"]);
 </script>
 
 <template>
   <header class="titlebar" data-tauri-drag-region>
     <div class="titlebar-title">stock-analysis</div>
     <div class="titlebar-controls">
+      <button class="win-btn win-mini" @click="emit('open-mini')" title="迷你盯盘小窗 (置顶)">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <rect x="1.5" y="1.5" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1"/>
+          <rect x="3.8" y="6.2" width="4.4" height="4.4" fill="currentColor" opacity="0.55"/>
+        </svg>
+      </button>
       <button class="win-btn win-min" @click="windowMinimize" title="最小化">
         <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="4" width="8" height="1" fill="currentColor"/></svg>
       </button>

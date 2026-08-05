@@ -1,11 +1,13 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { createChart, ColorType, LineSeries, HistogramSeries, AreaSeries, createSeriesMarkers } from "lightweight-charts";
+import { getLimitPct } from "../utils/limit";
 
 const props = defineProps({
   data: { type: Object, default: null },
   loading: { type: Boolean, default: false },
   signalMarkers: { type: Array, default: () => [] },
+  code: { type: String, default: "" }, // 股票代码，用于按板块计算涨跌停参考线
 });
 
 const chartContainer = ref(null);
@@ -22,6 +24,8 @@ let avgPriceSeries = null;
 let vwapSeries = null;
 let volumeSeries = null;
 let baseLine = null;
+let limitUpLine = null;
+let limitDownLine = null;
 let signalMarkersPlugin = null;
 /** 缓存的 timestamp 映射 (timeStr → unixTs)，供信号标记使用 */
 let _timeMap = new Map();
@@ -137,6 +141,10 @@ function initChart() {
     title: "昨收",
   });
 
+  // 涨跌停参考线（initChart 后由 updateLimitLines 动态创建/移除）
+  limitUpLine = null;
+  limitDownLine = null;
+
   // T+0 信号标记插件
   signalMarkersPlugin = createSeriesMarkers(priceLineSeries);
 
@@ -232,6 +240,9 @@ function updateChartData(intradayData) {
   // 更新昨收基准线
   baseLine.applyOptions({ price: preClose });
 
+  // 更新涨跌停参考线（港股无涨跌停，自动隐藏）
+  updateLimitLines(preClose);
+
   // 存储时间映射供信号标记使用
   _timeMap = newTimeMap;
 
@@ -239,6 +250,58 @@ function updateChartData(intradayData) {
   renderSignalMarkers();
 
   chart.timeScale().fitContent();
+}
+
+/**
+ * 涨跌停参考线：按板块阈值（主板±10% / 创业科创±20% / 北交所±30%）基于昨收计算，
+ * 港股无涨跌停限制（getLimitPct 返回 0）时移除参考线。
+ */
+function updateLimitLines(preClose) {
+  if (!priceLineSeries) return;
+  const pct = getLimitPct(props.code);
+
+  if (pct <= 0 || !preClose || preClose <= 0) {
+    // 无涨跌停或数据缺失 → 移除参考线
+    if (limitUpLine) {
+      priceLineSeries.removePriceLine(limitUpLine);
+      limitUpLine = null;
+    }
+    if (limitDownLine) {
+      priceLineSeries.removePriceLine(limitDownLine);
+      limitDownLine = null;
+    }
+    return;
+  }
+
+  // 涨跌停价按实际规则四舍五入到分
+  const upPrice = Math.round(preClose * (1 + pct / 100) * 100) / 100;
+  const downPrice = Math.round(preClose * (1 - pct / 100) * 100) / 100;
+
+  if (!limitUpLine) {
+    limitUpLine = priceLineSeries.createPriceLine({
+      price: upPrice,
+      color: "rgba(231, 76, 60, 0.55)",
+      lineWidth: 1,
+      lineStyle: 2, // dashed
+      axisLabelVisible: true,
+      title: "涨停",
+    });
+  } else {
+    limitUpLine.applyOptions({ price: upPrice });
+  }
+
+  if (!limitDownLine) {
+    limitDownLine = priceLineSeries.createPriceLine({
+      price: downPrice,
+      color: "rgba(39, 174, 96, 0.55)",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "跌停",
+    });
+  } else {
+    limitDownLine.applyOptions({ price: downPrice });
+  }
 }
 
 function ensureChart() {
@@ -309,6 +372,8 @@ onUnmounted(() => {
     vwapSeries = null;
     volumeSeries = null;
     baseLine = null;
+    limitUpLine = null;
+    limitDownLine = null;
     signalMarkersPlugin = null;
     _timeMap = new Map();
   }

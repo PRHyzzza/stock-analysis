@@ -62,6 +62,12 @@ pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
         return Err(format!("腾讯API返回格式异常: {} 个字段", fields.len()));
     }
 
+    // A 股直接解析（振幅在 [46]）
+    if !is_hk_stock(code) {
+        return Ok(parse_a_quote_fields(code, &fields));
+    }
+
+    // 港股字段差异：振幅在 [43]、换手率在 [59]、单位归一化
     let name = fields.get(1).cloned().unwrap_or_default();
     let price = fields.get(3).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
     let prev_close = fields.get(4).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
@@ -72,33 +78,97 @@ pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
     let high = fields.get(33).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
     let low = fields.get(34).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
     let turnover = fields.get(37).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
-    let turnover_rate = fields.get(38).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
     let pe = fields.get(39).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
-    // 字段布局差异：A 股振幅在 [46]，港股 [46] 是英文名、振幅在 [43]
-    let amplitude = if is_hk_stock(code) {
-        fields.get(43).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0)
-    } else {
-        fields.get(46).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0)
-    };
+    let amplitude = fields.get(43).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
 
     // 港股单位归一化（腾讯港股接口与 A 股语义不同）：
     //   volume: 股 → 手（/100）；turnover: 元 → 万元（/10000）
     //   换手率在 [59]（[38] 恒为 0，不是换手率字段）
-    let (volume, turnover, turnover_rate) = if is_hk_stock(code) {
-        (
-            volume / 100.0,
-            turnover / 10000.0,
-            fields.get(59).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0),
-        )
-    } else {
-        (volume, turnover, turnover_rate)
-    };
+    let (volume, turnover, turnover_rate) = (
+        volume / 100.0,
+        turnover / 10000.0,
+        fields.get(59).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0),
+    );
 
     Ok(StockQuote {
         code: code.to_string(),
         name, price, prev_close, open, volume, turnover, change, change_pct, high, low,
         turnover_rate, pe, amplitude,
     })
+}
+
+/// 解析 A 股行情字段（腾讯 qt.gtimg.cn 布局，~ 分隔）
+/// 字段: [1]名称 [3]价格 [4]昨收 [5]今开 [6]成交量(手) [31]涨跌额 [32]涨跌幅
+///       [33]最高 [34]最低 [37]成交额(万元) [38]换手率 [39]市盈率 [46]振幅
+fn parse_a_quote_fields(code: &str, fields: &[String]) -> StockQuote {
+    let get = |i: usize| fields.get(i).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
+    StockQuote {
+        code: code.to_string(),
+        name: fields.get(1).cloned().unwrap_or_default(),
+        price: get(3),
+        prev_close: get(4),
+        open: get(5),
+        volume: get(6),
+        turnover: get(37),
+        change: get(31),
+        change_pct: get(32),
+        high: get(33),
+        low: get(34),
+        turnover_rate: get(38),
+        pe: get(39),
+        amplitude: get(46),
+    }
+}
+
+/// 批量获取 A 股实时行情（腾讯批量接口，一次请求多只，大幅减少 HTTP 请求数）
+/// 港股逐只走 fetch_stock_quote（分时接口，实时性要求高）
+pub async fn fetch_stock_quotes_batch(codes: &[String]) -> Result<Vec<StockQuote>, String> {
+    if codes.is_empty() {
+        return Ok(vec![]);
+    }
+    let client = super::build_http_client()?;
+    let mut results = Vec::with_capacity(codes.len());
+
+    // 港股逐只（延迟接口无法批量，走分时实时接口）
+    for code in codes.iter().filter(|c| is_hk_stock(c)) {
+        match fetch_stock_quote(code).await {
+            Ok(q) => results.push(q),
+            Err(e) => eprintln!("批量行情: 港股 {} 失败: {}", code, e),
+        }
+    }
+
+    // A 股批量（每批最多 50 只，避免 URL 过长）
+    let a_codes: Vec<&String> = codes.iter().filter(|c| !is_hk_stock(c)).collect();
+    let line_re = Regex::new(r#"v_[a-z0-9]+="([^"]*)""#).expect("正则编译失败");
+    for chunk in a_codes.chunks(50) {
+        let t_codes: Vec<String> = chunk.iter().map(|c| to_tencent_code(c)).collect();
+        let url = format!("https://qt.gtimg.cn/q={}", t_codes.join(","));
+        let resp = client
+            .get(&url)
+            .header("Referer", "https://qt.gtimg.cn/")
+            .send()
+            .await
+            .map_err(|e| format!("批量请求腾讯行情失败: {}", e))?;
+        let bytes = resp.bytes().await.map_err(|e| format!("读取响应失败: {}", e))?;
+        let (text, _, _) = encoding_rs::GBK.decode(&bytes);
+        let text = text.to_string();
+
+        // 每行格式: v_sh600519="1~贵州茅台~600519~...";
+        for caps in line_re.captures_iter(&text) {
+            let fields: Vec<String> = caps[1].split('~').map(|s| s.to_string()).collect();
+            // 失败行（v_pv_none_match）字段过少，跳过
+            if fields.len() < 47 {
+                continue;
+            }
+            // 字段 [2] 为纯数字股票代码，与前端请求格式一致
+            let code = fields.get(2).cloned().unwrap_or_default();
+            if code.is_empty() {
+                continue;
+            }
+            results.push(parse_a_quote_fields(&code, &fields));
+        }
+    }
+    Ok(results)
 }
 
 /// 获取大盘指数实时行情

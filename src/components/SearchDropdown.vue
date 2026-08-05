@@ -2,6 +2,8 @@
 /**
  * 股票搜索下拉组件（从 StockList.vue 拆分）
  */
+import { ref } from "vue";
+
 defineProps({
   searchQuery: { type: String, default: "" },
   searchResults: { type: Array, default: () => [] },
@@ -11,6 +13,10 @@ defineProps({
 });
 
 const emit = defineEmits(["input", "focus", "blur", "add-stock"]);
+
+// 供全局快捷键 Ctrl+K 聚焦搜索框
+const inputRef = ref(null);
+defineExpose({ focus: () => inputRef.value?.focus() });
 </script>
 
 <template>
@@ -22,6 +28,7 @@ const emit = defineEmits(["input", "focus", "blur", "add-stock"]);
       </svg>
     </span>
     <input
+      ref="inputRef"
       :value="searchQuery"
       type="text"
       placeholder="搜索添加自选股..."

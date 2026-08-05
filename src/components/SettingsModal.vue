@@ -5,6 +5,7 @@ import SettingsTabNotify from "./settings/SettingsTabNotify.vue";
 import SettingsTabRefresh from "./settings/SettingsTabRefresh.vue";
 import SettingsTabChart from "./settings/SettingsTabChart.vue";
 import SettingsTabAi from "./settings/SettingsTabAi.vue";
+import SettingsTabAbout from "./settings/SettingsTabAbout.vue";
 
 defineProps({ show: { type: Boolean, default: false } });
 const emit = defineEmits(["close"]);
@@ -16,6 +17,7 @@ const tabs = [
   { key: "refresh", label: "刷新", icon: "⏱" },
   { key: "chart", label: "图表", icon: "📊" },
   { key: "ai", label: "AI", icon: "🤖" },
+  { key: "about", label: "关于", icon: "ℹ️" },
 ];
 
 const activeTab = ref(
@@ -71,6 +73,7 @@ function closeModal() { emit("close"); }
         <SettingsTabRefresh v-show="activeTab === 'refresh'" />
         <SettingsTabChart v-show="activeTab === 'chart'" />
         <SettingsTabAi v-show="activeTab === 'ai'" />
+        <SettingsTabAbout v-show="activeTab === 'about'" />
 
         <!-- 底部操作 -->
         <div class="modal-footer">

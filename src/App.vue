@@ -1,10 +1,15 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { listen } from "@tauri-apps/api/event";
+import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import TitleBar from "./components/TitleBar.vue";
 import MarketHeader from "./components/MarketHeader.vue";
 import StockList from "./components/StockList.vue";
 import StockDetail from "./components/StockDetail.vue";
+import MiniMode from "./components/MiniMode.vue";
 import IndustryModal from "./components/IndustryModal.vue";
 import TechAnalysisModal from "./components/TechAnalysisModal.vue";
 import AiAnalysisModal from "./components/AiAnalysisModal.vue";
@@ -30,6 +35,57 @@ import { useSettings } from "./composables/useSettings";
 // ---- 侧边栏视图切换 ----
 const sidebarView = ref("watchlist");
 
+// ---- 迷你置顶模式（盯盘小窗）----
+// 迷你窗口以 ?mini=1 参数加载同一前端，渲染精简自选股列表
+const isMiniMode = new URLSearchParams(window.location.search).has("mini");
+const appWindow = getCurrentWindow();
+
+/** 打开/聚焦迷你盯盘小窗 */
+async function openMiniWindow() {
+  // getByLabel 是 async 方法，必须 await（否则拿到的是 Promise）
+  const existing = await WebviewWindow.getByLabel("mini");
+  if (existing) {
+    existing.setFocus();
+    return;
+  }
+  await new WebviewWindow("mini", {
+    url: `${window.location.origin}${window.location.pathname}?mini=1`,
+    title: "盯盘小窗",
+    width: 280,
+    height: 300,
+    decorations: false,
+    alwaysOnTop: true,
+    resizable: true,
+  });
+}
+
+// 自选列表组件引用（Ctrl+K 聚焦搜索框用）
+const stockListRef = ref(null);
+
+/** 注册全局快捷键：Ctrl+K 搜索 / Ctrl+N 打开全局 AI */
+async function setupGlobalShortcuts() {
+  if (isMiniMode) return; // 迷你窗口不注册
+  try {
+    await register("CommandOrControl+K", () => {
+      stockListRef.value?.focusSearch();
+    });
+    await register("CommandOrControl+N", () => {
+      openGlobalAiModal();
+    });
+  } catch {
+    /* 快捷键被占用或平台不支持时静默降级 */
+  }
+}
+
+async function teardownGlobalShortcuts() {
+  try {
+    await unregister("CommandOrControl+K");
+    await unregister("CommandOrControl+N");
+  } catch {
+    /* ignore */
+  }
+}
+
 // ---- Composable state & actions ----
 const {
   watchlist, searchQuery, selectedStock, filteredWatchlist,
@@ -37,7 +93,7 @@ const {
   isInWatchlist, toggleWatchlist, addToWatchlist, removeFromWatchlist, updateWatchlistQuote,
 } = useWatchlist();
 
-const { loadQuote } = useQuoteLoader();
+const { loadQuote, loadQuotesBatch } = useQuoteLoader();
 
 const {
   industryData, industryLoading, industryError, showIndustryModal,
@@ -231,6 +287,7 @@ let intradayTimer;
 
 /** 重新设置所有定时器（设置变更时调用） */
 function rescheduleTimers() {
+  if (isMiniMode) return; // 迷你窗口自带独立刷新定时器
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -254,8 +311,22 @@ function rescheduleTimers() {
   }
 }
 
+let unlistenMiniSelect = null;
+
 onMounted(() => {
+  if (isMiniMode) return; // 迷你窗口不执行主窗口逻辑（自带精简刷新）
+
   document.addEventListener("keydown", onKeydown);
+  // 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI）
+  setupGlobalShortcuts();
+  // 迷你窗口选中股票 → 主窗口联动
+  listen("mini-select-stock", (e) => {
+    const stock = watchlist.value.find((s) => s.code === e.payload?.code);
+    if (stock) {
+      selectStock(stock);
+      appWindow.setFocus();
+    }
+  }).then((fn) => { unlistenMiniSelect = fn; });
   // 拉取港元兑人民币汇率
   invoke("get_fx_rate").then((rate) => setFxRate(rate)).catch(() => {});
   // 加载用户画像
@@ -277,27 +348,36 @@ onMounted(() => {
   }
 });
 
-// 设置变更时自动重新调度定时器
+// 设置变更时自动重新调度定时器（含分时刷新间隔）
 watch(
-  () => [settings.indicesRefreshMs, settings.quotesRefreshMs, settings.klineRefreshMs],
+  () => [settings.indicesRefreshMs, settings.quotesRefreshMs, settings.klineRefreshMs, settings.intradayRefreshMs],
   () => { rescheduleTimers(); }
 );
 
-function refreshAllQuotes() {
-  watchlist.value.forEach((stock) => {
-    loadQuote(stock).then((quote) => {
-      if (quote) {
-        updateWatchlistQuote(stock.code, quote);
-        checkAndNotify(quote, settings);
-      }
-    });
-  });
-  // 刷新持仓的实时行情
-  positions.value.forEach((pos) => {
-    loadQuote({ code: pos.code }).then((quote) => {
-      if (quote) updatePositionQuote(pos.code, quote);
-    });
-  });
+async function refreshAllQuotes() {
+  // 自选股批量刷新（A 股一次请求，大幅减少 HTTP 请求数）
+  const codes = watchlist.value.map((s) => s.code);
+  if (codes.length > 0) {
+    const quotes = await loadQuotesBatch(codes);
+    if (quotes) {
+      const quoteMap = new Map(quotes.map((q) => [q.code, q]));
+      watchlist.value.forEach((stock) => {
+        const quote = quoteMap.get(stock.code);
+        if (quote) {
+          updateWatchlistQuote(stock.code, quote);
+          checkAndNotify(quote, settings);
+        }
+      });
+    }
+  }
+  // 刷新持仓的实时行情（含港股，批量接口内部处理）
+  const posCodes = positions.value.map((p) => p.code);
+  if (posCodes.length > 0) {
+    const quotes = await loadQuotesBatch(posCodes);
+    if (quotes) {
+      quotes.forEach((quote) => updatePositionQuote(quote.code, quote));
+    }
+  }
   // 同时刷新当前选中股票的资金流向
   if (selectedStock.value) {
     loadMoneyFlow(selectedStock.value);
@@ -305,7 +385,10 @@ function refreshAllQuotes() {
 }
 
 onUnmounted(() => {
+  if (isMiniMode) return;
   document.removeEventListener("keydown", onKeydown);
+  teardownGlobalShortcuts();
+  if (unlistenMiniSelect) unlistenMiniSelect();
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -314,9 +397,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app">
+  <!-- 迷你盯盘小窗（?mini=1 参数加载） -->
+  <MiniMode v-if="isMiniMode" />
+
+  <div v-else class="app">
     <!-- 自定义标题栏 -->
-    <TitleBar />
+    <TitleBar @open-mini="openMiniWindow" />
 
     <!-- 指数栏 -->
     <MarketHeader
@@ -333,6 +419,7 @@ onUnmounted(() => {
     <div class="main-layout">
       <!-- 左侧：自选股列表 / 热榜 -->
       <StockList
+        ref="stockListRef"
         :watchlist="watchlist"
         :filtered-watchlist="filteredWatchlist"
         :selected-stock="selectedStock"

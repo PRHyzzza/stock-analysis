@@ -12,7 +12,7 @@ pub async fn call_llm(
     reasoning_effort: &str,
     thinking_enabled: bool,
 ) -> Result<serde_json::Value, String> {
-    let client = super::build_http_client()?;
+    let client = super::build_llm_http_client()?;
     let url = "https://api.deepseek.com/chat/completions";
 
     let mut body = serde_json::Map::new();

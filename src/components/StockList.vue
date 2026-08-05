@@ -2,6 +2,7 @@
 import HotList from "./HotList.vue";
 import SectorMoneyFlow from "./SectorMoneyFlow.vue";
 import SearchDropdown from "./SearchDropdown.vue";
+import { ref } from "vue";
 import { useStockSearch } from "../composables/useStockSearch.js";
 
 const props = defineProps({
@@ -54,6 +55,10 @@ function selectStock(stock) {
 function removeStock(code) {
   emit("remove", code);
 }
+
+// 供父组件（全局快捷键 Ctrl+K）聚焦搜索框
+const searchDropdownRef = ref(null);
+defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
 </script>
 
 <template>
@@ -86,6 +91,7 @@ function removeStock(code) {
     <!-- 自选股视图 -->
     <template v-if="sidebarView === 'watchlist'">
       <SearchDropdown
+        ref="searchDropdownRef"
         :search-query="searchQuery"
         :search-results="searchResults"
         :show-results="showResults"
