@@ -181,6 +181,7 @@ const flowTiers = computed(() => {
           :data="intradayData"
           :loading="intradayLoading"
           :signal-markers="signalMarkers"
+          :code="selectedStock?.code ?? ''"
         />
       </div>
 

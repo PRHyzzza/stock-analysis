@@ -16,11 +16,13 @@ function getToday() {
 }
 
 /**
- * 判断当前是否在 A 股交易时段内
- * 交易日：周一至周五 9:30-11:30, 13:00-15:00
+ * 判断当前是否在交易时段内
+ * A 股：周一至周五 9:30-11:30, 13:00-15:00
+ * 港股：周一至周五 9:30-12:00, 13:00-16:00（收市竞价 16:00-16:10 不单独处理）
+ * @param {string} [code] 股票代码（5 位数字 = 港股），不传按 A 股
  * @returns {boolean}
  */
-function isTradingHours() {
+function isTradingHours(code) {
   const now = new Date();
   const day = now.getDay(); // 0=周日, 1=周一, ..., 6=周六
   if (day === 0 || day === 6) return false;
@@ -29,7 +31,11 @@ function isTradingHours() {
   const m = now.getMinutes();
   const t = h * 60 + m; // 当天分钟数
 
-  // 上午 9:30-11:30 或 下午 13:00-15:00
+  if (/^\d{5}$/.test(code || "")) {
+    // 港股：9:30-12:00 或 13:00-16:00
+    return (t >= 570 && t <= 720) || (t >= 780 && t <= 960);
+  }
+  // A 股：9:30-11:30 或 13:00-15:00
   return (t >= 570 && t <= 690) || (t >= 780 && t <= 900);
 }
 
@@ -146,8 +152,8 @@ export function useWatchlistNotifications() {
   async function checkAndNotify(quote, s) {
     if (!quote || !quote.code) return;
 
-    // 非交易时段不通知
-    if (!isTradingHours()) return;
+    // 非交易时段不通知（港股与 A 股时段不同，按代码区分）
+    if (!isTradingHours(quote.code)) return;
 
     const settings = s || defaultSettings;
     if (!settings.notifyEnabled) return;

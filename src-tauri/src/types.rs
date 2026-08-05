@@ -56,6 +56,16 @@ pub struct MarketIndex {
     pub change_pct: f64,
 }
 
+/// 版本更新信息
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    pub current: String,   // 当前版本
+    pub latest: String,    // 最新版本
+    pub url: String,       // Release 页面 URL
+    pub has_update: bool,  // 是否有新版本
+}
+
 /// 完整的行业分析数据
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IndustryData {

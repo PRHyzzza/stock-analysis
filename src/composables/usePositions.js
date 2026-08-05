@@ -1,6 +1,7 @@
 import { ref, computed, watch } from "vue";
 
 const STORAGE_KEY = "stock-analysis-positions";
+const FX_RATE_STORAGE_KEY = "stock-analysis-fx-rate";
 
 function loadPositions() {
   try {
@@ -11,6 +12,18 @@ function loadPositions() {
     }
   } catch { /* ignore */ }
   return [];
+}
+
+/** 读取上次成功获取的汇率缓存，失败返回默认值 */
+function loadCachedFxRate() {
+  try {
+    const raw = localStorage.getItem(FX_RATE_STORAGE_KEY);
+    if (raw) {
+      const rate = Number(raw);
+      if (rate > 0 && rate < 2) return rate; // 合理性校验：港元兑人民币不可能超出 (0, 2)
+    }
+  } catch { /* ignore */ }
+  return 0.91;
 }
 
 /** 判断是否为港股（5 位数字代码） */
@@ -30,8 +43,8 @@ export function usePositions() {
   if (_instance) return _instance;
   const positions = ref(loadPositions());
 
-  // 港元兑人民币汇率（由 App.vue 启动时拉取）
-  const fxRate = ref(0.91); // 默认值，避免首次渲染为零
+  // 港元兑人民币汇率（App.vue 启动时拉取；失败时回退到上次缓存值，无缓存用默认 0.91）
+  const fxRate = ref(loadCachedFxRate());
 
   // 持久化
   watch(positions, (val) => {
@@ -39,7 +52,12 @@ export function usePositions() {
   }, { deep: true });
 
   function setFxRate(rate) {
-    if (rate > 0) fxRate.value = rate;
+    if (rate > 0) {
+      fxRate.value = rate;
+      try {
+        localStorage.setItem(FX_RATE_STORAGE_KEY, String(rate));
+      } catch { /* ignore quota errors */ }
+    }
   }
 
   function addPosition(pos) {

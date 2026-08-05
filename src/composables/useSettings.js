@@ -69,9 +69,9 @@ export function useSettings() {
     { deep: true }
   );
 
-  /** 重置所有设置为默认值 */
+  /** 重置所有设置为默认值（深拷贝，避免污染 DEFAULTS 引用） */
   function resetAll() {
-    Object.assign(state, DEFAULTS);
+    Object.assign(state, JSON.parse(JSON.stringify(DEFAULTS)));
   }
 
   _instance = { state, resetAll };
