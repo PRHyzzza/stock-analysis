@@ -72,8 +72,8 @@ async function goDownload() {
     <div class="setting-group">
       <p class="setting-group-title">链接</p>
       <div class="link-row">
-        <a href="#" @click.prevent="openUrl('https://github.com/PRHyzzza/stock-analysis')">GitHub 仓库 ↗</a>
-        <a href="#" @click.prevent="openUrl('https://github.com/PRHyzzza/stock-analysis/releases')">Releases ↗</a>
+        <a href="#" @click.prevent="openUrl('https://github.com/TheFZP/stock-analysis')">GitHub 仓库 ↗</a>
+        <a href="#" @click.prevent="openUrl('https://github.com/TheFZP/stock-analysis/releases')">Releases ↗</a>
       </div>
     </div>
   </div>

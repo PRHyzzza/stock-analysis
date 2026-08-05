@@ -99,7 +99,7 @@ fn compare_versions(a: &str, b: &str) -> i32 {
 pub async fn check_for_update() -> Result<UpdateInfo, String> {
     let client = crate::api::build_http_client()?;
     let resp = client
-        .get("https://api.github.com/repos/PRHyzzza/stock-analysis/releases/latest")
+        .get("https://api.github.com/repos/TheFZP/stock-analysis/releases/latest")
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
