@@ -68,36 +68,49 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open
 .market-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
+  gap: 12px;
+  padding: 0 16px;
   height: 44px;
   background: var(--card-bg);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .header-left {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
+  overflow: hidden;
 }
 
 .header-right {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .market-indices {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 16px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.market-indices::-webkit-scrollbar {
+  display: none;
 }
 
 .index-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .index-name {
@@ -127,13 +140,16 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open
   width: 1px;
   height: 16px;
   background: var(--border);
+  flex-shrink: 0;
 }
 
-.btn-ai {
+.btn-ai,
+.btn-positions,
+.btn-refresh {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 16px;
+  padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
   background: transparent;
@@ -143,48 +159,18 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .btn-ai:hover {
   border-color: var(--rust);
   color: var(--rust);
   background: rgba(93, 42, 26, 0.04);
 }
-
-.btn-positions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-}
 .btn-positions:hover {
   border-color: var(--rust);
   color: var(--rust);
   background: rgba(93, 42, 26, 0.04);
-}
-
-.btn-refresh {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
 }
 .btn-refresh:hover {
   border-color: var(--ink);
@@ -197,5 +183,21 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open
 }
 .btn-refresh.loading .refresh-icon {
   animation: spin 0.8s linear infinite;
+}
+
+@media (max-width: 1100px) {
+  .btn-ai span,
+  .btn-positions span,
+  .btn-refresh span {
+    display: none;
+  }
+  .btn-ai,
+  .btn-positions,
+  .btn-refresh {
+    padding: 6px 8px;
+  }
+  .market-indices {
+    gap: 12px;
+  }
 }
 </style>
