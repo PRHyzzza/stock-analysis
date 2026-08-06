@@ -99,16 +99,7 @@ export function useIwencaiRobot() {
     }
   }
 
-  /** 重置（切换问句时清空旧结果） */
-  function reset() {
-    requestSeq++;
-    data.value = null;
-    loading.value = false;
-    error.value = "";
-    vError.value = false;
-  }
-
-  return { data, loading, error, vError, search, reset };
+  return { data, loading, error, vError, search };
 }
 
 /**

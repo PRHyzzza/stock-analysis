@@ -18,7 +18,7 @@ import {
 
 const appWindow = getCurrentWindow();
 
-const { data, loading, error, vError, search, reset } = useIwencaiRobot();
+const { data, loading, error, vError, search } = useIwencaiRobot();
 
 const question = ref("");
 const page = ref(1);
@@ -151,7 +151,7 @@ function cellText(v) {
           <table class="result-table">
             <thead>
               <tr>
-                <th v-for="col in normalized.columns" :key="col.key" class="th-nowrap">
+                <th v-for="col in normalized.columns" :key="col.key">
                   {{ col.name }}
                 </th>
                 <th class="th-sticky">操作</th>
@@ -164,7 +164,7 @@ function cellText(v) {
                 class="result-row"
                 @click="onRowClick(row)"
               >
-                <td v-for="col in normalized.columns" :key="col.key" class="td-nowrap">
+                <td v-for="col in normalized.columns" :key="col.key">
                   {{ cellText(row[col.key]) }}
                 </td>
                 <td class="td-sticky">

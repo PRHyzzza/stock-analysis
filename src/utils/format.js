@@ -7,14 +7,6 @@ export function signChar(v) {
   return v > 0 ? "+" : "";
 }
 
-/** 金额格式化：万元 → 万/亿 */
-export function formatAmount(wy) {
-  if (wy == null) return "0";
-  const abs = Math.abs(wy);
-  if (abs >= 10000) return (wy / 10000).toFixed(2) + "亿";
-  return wy.toFixed(0) + "万";
-}
-
 /** 金额格式化（带符号），用于 StockDetail meta 展示 */
 export function fmtMoney(v) {
   if (v == null) return "--";
@@ -28,20 +20,4 @@ export function fmtMoney(v) {
 export function fmtPct(v) {
   if (v == null) return "";
   return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
-}
-
-// ---- CSS class 辅助 ----
-
-/** 涨跌幅颜色 class */
-export function pctClass(val) {
-  if (val > 0) return "up";
-  if (val < 0) return "down";
-  return "";
-}
-
-/** 资金净流入颜色 class */
-export function inflowClass(val) {
-  if (val > 0) return "inflow-up";
-  if (val < 0) return "inflow-down";
-  return "inflow-zero";
 }

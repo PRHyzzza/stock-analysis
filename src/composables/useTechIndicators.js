@@ -7,7 +7,7 @@
 // ---- 纯函数（可独立导出使用） ----
 
 /** EMA 计算 */
-export function ema(data, period) {
+function ema(data, period) {
   const result = [];
   const k = 2 / (period + 1);
   let prev = data[0];

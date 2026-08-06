@@ -146,9 +146,6 @@ function computeMA(data, period) {
   return result;
 }
 
-/** 支撑与阻力位 — 委托给 useSupportResistance.js */
-// calcSupportResistance 已拆分到 src/composables/useSupportResistance.js
-
 function initChart() {
   if (!chartContainer.value || chart) return;
 
