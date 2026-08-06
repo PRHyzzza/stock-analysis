@@ -114,6 +114,7 @@ pub fn run() {
             commands::web_search,
             commands::web_fetch,
             commands::get_fx_rate,
+            commands::get_iwencai_robot,
             commands::get_app_version,
             commands::check_for_update,
         ])

@@ -69,7 +69,6 @@ fn index_name(code: &str) -> &'static str {
         "000300" => "沪深300",
         "000688" => "科创50",
         "000905" => "中证500",
-        "000852" => "中证1000",
         _ => "未知指数",
     }
 }
@@ -123,10 +122,10 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
     })
 }
 
-/// 获取大盘指数实时行情（上证/深证/创业板/沪深300/科创50/中证500/中证1000）
+/// 获取大盘指数实时行情（上证/深证/创业板/沪深300/科创50/中证500）
 #[tauri::command]
 pub async fn get_market_indices() -> Result<Vec<MarketIndex>, String> {
-    let codes = vec!["000001", "399001", "399006", "000300", "000688", "000905", "000852"];
+    let codes = vec!["000001", "399001", "399006", "000300", "000688", "000905"];
     // 并行请求全部指数，避免串行等待拉高总延迟
     let results = futures_util::future::join_all(
         codes.iter().map(|code| fetch_index_quote(code)),
@@ -282,5 +281,29 @@ pub async fn web_fetch(url: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_fx_rate() -> Result<f64, String> {
     crate::api::tencent::fetch_fx_rate().await
+}
+
+// ──────────────────────────────────────────
+// 问财智能选股
+// ──────────────────────────────────────────
+
+/// 问财自然语言选股（get-robot-data）
+/// `v` 为 chameleon.js 生成的 Cookie 值（前端 WebView 执行后获取），有效约 30 分钟
+#[tauri::command]
+pub async fn get_iwencai_robot(
+    question: String,
+    page: Option<i64>,
+    perpage: Option<i64>,
+    v: String,
+    token: Option<String>,
+) -> Result<crate::api::iwencai::IwencaiRobotData, String> {
+    crate::api::iwencai::fetch_iwencai_robot(
+        &question,
+        page.unwrap_or(1),
+        perpage.unwrap_or(20),
+        &v,
+        token.as_deref().unwrap_or("0ac9879417859978476843866"),
+    )
+    .await
 }
 

@@ -18,6 +18,7 @@ import ChipDistribution from "./components/ChipDistribution.vue";
 import PositionModal from "./components/PositionModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
+import IwencaiWindow from "./components/IwencaiWindow.vue";
 import { useWatchlist } from "./composables/useWatchlist";
 import { usePositions } from "./composables/usePositions";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
@@ -37,6 +38,8 @@ const sidebarView = ref("watchlist");
 // ---- 迷你置顶模式（盯盘小窗）----
 // 迷你窗口以 ?mini=1 参数加载同一前端，渲染精简自选股列表
 const isMiniMode = new URLSearchParams(window.location.search).has("mini");
+// 问财选股窗口以 ?iwencai=1 参数加载同一前端，渲染独立选股界面
+const isIwencaiMode = new URLSearchParams(window.location.search).has("iwencai");
 const appWindow = getCurrentWindow();
 
 /** 打开/聚焦迷你盯盘小窗 */
@@ -58,12 +61,30 @@ async function openMiniWindow() {
   });
 }
 
+/** 打开/聚焦问财选股窗口 */
+async function openIwencaiWindow() {
+  const existing = await WebviewWindow.getByLabel("iwencai");
+  if (existing) {
+    existing.setFocus();
+    return;
+  }
+  await new WebviewWindow("iwencai", {
+    url: `${window.location.origin}${window.location.pathname}?iwencai=1`,
+    title: "问财选股",
+    width: 960,
+    height: 720,
+    minWidth: 640,
+    minHeight: 480,
+    resizable: true,
+  });
+}
+
 // 自选列表组件引用（Ctrl+K 聚焦搜索框用）
 const stockListRef = ref(null);
 
 /** 注册全局快捷键：Ctrl+K 搜索 / Ctrl+N 打开全局 AI */
 async function setupGlobalShortcuts() {
-  if (isMiniMode) return; // 迷你窗口不注册
+  if (isMiniMode || isIwencaiMode) return; // 子窗口不注册
   try {
     await register("CommandOrControl+K", () => {
       stockListRef.value?.focusSearch();
@@ -132,6 +153,21 @@ function closeAiModal() { showAiModal.value = false; }
 const showGlobalAiModal = ref(false);
 function openGlobalAiModal() { showGlobalAiModal.value = true; }
 function closeGlobalAiModal() { showGlobalAiModal.value = false; }
+
+// ---- 问财选股（独立窗口 ?iwencai=1）----
+
+/** 问财窗口选中股票 → 主窗口联动选中并加载全部数据 */
+function selectIwencaiStock(stock) {
+  const full = {
+    code: stock.code,
+    name: stock.name || stock.code,
+    market: stock.market,
+    price: 0, change: 0, changePct: 0,
+    open: 0, high: 0, low: 0, prevClose: 0,
+    volume: 0, turnover: 0, turnoverRate: 0, pe: 0, amplitude: 0,
+  };
+  selectStock(full);
+}
 
 // ---- 筹码峰弹窗 ----
 const showChipModal = ref(false);
@@ -285,7 +321,7 @@ let intradayTimer;
 
 /** 重新设置所有定时器（设置变更时调用） */
 function rescheduleTimers() {
-  if (isMiniMode) return; // 迷你窗口自带独立刷新定时器
+  if (isMiniMode || isIwencaiMode) return; // 子窗口自带独立刷新逻辑
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -310,9 +346,11 @@ function rescheduleTimers() {
 }
 
 let unlistenMiniSelect = null;
+let unlistenIwencaiSelect = null;
+let unlistenIwencaiAdd = null;
 
 onMounted(() => {
-  if (isMiniMode) return; // 迷你窗口不执行主窗口逻辑（自带精简刷新）
+  if (isMiniMode || isIwencaiMode) return; // 子窗口不执行主窗口逻辑（自带独立刷新）
 
   document.addEventListener("keydown", onKeydown);
   // 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI）
@@ -325,6 +363,26 @@ onMounted(() => {
       appWindow.setFocus();
     }
   }).then((fn) => { unlistenMiniSelect = fn; });
+  // 问财选股窗口选中股票 → 主窗口联动
+  listen("iwencai-select-stock", (e) => {
+    if (e.payload?.code) {
+      selectIwencaiStock(e.payload);
+      appWindow.setFocus();
+    }
+  }).then((fn) => { unlistenIwencaiSelect = fn; });
+  // 问财窗口「加入自选」→ 主窗口自选列表追加并刷新行情
+  listen("iwencai-add-watchlist", (e) => {
+    const p = e.payload;
+    if (p?.code) {
+      addToWatchlist({
+        code: p.code,
+        market: p.market || "SH",
+        name: p.name || p.code,
+        price: 0, change: 0, changePct: 0,
+      });
+      refreshAllQuotes();
+    }
+  }).then((fn) => { unlistenIwencaiAdd = fn; });
   // 拉取港元兑人民币汇率
   invoke("get_fx_rate").then((rate) => setFxRate(rate)).catch(() => {});
   // 加载用户画像
@@ -381,10 +439,12 @@ async function refreshAllQuotes() {
 }
 
 onUnmounted(() => {
-  if (isMiniMode) return;
+  if (isMiniMode || isIwencaiMode) return;
   document.removeEventListener("keydown", onKeydown);
   teardownGlobalShortcuts();
   if (unlistenMiniSelect) unlistenMiniSelect();
+  if (unlistenIwencaiSelect) unlistenIwencaiSelect();
+  if (unlistenIwencaiAdd) unlistenIwencaiAdd();
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -395,6 +455,9 @@ onUnmounted(() => {
 <template>
   <!-- 迷你盯盘小窗（?mini=1 参数加载） -->
   <MiniMode v-if="isMiniMode" />
+
+  <!-- 问财选股窗口（?iwencai=1 参数加载） -->
+  <IwencaiWindow v-else-if="isIwencaiMode" />
 
   <div v-else class="app">
     <!-- 自定义标题栏 -->
@@ -409,6 +472,7 @@ onUnmounted(() => {
       @open-profile="openProfileModal"
       @open-settings="openSettingsModal"
       @open-global-ai="openGlobalAiModal"
+      @open-iwencai="openIwencaiWindow"
     />
 
     <!-- 主体区域: 左-列表 | 右-详情 -->

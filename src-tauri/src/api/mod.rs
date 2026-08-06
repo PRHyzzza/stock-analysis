@@ -1,6 +1,7 @@
 /// API 客户端模块 — 按数据源拆分
 pub mod eastmoney;
 pub mod hotlist;
+pub mod iwencai;
 pub mod llm;
 pub mod tencent;
 pub mod web;

@@ -82,6 +82,7 @@ App.vue ──调用──> composables/useXxx.js
 | `useTechIndicators.js` | MACD/KDJ/RSI/WR/EMA 等 | 纯前端计算 |
 | `useChipDistribution.js` | 筹码分布（三角形分布法） | 纯前端计算 |
 | `useSupportResistance.js` | 支撑/阻力位（聚类 + 斐波那契） | 纯前端计算 |
+| `useIwencaiRobot.js` | 问财自然语言选股（chameleon.js 在 WebView 生成 Cookie v） | `get_iwencai_robot` |
 | `fetcher.js` | `createDataFetcher()` 工厂函数 | 不直接调用命令 |
 
 ### 3.2 Skills（AI 工具系统）
@@ -101,7 +102,7 @@ App.vue ──调用──> composables/useXxx.js
 | `StockSearch.js` | `search_stocks` — 股票名称/代码搜索 |
 | `UserContext.js` | `read_user_profile` / `save_user_profile` — 用户画像 / `get_fx_rate` — 港元汇率 |
 
-> 除 `call_llm` / `call_llm_stream`（AI 对话自身接口）外，全部 18 个 Rust 命令已开放为 AI 工具。
+> 除 `call_llm` / `call_llm_stream`（AI 对话自身接口）外，全部 19 个 Rust 命令已开放为 AI 工具。
 
 ### 3.3 核心子系统
 
@@ -115,12 +116,13 @@ App.vue ──调用──> composables/useXxx.js
 - **单例应用**: `tauri-plugin-single-instance` — 重复启动时聚焦已有主窗口（主窗口不存在则聚焦迷你窗口），新实例直接退出，防止多开
 - **系统托盘**: `tray-icon` 特性 — 点击主窗口关闭按钮 → 隐藏到右下角托盘（不退出，首次隐藏发通知提示）；右键托盘图标菜单「显示主窗口 / 退出」；左键单击/菜单项恢复主窗口；迷你窗口关闭仍为正常关闭
 - **迷你置顶模式**: TitleBar 按钮 → 新开无边框置顶小窗（`?mini=1`），自选股实时行情 10s 刷新，双击行 `mini-select-stock` 事件联动主窗口选中并聚焦；App.vue 与 MiniMode 各自独立定时器
+- **问财选股窗口**: 顶部「选股」按钮 → 新开独立窗口（`?iwencai=1`，960×720 可调），自然语言选股；结果行点击 → `iwencai-select-stock` 事件联动主窗口选中并聚焦后自动关闭
 
 ---
 
 ## 4. Rust 后端
 
-### 4.1 Tauri 命令（18 个）
+### 4.1 Tauri 命令（19 个）
 
 | 命令 | 数据源 | 说明 |
 |------|--------|------|
@@ -140,6 +142,7 @@ App.vue ──调用──> composables/useXxx.js
 | `web_search` | 东方财富搜索 API | 财经新闻搜索（按时间倒序返回最新新闻，带发布时间/来源媒体；本地 site: 域名过滤兼容） |
 | `web_fetch` | 目标 URL | 网页抓取（JSON-LD→转义HTML→正文容器→meta 四级提取，限 50000 字符） |
 | `get_fx_rate` | Frankfurter API | 港元兑人民币汇率（CNY/HKD） |
+| `get_iwencai_robot` | 问财 get-robot-data | 自然语言选股（需 Cookie v，由前端 WebView 执行 `public/chameleon.js` 生成；响应为 UTF-8 JSON，datas 为对象数组） |
 | `get_app_version` | 本地 | 当前应用版本（CARGO_PKG_VERSION） |
 | `check_for_update` | GitHub API | 检查最新 Release（限流 60 次/时/IP；`v` 前缀剥离后语义化比较） |
 
@@ -152,6 +155,7 @@ App.vue ──调用──> composables/useXxx.js
 | `hotlist.rs` | UTF-8 | JSON API |
 | `llm.rs` | UTF-8 | OpenAI 兼容；V4 工具调用需回传 `reasoning_content`（否则 400）；`thinking_enabled` 控制思考模式 |
 | `web.rs` | UTF-8（charset 自动解码 GBK） | 东财搜索 API（search-api-web.eastmoney.com JSONP，sort=time 最新优先）；正文提取: JSON-LD articleBody → JSON 转义 HTML（腾讯）→ 正文容器/class → meta description；反爬站过滤（zhihu/baike/douban 等 8 个）；`site:域名` 本地过滤兼容 |
+| `iwencai.rs` | UTF-8 | 问财选股（`data.answer[0].txt[0].content.components[0].data`；columns 为 `label/key/index_name`，datas 为对象数组；meta.extra 含 row_count/token/condition；必须带 Cookie v + 浏览器 UA/Referer/Origin） |
 
 ### 4.3 代码转换 (helpers.rs)
 
