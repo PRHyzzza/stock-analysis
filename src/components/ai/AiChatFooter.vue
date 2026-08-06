@@ -10,7 +10,7 @@ defineProps({
   globalMode: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["send", "update:inputText", "keydown-catch"]);
+const emit = defineEmits(["send", "update:inputText", "keydown-catch", "remove-context"]);
 
 function onKeydown(e) {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -24,12 +24,18 @@ function onKeydown(e) {
   <div class="modal-footer">
     <div class="stock-context" v-if="selectedStock">
       <span class="context-tag">{{ selectedStock.name }}({{ selectedStock.code }})</span>
+      <button
+        v-if="globalMode"
+        class="context-remove"
+        title="移除引用"
+        @click="emit('remove-context')"
+      >×</button>
     </div>
     <div class="input-row">
       <textarea
         :value="inputText"
         class="msg-input"
-        :placeholder="globalMode ? '输入你的问题，如：最近有什么热点新闻？' : selectedStock ? `问关于 ${selectedStock.name} 的问题...` : '请先选中一只股票...'"
+        :placeholder="globalMode ? '输入你的问题，如：最近有什么热点新闻？（@600519 可引用个股）' : selectedStock ? `问关于 ${selectedStock.name} 的问题...` : '请先选中一只股票...'"
         :disabled="disabled"
         rows="1"
         @input="emit('update:inputText', $event.target.value)"
@@ -69,6 +75,22 @@ function onKeydown(e) {
   border-radius: var(--radius-full);
   font-size: 11px;
   font-weight: 600;
+}
+
+.context-remove {
+  margin-left: 6px;
+  border: none;
+  background: transparent;
+  color: var(--rust);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.6;
+}
+
+.context-remove:hover {
+  opacity: 1;
 }
 
 .input-row {

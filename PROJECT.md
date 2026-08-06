@@ -71,7 +71,7 @@ App.vue ──调用──> composables/useXxx.js
 | `useMoneyFlow.js` | 资金流向（竞态保护） | `get_stock_money_flow` |
 | `useIndustryData.js` | 行业分析 | `get_stock_industry` |
 | `useMarketIndices.js` | 六大指数行情 | `get_market_indices` |
-| `useAiAnalysis.js` | AI 对话（个股/全局） | `call_llm` + `call_llm_stream` |
+| `useAiAnalysis.js` | AI 对话（个股/全局，Agent 循环 ≤8 轮；全局支持 @代码 快捷引用个股、指数/持仓预加载） | `call_llm` + `call_llm_stream` |
 | `usePositions.js` | 持仓管理 + 盈亏计算（含港币→人民币汇率换算，失败回退上次缓存值） | `get_fx_rate` (汇率) |
 | `useUserProfile.js` | 用户画像读写 | `read_user_profile` / `save_user_profile` |
 | `useSettings.js` | 全局设置单例 | 纯前端 (localStorage) |
@@ -95,7 +95,7 @@ App.vue ──调用──> composables/useXxx.js
 | `MoneyFlow.js` | `get_stock_money_flow` — 全档资金流向（主力/超大单/大单/中单/小单） |
 | `Industry.js` | `get_stock_industry` — 行业分析 |
 | `MarketIndices.js` | `get_market_indices` — 大盘指数 |
-| `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索（东方财富新闻库，按时间倒序返回最新财经新闻）；systemPrompt 教 AI 生成搜索词（用户说"帮我搜 XXX"时直接拆 2-3 组词搜索）+ 权威来源优先（证券时报/巨潮/交易所等官方媒体） |
+| `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索（东方财富新闻库，按时间倒序返回最新财经新闻）；systemPrompt 统一为四步先搜索流程（拆词→搜索→叠加本地工具数据→综合回答）+ 权威来源优先（证券时报/巨潮/交易所等官方媒体） |
 | `Intraday.js` | `get_stock_intraday` — 当日分时走势 |
 | `MarketOverview.js` | `get_hot_list` — 实时热榜 |
 | `StockSearch.js` | `search_stocks` — 股票名称/代码搜索 |
@@ -109,6 +109,8 @@ App.vue ──调用──> composables/useXxx.js
 - **用户画像**: `useUserProfile` + `ProfileModal`，Markdown 文件存 `app_data_dir`，AI 每次回复后自动更新（`deepseek-v4-flash` 静默失败），支持手动编辑
 - **自选通知**: `useWatchlistNotifications`，涨停/跌停/±7%/±5%/快速拉升下跌(30s≥2%)，每股票每类型每日一次；涨跌停阈值按板块判断（主板 ±10%/创业板科创板 ±20%/北交所 ±30%/港股无涨跌停，ST 与所属板块一致）
 - **全局设置**: `useSettings` + `SettingsModal`，5 标签页（通知/刷新/图表/AI/关于），实时生效
+- **AI 双入口**: 个股 AI（AiAnalysisModal，注入行情/K线/资金/行业/筹码/持仓上下文，自动学习画像）；顶部全局 AI（GlobalAiModal，注入大盘指数+持仓，`@代码` 快捷引用个股行情并复用个股上下文，同样学习画像；历史消息按 6000 字符预算裁剪防 token 超限）
+- **AI 联网搜索策略**: 联网开关（设置 AI 页 + 弹窗顶部「联网」toggle）对**所有 AI 入口统一生效**（个股 AI、全局 AI、@代码 快捷引用）。开启时 AI **先搜索再回答**：拆关键词 → `web_search` → 叠加本地工具数据（行情/K线/资金/指数）→ 综合回答；关闭时搜索 skill 的提示词与工具一并剔除（`system-prompt.md` 的 `{{SEARCH_POLICY}}` 占位符 + `getMergedSystemPrompt({ excludeSkills })` 动态注入）
 - **全局快捷键**: `Ctrl+K` 聚焦搜索框、`Ctrl+N` 打开全局 AI（`tauri-plugin-global-shortcut`，注册失败静默降级；迷你窗口不注册）
 - **单例应用**: `tauri-plugin-single-instance` — 重复启动时聚焦已有主窗口（主窗口不存在则聚焦迷你窗口），新实例直接退出，防止多开
 - **系统托盘**: `tray-icon` 特性 — 点击主窗口关闭按钮 → 隐藏到右下角托盘（不退出，首次隐藏发通知提示）；右键托盘图标菜单「显示主窗口 / 退出」；左键单击/菜单项恢复主窗口；迷你窗口关闭仍为正常关闭

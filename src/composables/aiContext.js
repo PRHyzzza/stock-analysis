@@ -5,8 +5,6 @@
 import systemPromptTemplate from "../prompts/system-prompt.md?raw";
 import { getMergedTools, getMergedSystemPrompt } from "../skills/index.js";
 
-const TOOLS = getMergedTools();
-
 /**
  * 计算移动平均线
  * @param {Array} data - K 线数据 [{ close }]
@@ -97,9 +95,29 @@ export function serializeContext(contextData) {
  * @param {Object|null} currentStock - 当前选中的股票
  * @param {Object|null} contextData - 预加载的上下文数据
  * @param {string} userProfile - 用户画像 markdown 原文（可选）
+ * @param {boolean} webSearchEnabled - 联网搜索是否开启（关闭时剔除搜索 skill 的提示词）
  * @returns {string}
  */
-export function buildSystemPrompt(currentStock, contextData, userProfile) {
+export function buildSystemPrompt(currentStock, contextData, userProfile, webSearchEnabled = true) {
+  const exclude = webSearchEnabled ? [] : ["web-search"];
+  const TOOLS = getMergedTools({ excludeSkills: exclude });
+  const skillsPrompt = getMergedSystemPrompt({ excludeSkills: exclude });
+
+  // 联网搜索策略（所有 AI 入口统一：开启 → 先搜索再回答；关闭 → 明确不搜索）
+  const searchPolicy = webSearchEnabled
+    ? `
+## 联网搜索
+联网搜索已开启。**回答任何问题前，先搜索再回答**，流程如下：
+1. **想关键词**：把问题拆成 2-3 组实词关键词（如「茅台怎么样」→「贵州茅台 最新消息」）
+2. **搜索**：调用 \`web_search\` 获取最新新闻/公告/政策；搜不到换通用说法重试，最多 2 次
+3. **叠加软件数据**：再调用本地工具获取实时数据（个股→\`get_stock_quote\`/\`get_stock_kline\`/\`get_stock_money_flow\`，大盘→\`get_market_indices\`）
+4. **综合回答**：搜索信息 + 实时数据结合，标注来源；两者矛盾以实时数据为准
+`
+    : `
+## 联网搜索
+联网搜索已关闭，不要尝试调用搜索工具，直接使用本地工具与已有知识回答。
+`;
+
   // 北京时间（始终计算，每次请求都附带最新时间）
   const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
 
@@ -169,7 +187,8 @@ ${preloadedData}
     .replace("{{BEIJING_TIME}}", beijingTime)
     .replace("{{PRELOAD_SECTION}}", preloadSection)
     .replace("{{TOOLS}}", toolsList)
-    .replace("{{SKILL_PROMPTS}}", getMergedSystemPrompt())
+    .replace("{{SKILL_PROMPTS}}", skillsPrompt)
+    .replace("{{SEARCH_POLICY}}", searchPolicy)
     .replace("{{USER_PROFILE}}", profileSection)
     .replace("{{MARKET_RULES}}", marketRules)
     .replace("{{STOCK_CONTEXT}}", context);

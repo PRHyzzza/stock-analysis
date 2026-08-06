@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { useAiAnalysis } from "../composables/useAiAnalysis";
 import AiApiKeySetup from "./ai/AiApiKeySetup.vue";
 import AiChatMessages from "./ai/AiChatMessages.vue";
@@ -8,6 +9,8 @@ import AiModelControls from "./ai/AiModelControls.vue";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
+  indices: { type: Array, default: null },
+  positions: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["close"]);
@@ -34,6 +37,9 @@ const inputText = ref("");
 const showApiKeyInput = ref(!apiKey.value);
 const apiKeyInput = ref(apiKey.value);
 
+// @代码 快捷引用的股票（发送时作为上下文注入，AI 直接分析无需现查行情）
+const quickStock = ref(null);
+
 watch(
   () => props.show,
   (val) => {
@@ -55,13 +61,43 @@ function closeModal() {
   emit("close");
 }
 
+/** 解析文本中的 @代码（支持 sh/sz/hk 前缀，如 @600519 / @sh600519 / @00700） */
+function parseAtCode(text) {
+  const m = text.match(/@\s*(?:sh|sz|hk)?\s*(\d{5,6})/i);
+  return m ? m[1] : null;
+}
+
+/** 代码 → 市场推断（5 位=港股，6 开头=沪市，其余=深市） */
+function inferMarket(code) {
+  if (/^\d{5}$/.test(code)) return "HK";
+  return code.startsWith("6") ? "SH" : "SZ";
+}
+
 async function handleSend() {
   const text = inputText.value.trim();
   if (!text || loading.value) return;
+
+  // 解析 @代码 → 拉取实时行情作为快捷引用上下文
+  const atCode = parseAtCode(text);
+  if (atCode && quickStock.value?.code !== atCode) {
+    try {
+      const quote = await invoke("get_stock_quote", { code: atCode });
+      if (quote) {
+        quickStock.value = { market: inferMarket(atCode), ...quote };
+      }
+    } catch {
+      // 获取失败则不带股票上下文，仍按全局回答
+    }
+  }
+
   inputText.value = "";
 
   try {
-    await sendGlobalMessage(text);
+    // 注入大盘指数 + 用户持仓 + 快捷股票上下文
+    await sendGlobalMessage(text, quickStock.value, {
+      indices: props.indices,
+      positions: props.positions,
+    });
   } catch (e) {
     if (e.message === "NO_API_KEY") {
       showApiKeyInput.value = true;
@@ -77,6 +113,10 @@ function doSuggestion(text) {
   if (loading.value) return;
   inputText.value = text;
   handleSend();
+}
+
+function removeQuickStock() {
+  quickStock.value = null;
 }
 </script>
 
@@ -140,11 +180,12 @@ function doSuggestion(text) {
           v-if="!showApiKeyInput"
           :input-text="inputText"
           :disabled="loading"
-          :selected-stock="null"
+          :selected-stock="quickStock"
           :loading="loading"
           :global-mode="true"
           @send="handleSend"
           @update:input-text="inputText = $event"
+          @remove-context="removeQuickStock"
         />
       </div>
     </div>

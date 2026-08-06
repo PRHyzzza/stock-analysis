@@ -46,8 +46,12 @@ export function getMergedToolImpl(opts = {}) {
 }
 
 /** 合并所有技能的 systemPrompt 描述 */
-export function getMergedSystemPrompt() {
-  return SKILLS.map((s) => s.systemPrompt).join("\n\n");
+export function getMergedSystemPrompt(opts = {}) {
+  const exclude = opts.excludeSkills || [];
+  return SKILLS
+    .filter((s) => !exclude.includes(s.name))
+    .map((s) => s.systemPrompt)
+    .join("\n\n");
 }
 
 /**

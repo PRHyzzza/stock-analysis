@@ -1,7 +1,7 @@
 import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getMergedTools, getMergedToolImpl, getToolImpl, getMergedSystemPrompt } from "../skills/index.js";
-import { buildSystemPrompt } from "./aiContext.js";
+import { buildSystemPrompt, serializeContext } from "./aiContext.js";
 import { callLlmStream } from "./llmClient.js";
 import { useUserProfileSingleton } from "./useUserProfile.js";
 import { useSettings } from "./useSettings.js";
@@ -31,10 +31,31 @@ function buildTools(webSearchEnabled) {
 }
 
 /**
- * 构建全局 AI 对话的系统提示词（无股票上下文）
+ * 按字符预算裁剪历史消息（从最新往前保留，总字符不超过 maxChars，至少保留最后一条）
+ * 防止长对话 token 超限，控制成本
  */
-function buildGlobalSystemPrompt(userProfile) {
-  const skillsPrompt = (() => { try { return getMergedSystemPrompt(); } catch { return ""; } })();
+function trimMessagesToBudget(messages, maxChars = 6000) {
+  const result = [];
+  let total = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const len = (messages[i].content || "").length;
+    if (result.length > 0 && total + len > maxChars) break;
+    result.unshift(messages[i]);
+    total += len;
+  }
+  return result;
+}
+
+/**
+ * 构建全局 AI 对话的系统提示词（无股票上下文）
+ * @param {string} userProfile - 用户画像 markdown
+ * @param {Object|null} currentStock - 快捷引用股票（@代码，有则走 buildSystemPrompt）
+ * @param {Object|null} contextData - 预加载数据（大盘指数 / 用户持仓）
+ * @param {boolean} webSearchEnabled - 联网搜索是否开启
+ */
+function buildGlobalSystemPrompt(userProfile, currentStock = null, contextData = null, webSearchEnabled = true) {
+  const skillsPrompt = (() => { try { return getMergedSystemPrompt({ excludeSkills: webSearchEnabled ? [] : ["web-search"] }); } catch { return ""; } })();
+  const preloaded = contextData ? serializeContext(contextData) : "";
 
   return `你是一个专业的 A 股 + 港股投资分析助手。你可以帮助用户：
 - 查询任意 A 股 / 港股股票的实时行情、K 线数据、资金流向
@@ -46,14 +67,22 @@ function buildGlobalSystemPrompt(userProfile) {
 你拥有以下工具可以调用：
 ${skillsPrompt}
 
-## 联网搜索
-你具备联网搜索能力（web_search / web_fetch）。**使用前先判断是否真的需要**：
-- 需要搜：用户明确要求搜索、时间敏感问题（「最近」「今天」）、知识截止后的事件
-- 不需要搜：行情/K线/资金流向（用本地工具）、一般知识、对话寒暄、功能咨询
-搜索策略：一次精准搜索，按需抓取。引用网络信息时标注来源 URL。
+## 联网搜索${webSearchEnabled ? `
+联网搜索已开启。**回答任何问题前，先搜索再回答**，流程如下：
+1. **想关键词**：把问题拆成 2-3 组实词关键词（如「茅台怎么样」→「贵州茅台 最新消息」）
+2. **搜索**：调用 \`web_search\` 获取最新新闻/公告/政策；搜不到换通用说法重试，最多 2 次
+3. **叠加软件数据**：再调用本地工具获取实时数据（个股→\`get_stock_quote\`/\`get_stock_kline\`/\`get_stock_money_flow\`，大盘→\`get_market_indices\`）
+4. **综合回答**：搜索信息 + 实时数据结合，标注来源；两者矛盾以实时数据为准` : `
+联网搜索已关闭，不要尝试调用搜索工具，直接使用本地工具与已有知识回答。`}
 
 ## 用户画像
 ${userProfile ? `当前用户画像：\n${userProfile}\n\n请结合用户画像提供个性化建议。` : "用户尚未设置画像。"}
+
+${preloaded ? `## 系统已预加载的数据
+${preloaded}
+
+**注意**：以上大盘指数与持仓数据已随对话预加载，用户询问大盘环境、指数走势或持仓情况时直接使用，无需重复调用工具。
+` : ""}
 
 ## A 股交易制度
 - **T+1**：当日买入次日才能卖出
@@ -70,6 +99,7 @@ ${userProfile ? `当前用户画像：\n${userProfile}\n\n请结合用户画像�
 - 数据仅供参考，不构成投资建议
 - 分析股票时调用工具获取实时数据，通用知识可直接回答
 - 港股以港元计价，分析时注意货币单位
+- 用户输入 @代码（如 @600519）时，该股票行情已注入上下文，优先直接分析
 - 用中文回复，简洁专业`;
 }
 
@@ -87,7 +117,7 @@ export function useAiAnalysis(globalMode = false) {
       : settings.aiThinkingEnabled
   );
   const reasoningEffort = ref(localStorage.getItem(REASONING_EFFORT_KEY) || settings.aiReasoningEffort);
-  const webSearchEnabled = ref(globalMode ? true : (settings.aiWebSearchEnabled !== false));
+  const webSearchEnabled = ref(settings.aiWebSearchEnabled !== false);
   const messages = ref([]);
   const loading = ref(false);
   const error = ref("");
@@ -198,11 +228,13 @@ AI: ${aiResponse.slice(0, 800)}
       const { getProfileForContext } = useUserProfileSingleton();
       const userProfile = getProfileForContext();
       const systemPrompt = globalMode
-        ? buildGlobalSystemPrompt(userProfile)
-        : buildSystemPrompt(currentStock, contextData, userProfile);
-      const recentMessages = messages.value
-        .filter((m) => m.role !== "system" && !m._streaming)
-        .slice(-20);
+        ? (currentStock
+            ? buildSystemPrompt(currentStock, contextData, userProfile, webSearchEnabled.value)  // @代码 快捷引用 → 完整个股上下文
+            : buildGlobalSystemPrompt(userProfile, null, contextData, webSearchEnabled.value))  // 纯全局 → 注入指数/持仓
+        : buildSystemPrompt(currentStock, contextData, userProfile, webSearchEnabled.value);
+      const recentMessages = trimMessagesToBudget(
+        messages.value.filter((m) => m.role !== "system" && !m._streaming)
+      );
       const allMessages = [
         { role: "system", content: systemPrompt },
         ...recentMessages,
@@ -314,8 +346,8 @@ AI: ${aiResponse.slice(0, 800)}
       delete messages.value[streamMsgIdx]._streaming;
       delete messages.value[streamMsgIdx]._reasoning;
 
-      // 后台异步更新用户画像（全局模式跳过）
-      if (!globalMode) updateUserProfileBackground(text, finalContent);
+      // 后台异步更新用户画像（全局对话同样学习用户偏好）
+      updateUserProfileBackground(text, finalContent);
 
       return finalContent;
     } catch (e) {
@@ -355,7 +387,6 @@ AI: ${aiResponse.slice(0, 800)}
   }
 
   function setWebSearchEnabled(enabled) {
-    if (globalMode) return; // 全局模式始终开启联网
     webSearchEnabled.value = enabled;
     settings.aiWebSearchEnabled = enabled;
   }
@@ -367,9 +398,9 @@ AI: ${aiResponse.slice(0, 800)}
     error.value = "";
   }
 
-  /** 全局模式：发送消息（无需股票上下文） */
-  async function sendGlobalMessage(text) {
-    return sendMessage(text, null, null);
+  /** 全局模式：发送消息（可选 @代码 快捷股票上下文 + 指数/持仓预加载） */
+  async function sendGlobalMessage(text, stock = null, contextData = null) {
+    return sendMessage(text, stock, contextData);
   }
 
   /** 非流式调用（兼容旧逻辑，不再使用） */

@@ -108,6 +108,7 @@ defineExpose({ scrollToBottom });
       <p class="welcome-desc" v-if="globalMode">
         我是你的 A 股投资 AI 助手，可以帮你：<br/>
         查询行情、分析行业、搜索最新财经资讯。<br/>
+        输入 @代码（如 @600519）可快速引用个股行情。<br/>
         直接在下方输入你的问题即可。
       </p>
       <p class="welcome-desc" v-else>

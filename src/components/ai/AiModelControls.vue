@@ -88,7 +88,7 @@ onUnmounted(() => window.removeEventListener("click", onWindowClick, true));
     </label>
 
     <!-- 联网搜索开关 -->
-    <label class="ctrl-toggle" :title="webSearchEnabled ? '联网搜索已开启（DuckDuckGo）' : '联网搜索已关闭'">
+    <label class="ctrl-toggle" :title="webSearchEnabled ? '联网搜索已开启' : '联网搜索已关闭'">
       <input
         type="checkbox"
         class="ctrl-toggle-input"

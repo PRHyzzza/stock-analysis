@@ -484,6 +484,8 @@ onUnmounted(() => {
     <!-- 全局 AI 助手弹窗 -->
     <GlobalAiModal
       :show="showGlobalAiModal"
+      :indices="indices"
+      :positions="positions"
       @close="closeGlobalAiModal"
     />
 
