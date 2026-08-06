@@ -1,6 +1,6 @@
 /// 东方财富数据源
 use crate::helpers::to_tencent_code;
-use crate::types::{IndustryData, MarketPerformance, MoneyFlow, RevenueRanking, SectorMoneyFlowItem};
+use crate::types::{IndustryData, MarketPerformance, MoneyFlow, RevenueRanking};
 
 /// 获取个股行业分析数据（来自东方财富 HSF10）
 pub async fn fetch_industry_analysis(em_code: &str) -> Result<serde_json::Value, String> {
@@ -230,56 +230,4 @@ pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
         small_net: pf(2) / 10000.0,
         small_pct: pf(7),
     })
-}
-
-/// 获取行业板块资金流向，按主力净流入从高到低排序
-pub async fn fetch_sector_money_flow() -> Result<Vec<SectorMoneyFlowItem>, String> {
-    let client = super::build_http_client()?;
-
-    let url = format!(
-        "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:90+s:4&fields=f12,f14,f2,f3,f62,f66,f72,f78,f84&ut=8dec03ba335b81bf4ebdf7b29ec27d15"
-    );
-
-    let resp = client
-        .get(&url)
-        .header("Referer", "https://data.eastmoney.com/bkzj/")
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| format!("请求板块资金流向失败: {}", e))?;
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析 JSON 失败: {}", e))?;
-
-    let list = data
-        .pointer("/data/diff")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "未找到板块资金流向数据".to_string())?;
-
-    let mut results = Vec::new();
-    for item in list {
-        let pf = |key: &str| -> f64 {
-            item.get(key)
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0)
-        };
-        results.push(SectorMoneyFlowItem {
-            code: item.get("f12").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            name: item.get("f14").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            change_pct: pf("f3"),
-            main_net_inflow: pf("f62") / 10000.0,
-            super_large_net: pf("f66") / 10000.0,
-            large_net: pf("f72") / 10000.0,
-            medium_net: pf("f78") / 10000.0,
-            small_net: pf("f84") / 10000.0,
-        });
-    }
-
-    if results.is_empty() {
-        return Err("未找到板块资金流向数据".to_string());
-    }
-
-    Ok(results)
 }

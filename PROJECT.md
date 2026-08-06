@@ -18,11 +18,11 @@ stock-analysis/
 │   │   ├── 弹窗:      AiAnalysisModal.vue / GlobalAiModal.vue / TechAnalysisModal.vue
 │   │   │             IndustryModal.vue / ProfileModal.vue / PositionModal.vue
 │   │   │             SettingsModal.vue / ChipDistribution.vue / ConfirmDialog.vue
-│   │   ├── 通用:      IndicatorCard.vue / SectorMoneyFlow.vue
+│   │   ├── 通用:      IndicatorCard.vue
 │   │   ├── 迷你窗口:  MiniMode.vue
 │   │   ├── settings/  (5 个设置标签页: 通知/刷新/图表/AI/关于)
 │   │   └── ai/        (ApiKeySetup / ChatMessages / ChatFooter / ModelControls)
-│   ├── composables/  (19 个 — 数据加载/纯计算/持久化)
+│   ├── composables/  (18 个 — 数据加载/纯计算/持久化)
 │   ├── skills/       (AI Agent 工具系统 — 6 个 skill)
 │   ├── prompts/      (system-prompt.md)
 │   └── utils/        (format.js / limit.js 涨跌停幅度按板块判断)
@@ -71,7 +71,6 @@ App.vue ──调用──> composables/useXxx.js
 | `useMoneyFlow.js` | 资金流向（竞态保护） | `get_stock_money_flow` |
 | `useIndustryData.js` | 行业分析 | `get_stock_industry` |
 | `useMarketIndices.js` | 六大指数行情 | `get_market_indices` |
-| `useSectorMoneyFlow.js` | 板块资金流向 | `get_sector_money_flow` |
 | `useAiAnalysis.js` | AI 对话（个股/全局） | `call_llm` + `call_llm_stream` |
 | `usePositions.js` | 持仓管理 + 盈亏计算（含港币→人民币汇率换算，失败回退上次缓存值） | `get_fx_rate` (汇率) |
 | `useUserProfile.js` | 用户画像读写 | `read_user_profile` / `save_user_profile` |
@@ -98,11 +97,11 @@ App.vue ──调用──> composables/useXxx.js
 | `MarketIndices.js` | `get_market_indices` — 大盘指数 |
 | `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索（东方财富新闻库，按时间倒序返回最新财经新闻）；systemPrompt 教 AI 生成搜索词（用户说"帮我搜 XXX"时直接拆 2-3 组词搜索）+ 权威来源优先（证券时报/巨潮/交易所等官方媒体） |
 | `Intraday.js` | `get_stock_intraday` — 当日分时走势 |
-| `MarketOverview.js` | `get_hot_list` — 实时热榜 / `get_sector_money_flow` — 板块资金流向 |
+| `MarketOverview.js` | `get_hot_list` — 实时热榜 |
 | `StockSearch.js` | `search_stocks` — 股票名称/代码搜索 |
 | `UserContext.js` | `read_user_profile` / `save_user_profile` — 用户画像 / `get_fx_rate` — 港元汇率 |
 
-> 除 `call_llm` / `call_llm_stream`（AI 对话自身接口）外，全部 19 个 Rust 命令已开放为 AI 工具。
+> 除 `call_llm` / `call_llm_stream`（AI 对话自身接口）外，全部 18 个 Rust 命令已开放为 AI 工具。
 
 ### 3.3 核心子系统
 
@@ -119,7 +118,7 @@ App.vue ──调用──> composables/useXxx.js
 
 ## 4. Rust 后端
 
-### 4.1 Tauri 命令（19 个）
+### 4.1 Tauri 命令（18 个）
 
 | 命令 | 数据源 | 说明 |
 |------|--------|------|
@@ -128,7 +127,6 @@ App.vue ──调用──> composables/useXxx.js
 | `get_stock_kline` | Tencent | K 线（日/周/月） |
 | `get_stock_intraday` | Tencent AppStock | 分时数据（当日分钟） |
 | `get_stock_money_flow` | Tencent → East Money 备选 | 资金流向（5 档净流入+占比） |
-| `get_sector_money_flow` | East Money push2 | 板块资金排行 |
 | `get_stock_industry` | East Money HSF10 | 行业分析 |
 | `get_market_indices` | Tencent（并行） | 七大指数（失败兜底条目用真实名称，非裸代码） |
 | `search_stocks` | Tencent | 股票搜索 |

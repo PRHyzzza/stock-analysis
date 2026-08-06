@@ -1,6 +1,5 @@
 <script setup>
 import HotList from "./HotList.vue";
-import SectorMoneyFlow from "./SectorMoneyFlow.vue";
 import SearchDropdown from "./SearchDropdown.vue";
 import { ref } from "vue";
 import { useStockSearch } from "../composables/useStockSearch.js";
@@ -11,14 +10,11 @@ const props = defineProps({
   selectedStock: { type: Object, default: null },
   searchQuery: { type: String, default: "" },
   sidebarView: { type: String, default: "watchlist" },
-  sectorList: { type: Array, default: () => [] },
-  sectorLoading: { type: Boolean, default: false },
-  sectorError: { type: String, default: "" },
 });
 
 const emit = defineEmits([
   "select-stock", "remove", "update:searchQuery", "add-stock",
-  "update:sidebarView", "sector-refresh",
+  "update:sidebarView",
 ]);
 
 const {
@@ -78,13 +74,6 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
         @click="switchTab('hotlist')"
       >
         热榜
-      </button>
-      <button
-        class="sidebar-tab"
-        :class="{ active: sidebarView === 'sectorflow' }"
-        @click="switchTab('sectorflow')"
-      >
-        板块
       </button>
     </div>
 
@@ -152,15 +141,6 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
       :watchlist="watchlist"
       @select-stock="(stock) => emit('select-stock', stock)"
       @remove-stock="(code) => emit('remove', code)"
-    />
-
-    <!-- 板块资金视图 -->
-    <SectorMoneyFlow
-      v-if="sidebarView === 'sectorflow'"
-      :sector-list="sectorList"
-      :loading="sectorLoading"
-      :error="sectorError"
-      @refresh="emit('sector-refresh')"
     />
   </aside>
 </template>

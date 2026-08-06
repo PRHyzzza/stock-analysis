@@ -26,7 +26,6 @@ import { useKlineData } from "./composables/useKlineData";
 import { useMarketIndices } from "./composables/useMarketIndices";
 import { useMoneyFlow } from "./composables/useMoneyFlow";
 import { useIntradayData } from "./composables/useIntradayData";
-import { useSectorMoneyFlow } from "./composables/useSectorMoneyFlow";
 import { deleteStockMessages } from "./composables/aiMessageStore";
 import { useUserProfileSingleton } from "./composables/useUserProfile";
 import { useWatchlistNotifications } from "./composables/useWatchlistNotifications";
@@ -174,7 +173,6 @@ function closeSettingsModal() { showSettingsModal.value = false; }
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
 const { intradayData, intradayLoading, loadIntradayData } = useIntradayData();
-const { sectorList, sectorLoading, sectorError, loadSectorMoneyFlow } = useSectorMoneyFlow();
 const { checkAndNotify } = useWatchlistNotifications();
 const { state: settings } = useSettings();
 
@@ -333,8 +331,6 @@ onMounted(() => {
   loadProfile();
   // 加载指数行情
   loadIndices();
-  // 加载板块资金流向
-  loadSectorMoneyFlow();
   // 初始设置定时器
   rescheduleTimers();
   // 左侧所有自选股刷新实时数据
@@ -425,15 +421,11 @@ onUnmounted(() => {
         :selected-stock="selectedStock"
         :search-query="searchQuery"
         :sidebar-view="sidebarView"
-        :sector-list="sectorList"
-        :sector-loading="sectorLoading"
-        :sector-error="sectorError"
         @select-stock="selectStock"
         @remove="handleRemoveFromWatchlist"
         @add-stock="addStockFromSearch"
         @update:search-query="searchQuery = $event"
         @update:sidebar-view="sidebarView = $event"
-        @sector-refresh="loadSectorMoneyFlow"
       />
 
       <!-- 右侧：详情面板 -->

@@ -1,12 +1,12 @@
 use crate::api::{
     call_llm as call_llm_api, fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
     fetch_industry_name, fetch_intraday_data, fetch_kline_data, fetch_money_flow,
-    fetch_money_flow_eastmoney, fetch_search_results, fetch_sector_money_flow, fetch_stock_quote,
+    fetch_money_flow_eastmoney, fetch_search_results, fetch_stock_quote,
     fetch_stock_quotes_batch, parse_industry_analysis,
 };
 use crate::types::{
     HotListData, IndustryData, IntradayData, KlineItem, MarketIndex,
-    MoneyFlow, SearchResult, SectorMoneyFlowItem, StockQuote, UpdateInfo,
+    MoneyFlow, SearchResult, StockQuote, UpdateInfo,
 };
 use std::fs;
 use tauri::Manager;
@@ -186,12 +186,6 @@ pub async fn get_stock_money_flow(code: String) -> Result<MoneyFlow, String> {
 #[tauri::command]
 pub async fn get_hot_list() -> Result<HotListData, String> {
     fetch_hot_list().await
-}
-
-/// 获取全部板块资金流向（行业+概念），按主力净流入从高到低排序
-#[tauri::command]
-pub async fn get_sector_money_flow() -> Result<Vec<SectorMoneyFlowItem>, String> {
-    fetch_sector_money_flow().await
 }
 
 /// 调用 LLM（兼容 DeepSeek / OpenAI）
