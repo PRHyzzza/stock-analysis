@@ -96,7 +96,7 @@ App.vue ──调用──> composables/useXxx.js
 | `MoneyFlow.js` | `get_stock_money_flow` — 全档资金流向（主力/超大单/大单/中单/小单） |
 | `Industry.js` | `get_stock_industry` — 行业分析 |
 | `MarketIndices.js` | `get_market_indices` — 大盘指数 |
-| `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索（东方财富新闻库，按时间倒序返回最新财经新闻）；systemPrompt 统一为四步先搜索流程（拆词→搜索→叠加本地工具数据→综合回答）+ 权威来源优先（证券时报/巨潮/交易所等官方媒体） |
+| `WebSearch.js` | `web_search` / `web_fetch` — 联网搜索（东方财富新闻库，相关性排序返回财经新闻）；systemPrompt 统一为四步先搜索流程（拆词→搜索→叠加本地工具数据→综合回答）+ 关键词铁律（禁用「最新消息/怎么样」等泛词）+ 权威来源优先（证券时报/巨潮/交易所等官方媒体） |
 | `Intraday.js` | `get_stock_intraday` — 当日分时走势 |
 | `MarketOverview.js` | `get_hot_list` — 实时热榜 |
 | `StockSearch.js` | `search_stocks` — 股票名称/代码搜索 |
@@ -139,7 +139,7 @@ App.vue ──调用──> composables/useXxx.js
 | `call_llm_stream` | DeepSeek SSE | AI 流式 → `llm-chunk`/`llm-done`/`llm-error` |
 | `read_user_profile` | 本地文件 | 读取画像 md |
 | `save_user_profile` | 本地文件 | 保存画像 md |
-| `web_search` | 东方财富搜索 API | 财经新闻搜索（按时间倒序返回最新新闻，带发布时间/来源媒体；本地 site: 域名过滤兼容） |
+| `web_search` | 东方财富搜索 API | 财经新闻搜索（**相关性排序** sort=default + 本地泛词剥离/去重，带发布时间/来源媒体；本地 site: 域名过滤兼容） |
 | `web_fetch` | 目标 URL | 网页抓取（JSON-LD→转义HTML→正文容器→meta 四级提取，限 50000 字符） |
 | `get_fx_rate` | Frankfurter API | 港元兑人民币汇率（CNY/HKD） |
 | `get_iwencai_robot` | 问财 get-robot-data | 自然语言选股（需 Cookie v，由前端 WebView 执行 `public/chameleon.js` 生成；响应为 UTF-8 JSON，datas 为对象数组） |
@@ -154,7 +154,7 @@ App.vue ──调用──> composables/useXxx.js
 | `eastmoney.rs` | UTF-8 | JSON/JSONP/HTML，有 CDN/WAF |
 | `hotlist.rs` | UTF-8 | JSON API |
 | `llm.rs` | UTF-8 | OpenAI 兼容；V4 工具调用需回传 `reasoning_content`（否则 400）；`thinking_enabled` 控制思考模式 |
-| `web.rs` | UTF-8（charset 自动解码 GBK） | 东财搜索 API（search-api-web.eastmoney.com JSONP，sort=time 最新优先）；正文提取: JSON-LD articleBody → JSON 转义 HTML（腾讯）→ 正文容器/class → meta description；反爬站过滤（zhihu/baike/douban 等 8 个）；`site:域名` 本地过滤兼容 |
+| `web.rs` | UTF-8（charset 自动解码 GBK） | 东财搜索 API（search-api-web.eastmoney.com JSONP，**sort=default 相关性排序**——实测 sort=time 会返回含任意关键词的无关新闻；本地剥离泛词+URL/标题去重）；正文提取: JSON-LD articleBody → JSON 转义 HTML（腾讯）→ 正文容器/class（含东财 `txtinfos`/`ContentBody`/`contentbox`）→ meta description；反爬站过滤（zhihu/baike/douban 等 8 个）；`site:域名` 本地过滤兼容 |
 | `iwencai.rs` | UTF-8 | 问财选股（`data.answer[0].txt[0].content.components[0].data`；columns 为 `label/key/index_name`，datas 为对象数组；meta.extra 含 row_count/token/condition；必须带 Cookie v + 浏览器 UA/Referer/Origin） |
 
 ### 4.3 代码转换 (helpers.rs)

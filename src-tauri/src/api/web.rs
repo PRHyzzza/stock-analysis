@@ -2,7 +2,10 @@
 /// 搜索使用东方财富搜索 API（search-api-web.eastmoney.com，免费无需 API Key）：
 ///   - 财经垂直内容库（新闻/公告/研报），不会出现通用搜索引擎的意图跑偏
 ///     （如 Bing 搜"宁德时代"返回"宁德市"城市信息）
-///   - sort=time 按时间倒序返回**最新**新闻，每条带发布时间和来源媒体
+///   - sort=default 按**相关性**排序（实测 sort=time 会返回含任意关键词的无关
+///     新闻，如搜"贵州茅台"返回 ETF/黄金新闻；default 下第一条即高度相关）
+///   - 每条带发布时间和来源媒体；本地再剥离查询中的泛词（"最新消息"等）
+///     并去重，进一步提升相关性
 /// 抓取使用直接 HTTP 请求 + 智能正文提取。
 ///
 /// 已知反爬站点（解析时过滤）：知乎、百度百科、豆瓣等
@@ -37,14 +40,41 @@ const BLOCKED_HOSTS: &[&str] = &[
 ];
 
 /// 网页搜索：使用东方财富搜索 API（免费，无需 API Key，国内可访问）
-/// 财经垂直内容库 + sort=time 按时间倒序 → 返回**最新**相关新闻，带发布时间
-/// 不会出现通用搜索引擎的意图跑偏（如搜"宁德时代"返回"宁德市"城市信息）
+/// 财经垂直内容库 + sort=default **相关性**排序（实测 sort=time 相关性差：
+/// 搜"贵州茅台"会返回 ETF/黄金等仅含泛词的无关新闻，default 下第一条即相关）
 /// 返回最多 15 条
 ///
 /// 兼容 site: 域名 限定（如 "site:cninfo.com.cn"）：东财不识别该操作符，
 /// 这里在本地按 URL 域名过滤兜底。
 pub async fn web_search(query: &str, max_results: usize) -> Result<Vec<WebSearchResult>, String> {
-    let mut results = search_eastmoney_news(query, max_results).await?;
+    // 剥离查询泛词（"最新消息"/"怎么样"等）——泛词会按 OR 匹配污染相关性排序
+    let clean_query = strip_noise_words(query);
+    if clean_query.trim().is_empty() {
+        return Err("搜索关键词不能为空".to_string());
+    }
+    let mut results = search_eastmoney_news(&clean_query, max_results).await?;
+    results = dedup_results(results);
+
+    // 多词查询兜底：东财按 OR 匹配，热门词（"中报/业绩"等）会把无关新闻顶上来。
+    // 提取核心实体（首个实词），过滤标题/摘要都不含实体的结果；
+    // 过滤后太少（<3 条）则用核心实体单独重搜，保证返回与实体真正相关的结果
+    let core_entity = extract_core_entity(&clean_query);
+    if !core_entity.is_empty() {
+        let kept: Vec<WebSearchResult> = results
+            .drain(..)
+            .filter(|r| {
+                (r.title.to_lowercase().contains(&core_entity))
+                    || (r.snippet.to_lowercase().contains(&core_entity))
+            })
+            .collect();
+        if kept.len() >= 3 {
+            results = kept;
+        } else if core_entity != clean_query {
+            // 实体相关结果太少 → 用纯实体词重搜（如「寒武纪 中报 业绩」→「寒武纪」）
+            results = search_eastmoney_news(&core_entity, max_results).await?;
+            results = dedup_results(results);
+        }
+    }
 
     // site: 来源限定：本地按域名过滤兜底；
     // 过滤后为空说明该来源无收录，返回空结果让 AI 换来源（而不是返回不相关结果）
@@ -64,6 +94,51 @@ pub async fn web_search(query: &str, max_results: usize) -> Result<Vec<WebSearch
     Ok(results)
 }
 
+/// 提取查询的核心实体：首个非泛词 token（如「寒武纪 中报 业绩」→「寒武纪」）。
+/// 东财 OR 匹配下，用首个实体词过滤可剔除"只命中热门维度词"的无关新闻
+fn extract_core_entity(clean_query: &str) -> String {
+    clean_query
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase()
+}
+
+/// 剥离查询中的泛词（模型常生成的"最新消息/怎么样/如何"等无效实词），
+/// 防止它们按 OR 匹配污染相关性排序。按空格拆分后逐个过滤。
+fn strip_noise_words(query: &str) -> String {
+    const NOISE_WORDS: &[&str] = &[
+        "最新消息", "最新新闻", "最新动态", "最新情况", "最新进展", "最新公告", "最新资讯",
+        "怎么样", "如何", "怎样", "怎么", "啥情况", "什么情况", "相关内容", "相关信息",
+        "新闻报道", "新闻", "消息", "情况", "动态",
+    ];
+    query
+        .split_whitespace()
+        .filter(|w| !NOISE_WORDS.iter().any(|n| w.contains(n)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 结果去重：相同 URL 直接去重；相同标题只保留最新一条
+fn dedup_results(results: Vec<WebSearchResult>) -> Vec<WebSearchResult> {
+    let mut seen_url = std::collections::HashSet::new();
+    let mut seen_title = std::collections::HashSet::new();
+    results
+        .into_iter()
+        .filter(|r| {
+            if !seen_url.insert(r.url.clone()) {
+                return false;
+            }
+            let title_key: String = r.title.chars().filter(|c| !c.is_whitespace()).collect();
+            if !title_key.is_empty() && !seen_title.insert(title_key) {
+                return false;
+            }
+            true
+        })
+        .collect()
+}
+
 /// 从查询中提取 site: 限定的域名列表（如 "site:cninfo.com.cn OR site:sse.com.cn"）
 fn extract_site_filters(query: &str) -> Vec<String> {
     let re = Regex::new(r"(?i)site:([a-z0-9.-]+\.[a-z]{2,})").unwrap();
@@ -73,11 +148,13 @@ fn extract_site_filters(query: &str) -> Vec<String> {
         .collect()
 }
 
-/// 调用东方财富搜索 API（JSONP），按时间倒序获取最新财经新闻
+/// 调用东方财富搜索 API（JSONP），按相关性（sort=default）获取财经新闻
+/// 实测 sort=time 会返回大量仅含泛词的无关新闻（如"贵州茅台"→ETF/黄金新闻），
+/// sort=default 首条即高度相关，故相关性优先
 async fn search_eastmoney_news(query: &str, max_results: usize) -> Result<Vec<WebSearchResult>, String> {
     let client = super::build_http_client()?;
 
-    // 东财搜索接口参数（cmsArticleWebOld = 新闻文章库，sort=time 按时间倒序）
+    // 东财搜索接口参数（cmsArticleWebOld = 新闻文章库，sort=default 相关性排序）
     let param = serde_json::json!({
         "uid": "",
         "keyword": query,
@@ -88,7 +165,7 @@ async fn search_eastmoney_news(query: &str, max_results: usize) -> Result<Vec<We
         "param": {
             "cmsArticleWebOld": {
                 "searchScope": "default",
-                "sort": "time",
+                "sort": "default",
                 "pageIndex": 1,
                 "pageSize": max_results.min(15),
                 "preTag": "<em>",
@@ -311,7 +388,7 @@ fn extract_containers(html: &str) -> String {
         r#"(?is)<(?:article|main)[^>]*>(.*?)</(?:article|main)>"#,
     ).unwrap();
     let class_re = Regex::new(
-        r#"(?is)<(?:div|section|article)[^>]*(?:class|id)=["'][^"']*(?:article[-_]?(?:content|body|detail)|news[-_]?content|post[-_]?content|content[-_]?main|main[-_]?content|detail[-_]?content|rich_media_content)[^"']*["'][^>]*>(.*?)</(?:div|section|article)>"#,
+        r#"(?is)<(?:div|section|article)[^>]*(?:class|id)=["'][^"']*(?:article[-_]?(?:content|body|detail)|news[-_]?content|post[-_]?content|content[-_]?main|main[-_]?content|detail[-_]?content|rich_media_content|txtinfos|ContentBody|contentbox)[^"']*["'][^>]*>(.*?)</(?:div|section|article)>"#,
     ).unwrap();
 
     for re in [&container_re, &class_re] {
@@ -400,9 +477,42 @@ fn strip_html(s: &str) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_extract_core_entity() {
+        // 首个实词即核心实体
+        assert_eq!(extract_core_entity("寒武纪 中报 业绩"), "寒武纪");
+        assert_eq!(extract_core_entity("贵州茅台 批价"), "贵州茅台");
+        // 单实体词原样返回
+        assert_eq!(extract_core_entity("宁德时代"), "宁德时代");
+        // 空串兜底
+        assert_eq!(extract_core_entity(""), "");
+    }
+
+    #[tokio::test]
+    async fn test_web_search_multi_word_fallback() {
+        // 多词 OR 查询（东财不支持 AND，热门词会稀释相关性）：
+        // 「寒武纪 中报 业绩」应通过核心实体过滤/兜底，返回寒武纪相关新闻
+        let results = web_search("寒武纪 中报 业绩", 10).await.unwrap();
+        assert!(!results.is_empty(), "兜底后不应为空");
+        let core = extract_core_entity("寒武纪 中报 业绩");
+        // 过滤/兜底后每条都应包含核心实体（或标题/摘要命中）
+        for r in &results {
+            assert!(
+                r.title.to_lowercase().contains(&core) || r.snippet.to_lowercase().contains(&core),
+                "结果应包含核心实体 '{}': {}",
+                core,
+                r.title
+            );
+        }
+        println!("「寒武纪 中报 业绩」兜底后 {} 条:", results.len());
+        for r in &results {
+            println!("  [{}] {}", r.date, r.title);
+        }
+    }
+
     #[tokio::test]
     async fn test_web_search_latest_news() {
-        // 搜"宁德时代"应返回最新个股新闻（东财财经库，按时间倒序），而不是"宁德市"城市信息
+        // 搜"宁德时代"应返回相关个股新闻（东财财经库，相关性排序），而不是"宁德市"城市信息
         let results = web_search("宁德时代", 10).await.unwrap();
         assert!(!results.is_empty());
         for r in &results {
@@ -450,6 +560,38 @@ mod tests {
         assert_eq!(extract_site_filters("茅台 公告 SITE:SSE.COM.CN"), vec!["sse.com.cn"]);
         // 无 site: 返回空
         assert!(extract_site_filters("贵州茅台 最新新闻").is_empty());
+    }
+
+    #[test]
+    fn test_strip_noise_words() {
+        // 泛词应被剥离，实词保留
+        assert_eq!(strip_noise_words("贵州茅台 最新消息"), "贵州茅台");
+        assert_eq!(strip_noise_words("宁德时代 怎么样"), "宁德时代");
+        assert_eq!(strip_noise_words("央行 降息 最新动态 政策"), "央行 降息 政策");
+        // 无泛词时原样返回
+        assert_eq!(strip_noise_words("贵州茅台 批价 2026"), "贵州茅台 批价 2026");
+        // 全泛词 → 空串
+        assert_eq!(strip_noise_words("最新消息 怎么样"), "");
+    }
+
+    #[test]
+    fn test_dedup_results() {
+        let mk = |title: &str, url: &str, date: &str| WebSearchResult {
+            title: title.to_string(),
+            snippet: String::new(),
+            url: url.to_string(),
+            date: date.to_string(),
+        };
+        let results = vec![
+            mk("茅台新闻", "http://a.com/1", "2026-08-07 10:00:00"),
+            mk("茅台新闻", "http://a.com/2", "2026-08-07 09:00:00"), // 同标题去重
+            mk("茅台新闻", "http://a.com/1", "2026-08-07 08:00:00"), // 同 URL 去重
+            mk("另一条新闻", "http://b.com/3", "2026-08-07 07:00:00"),
+        ];
+        let out = dedup_results(results);
+        assert_eq!(out.len(), 2, "应去重后剩 2 条: {:?}", out.iter().map(|r| &r.title).collect::<Vec<_>>());
+        assert!(out[0].url.contains("/1"), "URL 去重应保留第一条");
+        assert_eq!(out[1].title, "另一条新闻");
     }
 
     #[test]
@@ -532,5 +674,50 @@ mod tests {
         let text = extract_article(&html);
         assert!(text.contains("充满魅力"), "应提取转义 HTML 正文, 实际: {}", text);
         assert!(!text.contains("页面骨架"), "不应包含骨架内容");
+    }
+
+    #[test]
+    fn test_extract_article_eastmoney_container() {
+        // 模拟东方财富：正文在 <div class="txtinfos" id="ContentBody"> 中
+        let para = "7月中旬涨价以来，飞天茅台批价淡季不淡，普遍上涨到1700元上方。".to_string()
+            + &"8月7日今日酒价披露数据显示，26年飞天茅台原箱和散装分别上涨。".repeat(6);
+        assert!(para.chars().count() > 150, "测试正文应超 150 字符");
+        let html = format!(
+            r#"<html><body><div class="contentbox"><div class="mainleft"><div class="zwinfos"><div class="txtinfos" id="ContentBody"><p>{}</p><p>第二段：华创证券表示批价企稳。</p></div></div></div><div class="mainright">推荐阅读：其他新闻</div></div></body></html>"#,
+            para
+        );
+        let text = extract_article(&html);
+        assert!(text.contains("飞天茅台批价"), "应提取东财正文, 实际: {}", text);
+        assert!(text.contains("华创证券"), "应包含第二段正文, 实际: {}", text);
+        assert!(!text.contains("推荐阅读"), "不应包含右侧推荐栏");
+    }
+
+    #[tokio::test]
+    async fn test_web_fetch_eastmoney_article() {
+        // 真实东财新闻页：正文在 txtinfos/ContentBody 容器中，应能提取全文而非仅 meta 描述
+        let url = "https://finance.eastmoney.com/a/202608073835117557.html";
+        let r = web_fetch(url).await;
+        match &r {
+            Ok(t) => {
+                println!("东财新闻抓取成功, 长度 {} 字符", t.chars().count());
+                let preview: String = t.chars().take(300).collect();
+                println!("前 300 字: {}", preview);
+            }
+            Err(e) => println!("东财新闻抓取失败: {}", e),
+        }
+        assert!(r.is_ok(), "东财新闻抓取失败: {:?}", r.err());
+        if let Ok(t) = r {
+            assert!(
+                t.contains("飞天茅台") || t.contains("批价"),
+                "东财正文应包含新闻关键内容, 实际前200字: {}",
+                &t[..t.len().min(200)]
+            );
+            // 应拿到完整正文而非仅 meta 描述（131 字符）
+            assert!(
+                t.chars().count() > 200,
+                "应提取完整正文而非 meta 兜底, 实际 {} 字符",
+                t.chars().count()
+            );
+        }
     }
 }
