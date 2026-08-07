@@ -84,12 +84,17 @@ function isInWatchlist(code) {
 const sinceAddedPct = computed(() => {
   const stock = props.selectedStock;
   const klines = props.klineData;
-  if (!stock?.addedAt || !klines || !Array.isArray(klines) || klines.length === 0) return null;
-  // 找到加入自选当日的 K 线
-  const addedKline = klines.find((k) => k.date === stock.addedAt);
-  if (!addedKline?.close || addedKline.close === 0) return null;
+  if (!stock?.addedAt) return null;
   const currentPrice = stock.price;
   if (!currentPrice || currentPrice === 0) return null;
+  // 优先使用加入自选时记录的价格
+  if (stock.addedPrice && stock.addedPrice > 0) {
+    return ((currentPrice - stock.addedPrice) / stock.addedPrice) * 100;
+  }
+  // 回退：从 K 线中找加入自选当日的收盘价
+  if (!klines || !Array.isArray(klines) || klines.length === 0) return null;
+  const addedKline = klines.find((k) => k.date === stock.addedAt);
+  if (!addedKline?.close || addedKline.close === 0) return null;
   return ((currentPrice - addedKline.close) / addedKline.close) * 100;
 });
 

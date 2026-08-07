@@ -63,7 +63,7 @@ App.vue ──调用──> composables/useXxx.js
 
 | 文件 | 用途 | 后端命令 |
 |------|------|---------|
-| `useWatchlist.js` | 自选股 CRUD | 纯前端 (localStorage) |
+| `useWatchlist.js` | 自选股 CRUD（加入时记录 `addedPrice`，搜索/问财添加由首次行情回填，用于"自选以来"涨跌幅） | 纯前端 (localStorage) |
 | `useQuoteLoader.js` | 批量加载实时行情 | `get_stock_quote` / `get_stock_quotes_batch` |
 | `useStockSearch.js` | 股票搜索（防抖） | `search_stocks` |
 | `useKlineData.js` | K 线 + 周期切换 | `get_stock_kline` |

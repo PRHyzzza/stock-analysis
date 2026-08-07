@@ -54,7 +54,15 @@ export function useWatchlist() {
     const y = today.getFullYear();
     const m = String(today.getMonth() + 1).padStart(2, "0");
     const d = String(today.getDate()).padStart(2, "0");
-    watchlist.value = [...watchlist.value, { ...stock, addedAt: `${y}-${m}-${d}` }];
+    watchlist.value = [
+      ...watchlist.value,
+      {
+        ...stock,
+        addedAt: `${y}-${m}-${d}`,
+        // 记录加入自选时的当前价格（搜索/问财添加时可能为 0，稍后由首次行情回填）
+        addedPrice: stock.price > 0 ? stock.price : undefined,
+      },
+    ];
   }
 
   function removeFromWatchlist(code) {
@@ -74,13 +82,25 @@ export function useWatchlist() {
 
   /** 更新列表中某只股票的实时数据 */
   function updateWatchlistQuote(code, quoteData) {
+    // 加入时未记录到价格（如从搜索/问财添加），用首次拿到的实时行情回填
+    const fetchedPrice = quoteData.price > 0 ? quoteData.price : undefined;
     const idx = watchlist.value.findIndex((s) => s.code === code);
     if (idx !== -1) {
-      watchlist.value[idx] = { ...watchlist.value[idx], ...quoteData };
+      const cur = watchlist.value[idx];
+      watchlist.value[idx] = {
+        ...cur,
+        ...quoteData,
+        addedPrice: cur.addedPrice != null ? cur.addedPrice : fetchedPrice,
+      };
       watchlist.value = [...watchlist.value];
     }
     if (selectedStock.value?.code === code) {
-      selectedStock.value = { ...selectedStock.value, ...quoteData };
+      selectedStock.value = {
+        ...selectedStock.value,
+        ...quoteData,
+        addedPrice:
+          selectedStock.value.addedPrice != null ? selectedStock.value.addedPrice : fetchedPrice,
+      };
     }
   }
 
