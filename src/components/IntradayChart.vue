@@ -1,7 +1,10 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { createChart, ColorType, LineSeries, HistogramSeries, AreaSeries, createSeriesMarkers } from "lightweight-charts";
 import { getLimitPct } from "../utils/limit";
+import { usePositions } from "../composables/usePositions.js";
+
+const { positions } = usePositions();
 
 const props = defineProps({
   data: { type: Object, default: null },
@@ -29,6 +32,57 @@ let limitDownLine = null;
 let signalMarkersPlugin = null;
 /** 缓存的 timestamp 映射 (timeStr → unixTs)，供信号标记使用 */
 let _timeMap = new Map();
+
+/** 当前股票持仓成本价（未持仓时为 null） */
+const costPrice = computed(() => {
+  if (!props.code) return null;
+  const pos = positions.value.find((p) => p.code === props.code);
+  return pos && pos.buyPrice > 0 ? pos.buyPrice : null;
+});
+/** 持仓成本线引用 */
+let costLine = null;
+/** 最近一次价格数据缓存（供持仓变化时刷新成本线） */
+let _lastPriceData = [];
+
+/**
+ * 渲染/更新持仓成本线：仅当持仓且成本价在今日价格波动范围内（正常显示内可见）时显示，否则移除
+ */
+function updateCostLine(priceData) {
+  if (!priceLineSeries) return;
+  const cost = costPrice.value;
+  let inRange = false;
+  if (cost != null && priceData.length > 0) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const d of priceData) {
+      if (d.value < min) min = d.value;
+      if (d.value > max) max = d.value;
+    }
+    inRange = cost >= min && cost <= max;
+  }
+  if (inRange) {
+    if (costLine) {
+      costLine.applyOptions({ price: cost });
+    } else {
+      costLine = priceLineSeries.createPriceLine({
+        price: cost,
+        color: "#f0b429",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "成本",
+      });
+    }
+  } else if (costLine) {
+    try { priceLineSeries.removePriceLine(costLine); } catch {}
+    costLine = null;
+  }
+}
+
+// 持仓变化时刷新成本线（无需重新拉取分时数据）
+watch(costPrice, () => {
+  if (priceLineSeries && _lastPriceData.length > 0) updateCostLine(_lastPriceData);
+});
 
 function initChart() {
   if (!chartContainer.value || chart) return;
@@ -98,7 +152,7 @@ function initChart() {
 
   // 均价线
   avgPriceSeries = chart.addSeries(LineSeries, {
-    color: "#f39c12",
+    color: "#9c27b0",
     lineWidth: 1,
     lineStyle: 2,
     priceLineVisible: false,
@@ -249,6 +303,10 @@ function updateChartData(intradayData) {
   // 渲染 T+0 信号标记
   renderSignalMarkers();
 
+  // 渲染持仓成本线（仅当成本价在当前分时显示范围内可见）
+  _lastPriceData = priceData;
+  updateCostLine(priceData);
+
   chart.timeScale().fitContent();
 }
 
@@ -375,7 +433,9 @@ onUnmounted(() => {
     limitUpLine = null;
     limitDownLine = null;
     signalMarkersPlugin = null;
+    costLine = null;
     _timeMap = new Map();
+    _lastPriceData = [];
   }
 });
 </script>
@@ -390,7 +450,7 @@ onUnmounted(() => {
           价格
         </span>
         <span class="legend-item avg-legend">
-          <span class="legend-dot" style="background: #f39c12"></span>
+          <span class="legend-dot" style="background: #9c27b0"></span>
           均价
         </span>
         <span class="legend-item vwap-legend">
@@ -440,6 +500,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 0 0 8px 0;
+  flex-wrap: wrap;
+  gap: 8px 12px;
 }
 
 .intraday-title {
@@ -453,6 +515,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* 窗口较窄时压缩图例间距 */
+@media (max-width: 900px) {
+  .intraday-legend {
+    gap: 10px;
+  }
 }
 
 .legend-item {

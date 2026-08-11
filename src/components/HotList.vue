@@ -183,6 +183,36 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border-light);
 }
 
+/* 窗口较小时压缩热榜列表 */
+@media (max-width: 1200px) {
+  .list-header {
+    padding: 14px 14px 10px;
+  }
+  .stock-item {
+    padding: 10px 14px;
+    gap: 6px;
+  }
+  .hot-rank-num {
+    min-width: 20px;
+  }
+  .item-change {
+    font-size: 12px;
+    padding: 2px 6px;
+    min-width: 48px;
+  }
+  .hot-rank-chg {
+    font-size: 12px;
+    min-width: 24px;
+  }
+  /* 窄窗口：隐藏代码，仅保留名称+涨幅 */
+  .item-code {
+    display: none;
+  }
+  .hot-name-row {
+    gap: 4px;
+  }
+}
+
 .list-title {
   font-size: 14px;
   font-weight: 600;

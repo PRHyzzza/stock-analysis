@@ -176,6 +176,7 @@ const flowTiers = computed(() => {
           :period="klinePeriod"
           :markers="watchlistMarkers"
           :show-sr="showSR"
+          :code="selectedStock?.code ?? ''"
           @change-period="emit('change-kline-period', $event)"
         />
       </div>
@@ -350,6 +351,21 @@ const flowTiers = computed(() => {
   min-height: 100%;
   display: flex;
   flex-direction: column;
+  /* 窗口变矮时不压缩卡片，内容超出时由 .main-content 滚动 */
+  flex-shrink: 0;
+}
+
+/* 窗口缩小时压缩详情卡内边距 */
+@media (max-width: 1280px) {
+  .detail-card {
+    padding: 20px 24px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .detail-card {
+    padding: 14px 16px;
+  }
 }
 
 .stock-header {
@@ -357,6 +373,7 @@ const flowTiers = computed(() => {
   align-items: center;
   gap: 16px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .stock-tag {
@@ -447,6 +464,7 @@ const flowTiers = computed(() => {
   display: flex;
   align-items: baseline;
   gap: 14px;
+  flex-wrap: wrap;
 }
 
 .price {
@@ -497,6 +515,19 @@ const flowTiers = computed(() => {
   margin-bottom: 24px;
 }
 
+/* 窗口较窄时数据网格降为 2 列 */
+@media (max-width: 1024px) {
+  .meta-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .meta-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .meta-item {
   display: flex;
   flex-direction: column;
@@ -533,6 +564,7 @@ const flowTiers = computed(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 0;
+  flex-wrap: wrap;
 }
 
 .flow-title {

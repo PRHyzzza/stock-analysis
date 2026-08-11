@@ -3,6 +3,9 @@ import { ref, computed, onMounted, onUpdated, onUnmounted, watch, nextTick } fro
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
 import { calcSupportResistance } from "../composables/useSupportResistance.js";
 import { useSettings } from "../composables/useSettings.js";
+import { usePositions } from "../composables/usePositions.js";
+
+const { positions } = usePositions();
 
 const { state: settings } = useSettings();
 
@@ -13,6 +16,7 @@ const props = defineProps({
   markers: { type: Array, default: () => [] },
   showSR: { type: Boolean, default: false },
   signalMarkers: { type: Array, default: () => [] },
+  code: { type: String, default: "" },
 });
 
 const emit = defineEmits(["change-period"]);
@@ -34,6 +38,41 @@ let lowPriceLine = null;
 /** 支撑/阻力线 */
 let srPriceLines = [];
 const srLevels = ref({ support: [], resistance: [] });
+
+/** 当前股票持仓成本价（未持仓时为 null） */
+const costPrice = computed(() => {
+  if (!props.code) return null;
+  const pos = positions.value.find((p) => p.code === props.code);
+  return pos && pos.buyPrice > 0 ? pos.buyPrice : null;
+});
+/** 持仓成本线引用 */
+let costPriceLine = null;
+
+/** 渲染/更新持仓成本线：持仓时显示，否则移除 */
+function updateCostLine() {
+  if (!candleSeries) return;
+  const cost = costPrice.value;
+  if (cost != null) {
+    if (costPriceLine) {
+      costPriceLine.applyOptions({ price: cost });
+    } else {
+      costPriceLine = candleSeries.createPriceLine({
+        price: cost,
+        color: "#f0b429",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "成本",
+      });
+    }
+  } else if (costPriceLine) {
+    try { candleSeries.removePriceLine(costPriceLine); } catch {}
+    costPriceLine = null;
+  }
+}
+
+// 持仓变化时刷新成本线
+watch(costPrice, () => { if (candleSeries) updateCostLine(); });
 
 /** 内部状态：是否显示支撑/阻力线（由父组件通过暴露的方法控制） */
 let _srVisible = false;
@@ -371,6 +410,9 @@ function updateChartData(newData) {
     }
   }
 
+  // 渲染持仓成本线
+  updateCostLine();
+
   chart.timeScale().fitContent();
 }
 
@@ -473,6 +515,7 @@ onUnmounted(() => {
     highPriceLine = null;
     lowPriceLine = null;
     srPriceLines = [];
+    costPriceLine = null;
     Object.keys(maSeries).forEach((k) => delete maSeries[k]);
   }
 });
@@ -537,6 +580,8 @@ onUnmounted(() => {
   justify-content: space-between;
   margin-bottom: 12px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 8px 12px;
 }
 
 .kline-title {
@@ -550,6 +595,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* 窗口较窄时压缩图例间距 */
+@media (max-width: 900px) {
+  .kline-header-right {
+    gap: 8px;
+  }
 }
 
 /* Steep: period pill group */

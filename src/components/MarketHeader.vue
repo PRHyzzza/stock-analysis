@@ -87,18 +87,30 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open
 .header-left {
   display: flex;
   align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 
 .header-right {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  padding-left: 16px;
 }
 
 .market-indices {
   display: flex;
   align-items: center;
   gap: 24px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.market-indices::-webkit-scrollbar {
+  display: none;
 }
 
 .index-item {
@@ -106,6 +118,8 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open
   align-items: center;
   gap: 8px;
   font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .index-name {
@@ -205,5 +219,41 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open
 }
 .btn-refresh.loading .refresh-icon {
   animation: spin 0.8s linear infinite;
+}
+
+/* 窗口较窄时：指数区横向滚动、按钮只留图标 */
+@media (max-width: 1100px) {
+  .market-header {
+    padding: 0 14px;
+  }
+  .market-indices {
+    gap: 16px;
+  }
+  .btn-ai span,
+  .btn-positions span,
+  .btn-refresh span {
+    display: none;
+  }
+  .btn-ai,
+  .btn-positions,
+  .btn-refresh {
+    padding: 6px 10px;
+  }
+}
+
+@media (max-width: 760px) {
+  .header-right {
+    gap: 4px;
+    padding-left: 8px;
+  }
+  .index-change {
+    display: none;
+  }
+  .index-item {
+    gap: 6px;
+  }
+  .market-indices {
+    gap: 12px;
+  }
 }
 </style>

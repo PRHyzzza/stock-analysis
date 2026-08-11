@@ -604,4 +604,26 @@ onUnmounted(() => {
   padding: 24px 32px;
   gap: 24px;
 }
+
+/* 窗口缩小时压缩主布局间距 */
+@media (max-width: 1280px) {
+  .main-layout {
+    padding: 20px 24px;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .main-layout {
+    padding: 14px 14px;
+    gap: 14px;
+  }
+}
+
+@media (max-width: 760px) {
+  .main-layout {
+    padding: 10px 10px;
+    gap: 10px;
+  }
+}
 </style>

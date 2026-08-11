@@ -1,8 +1,14 @@
 <script setup>
 import HotList from "./HotList.vue";
 import SearchDropdown from "./SearchDropdown.vue";
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { useStockSearch } from "../composables/useStockSearch.js";
+import { usePositions } from "../composables/usePositions.js";
+
+const { positions } = usePositions();
+
+/** 持仓代码集合，用于标记自选列表中的持仓股 */
+const heldCodes = computed(() => new Set(positions.value.map((p) => p.code)));
 
 const props = defineProps({
   watchlist: { type: Array, required: true },
@@ -106,7 +112,8 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
             @click="selectStock(stock)"
           >
             <div class="item-left">
-              <span class="item-name">{{ stock.name }}</span>
+              <span class="item-name" :class="{ 'has-position': heldCodes.has(stock.code) }">{{ stock.name }}</span>
+              <span v-if="heldCodes.has(stock.code)" class="position-badge" title="持仓中">持</span>
               <span class="item-code">{{ stock.code }}</span>
               <span v-if="stock.market === 'HK' || stock.code?.length === 5" class="market-badge-sm market-hk">HK</span>
             </div>
@@ -148,13 +155,67 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
 <style scoped>
 /* ===== Steep: 侧边栏 ===== */
 .sidebar {
-  width: 370px;
-  min-width: 370px;
+  width: clamp(260px, 26vw, 370px);
+  min-width: 260px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-height: 0;
   overflow: hidden;
+}
+
+/* 窗口较小时进一步压缩侧边栏 */
+@media (max-width: 1200px) {
+  .sidebar {
+    width: clamp(220px, 30vw, 300px);
+    min-width: 220px;
+  }
+  .stock-item {
+    padding: 10px 14px;
+  }
+  .list-header {
+    padding: 14px 16px 10px;
+  }
+  .item-left {
+    gap: 6px;
+  }
+  .item-name {
+    font-size: 13px;
+  }
+  .item-price {
+    font-size: 13px;
+    min-width: 58px;
+  }
+  .item-change {
+    font-size: 11px;
+    padding: 2px 6px;
+    min-width: 44px;
+  }
+  .item-right {
+    gap: 5px;
+  }
+  /* 窄窗口下删除按钮默认隐藏，悬停时显示 */
+  .item-remove {
+    width: 22px;
+    height: 22px;
+    opacity: 0;
+  }
+  .stock-item:hover .item-remove {
+    opacity: 1;
+  }
+  /* 窄窗口：隐藏代码与价格，仅保留名称+涨幅 */
+  .item-code,
+  .market-badge-sm,
+  .item-price {
+    display: none;
+  }
+  .item-change {
+    margin-left: auto;
+    min-width: 44px;
+  }
+  .item-right {
+    gap: 4px;
+  }
 }
 
 /* Steep Tab: 无底色胶囊切换 */
@@ -265,17 +326,40 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
   align-items: center;
   gap: 8px;
   overflow: hidden;
+  min-width: 0;
 }
 
 .item-name {
   font-size: 14px;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 持仓股：名称金色高亮 */
+.item-name.has-position {
+  color: #b45309;
+}
+
+/* 持仓角标 */
+.position-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 4px;
+  padding: 1px 5px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .item-code {
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .market-badge-sm {
