@@ -856,4 +856,55 @@ const flowTiers = computed(() => {
   height: 100%;
   min-height: 200px;
 }
+
+/* ===== 宽窗口（>1200px）：右侧详情一屏放完，不出现滚动条 =====
+   内容压缩到一屏内展示；窗口变矮时图表区随之收缩（min-height: 0），
+   而不是像小窗口那样溢出由 .main-content 滚动 */
+@media (min-width: 1201px) {
+  .main-content {
+    overflow-y: hidden;
+  }
+  .detail-card {
+    padding: 16px 28px;
+  }
+  .stock-header {
+    margin-bottom: 10px;
+  }
+  .price-area {
+    margin-bottom: 12px;
+  }
+  .price {
+    font-size: 32px;
+  }
+  .chart-tabs {
+    margin-bottom: 8px;
+  }
+  .kline-flex-wrap :deep(.kline-chart) {
+    min-height: 0;
+  }
+  .kline-flex-wrap :deep(.intraday-chart-wrap) {
+    max-height: 420px;
+  }
+  .kline-flex-wrap :deep(.intraday-chart) {
+    min-height: 0;
+  }
+  .meta-grid {
+    margin-bottom: 14px;
+  }
+  .meta-item {
+    padding: 10px 14px;
+  }
+  .flow-section {
+    margin-bottom: 10px;
+  }
+  /* 宽窗口下资金分档 4 列单行，省出一行高度 */
+  .flow-tiers {
+    margin-top: 6px;
+    gap: 2px 24px;
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .btn {
+    padding: 6px 18px;
+  }
+}
 </style>
