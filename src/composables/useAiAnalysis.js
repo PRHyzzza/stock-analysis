@@ -244,12 +244,9 @@ AI: ${aiResponse}`;
       let currentMessages = [...allMessages];
       let finalContent = "";
       let emptySearchCount = 0;  // 连续空搜索计数
-      let repeatedToolKey = "";  // 上次工具调用标识
-      let repeatedToolCount = 0; // 连续相同工具调用计数
 
       // Agent 循环：每个 round 使用流式调用，工具调用完成后继续下一轮
-      // 不限制轮数（复杂分析可能多轮搜索+抓取+工具调用）
-      // 仅防死循环：同一工具同一参数连续调用 5 次 → 强制结束
+      // 不限制轮数、不限制时间，直到 AI 给出最终回答
       for (let round = 0; ; round++) {
         const result = await callLlmStreamWrapped(currentMessages, (content, reasoning) => {
           // 实时更新流式消息
@@ -262,22 +259,6 @@ AI: ${aiResponse}`;
 
         const toolCallsArr = result.tool_calls;
         if (toolCallsArr && toolCallsArr.length > 0) {
-          // 防死循环：本轮工具调用（名称+参数）与上轮完全一致且已连续 5 次 → 强制结束
-          const toolKey = toolCallsArr
-            .map((tc) => `${tc.function?.name || tc.function_name}:${JSON.stringify(tc.function?.arguments || "")}`)
-            .join("|");
-          if (toolKey === repeatedToolKey) {
-            repeatedToolCount++;
-          } else {
-            repeatedToolKey = toolKey;
-            repeatedToolCount = 1;
-          }
-          if (repeatedToolCount >= 5) {
-            finalContent = "⚠️ 分析陷入循环，请重试或简化您的问题。";
-            messages.value[streamMsgIdx].content = finalContent;
-            break;
-          }
-
           // 记录 assistant 消息（包含 thinking 内容 + tool_calls）
           // 修复：保留 reasoning_content，确保 V4 思考模式下多轮对话正常
           currentMessages.push({
@@ -358,8 +339,15 @@ AI: ${aiResponse}`;
       }
 
       if (!finalContent) {
-        finalContent = "⚠️ 分析超时，请重试或简化您的问题。";
-        messages.value[streamMsgIdx].content = finalContent;
+        // 模型未返回正式内容（极端情况）：若有已流式输出的思考内容则保留展示
+        const partial = messages.value[streamMsgIdx];
+        if (partial?._reasoning) {
+          finalContent = `（未生成完整回答，仅保留思考过程，请重试或简化您的问题）\n\n${partial._reasoning}`;
+          messages.value[streamMsgIdx].content = finalContent;
+        } else {
+          finalContent = "⚠️ 分析未返回结果，请重试或简化您的问题。";
+          messages.value[streamMsgIdx].content = finalContent;
+        }
       }
 
       // 移除流式标记

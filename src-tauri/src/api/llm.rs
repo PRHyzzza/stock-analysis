@@ -18,7 +18,8 @@ pub async fn call_llm(
     let mut body = serde_json::Map::new();
     body.insert("model".to_string(), serde_json::json!(model));
     body.insert("messages".to_string(), messages.clone());
-    body.insert("max_tokens".to_string(), serde_json::json!(4096));
+    // DeepSeek V4 官方最大输出 384K tokens（上下文 1M），思考模式 reasoning_content 也占用输出预算
+    body.insert("max_tokens".to_string(), serde_json::json!(393216));
 
     // 思考模式控制
     if !thinking_enabled {
@@ -88,7 +89,8 @@ pub async fn call_llm_stream(
     body.insert("model".to_string(), serde_json::json!(model));
     body.insert("messages".to_string(), messages.clone());
     body.insert("stream".to_string(), serde_json::json!(true));
-    body.insert("max_tokens".to_string(), serde_json::json!(4096));
+    // DeepSeek V4 官方最大输出 384K tokens（上下文 1M），思考模式 reasoning_content 也占用输出预算
+    body.insert("max_tokens".to_string(), serde_json::json!(393216));
 
     if !thinking_enabled {
         body.insert("thinking".to_string(), serde_json::json!({"type": "disabled"}));
