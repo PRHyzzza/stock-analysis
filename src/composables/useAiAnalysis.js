@@ -77,12 +77,14 @@ ${skillsPrompt}
 联网搜索已关闭，不要尝试调用搜索工具，直接使用本地工具与已有知识回答。`}
 
 ## 用户画像
-${userProfile ? `当前用户画像：\n${userProfile}\n\n请结合用户画像提供个性化建议。` : "用户尚未设置画像。"}
+${userProfile ? userProfile : "（未设置）"}
+
+> 画像仅作参考，回答时点到为止，不要复述画像内容。
 
 ${preloaded ? `## 系统已预加载的数据
 ${preloaded}
 
-**注意**：以上大盘指数与持仓数据已随对话预加载，用户询问大盘环境、指数走势或持仓情况时直接使用，无需重复调用工具。
+**注意**：以上大盘指数、持仓及热榜股票数据已随对话预加载。用户询问大盘环境、指数走势、持仓情况或热榜选股时，直接使用这些数据回答，无需重复调用工具。若热榜数据存在，请基于预加载的热榜行情与资金流数据综合分析哪些股票值得买入。
 ` : ""}
 
 ## A 股交易制度
@@ -170,21 +172,18 @@ export function useAiAnalysis(globalMode = false) {
       const { profileContent, saveProfile } = useUserProfileSingleton();
       const currentProfile = profileContent.value || "";
 
-      const updatePrompt = `你是一个用户画像分析器。请根据以下对话，更新用户画像（Markdown 格式，不超过200字）
+      const updatePrompt = `根据对话更新用户画像。**输出必须极简**：固定三行，每行一个短语（≤20字），禁止长句、禁止解释、禁止标题、禁止列表嵌套：
+- 投资风格：
+- 关注方向：
+- 风险偏好：
+无新信息则原样输出原画像，不要改写。
 
-## 当前画像
-${currentProfile || "（尚无）"}
+当前画像：
+${currentProfile || "（空）"}
 
-## 本轮对话
+对话：
 用户: ${userText}
-AI: ${aiResponse.slice(0, 800)}
-
-## 要求
-1. 如果当前画像为空，请创建初始画像。
-2. 如果已有画像，根据新对话微调（不要丢失原有信息）。
-3. 聚焦：投资风格 + 关注方向 + 风险偏好。
-4. 输出纯 Markdown，没有代码块包裹，没有多余解释。
-5. 用中文。`;
+AI: ${aiResponse}`;
 
       const result = await invoke("call_llm", {
         apiKey: apiKey.value,
@@ -208,8 +207,9 @@ AI: ${aiResponse.slice(0, 800)}
 
   /**
    * 发送消息 → Agent 循环 + 流式输出 + 后台画像更新
+   * @param {boolean} skipProfileUpdate - true 时不更新用户画像（自动生成的分析指令，如热榜选股）
    */
-  async function sendMessage(text, currentStock, contextData) {
+  async function sendMessage(text, currentStock, contextData, skipProfileUpdate = false) {
     if (!text.trim() || loading.value) return "";
     if (!apiKey.value) {
       error.value = "请先设置 API Key";
@@ -347,8 +347,10 @@ AI: ${aiResponse.slice(0, 800)}
       delete messages.value[streamMsgIdx]._streaming;
       delete messages.value[streamMsgIdx]._reasoning;
 
-      // 后台异步更新用户画像（全局对话同样学习用户偏好）
-      updateUserProfileBackground(text, finalContent);
+      // 后台异步更新用户画像（全局对话同样学习用户偏好；热榜选股等自动指令跳过，避免污染画像）
+      if (!skipProfileUpdate) {
+        updateUserProfileBackground(text, finalContent);
+      }
 
       return finalContent;
     } catch (e) {
@@ -400,8 +402,8 @@ AI: ${aiResponse.slice(0, 800)}
   }
 
   /** 全局模式：发送消息（可选 @代码 快捷股票上下文 + 指数/持仓预加载） */
-  async function sendGlobalMessage(text, stock = null, contextData = null) {
-    return sendMessage(text, stock, contextData);
+  async function sendGlobalMessage(text, stock = null, contextData = null, skipProfileUpdate = false) {
+    return sendMessage(text, stock, contextData, skipProfileUpdate);
   }
 
   /** 非流式调用（兼容旧逻辑，不再使用） */

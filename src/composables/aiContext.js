@@ -57,6 +57,35 @@ export function serializeContext(contextData) {
     parts.push(`## 预加载大盘指数\n${JSON.stringify(contextData.indices, null, 2)}`);
   }
 
+  // 预加载热榜股票数据（热榜选股功能：排名 + 行情要点 + 主力资金 + K线摘要）
+  if (contextData.hotStocks && Array.isArray(contextData.hotStocks) && contextData.hotStocks.length > 0) {
+    const hotSummary = contextData.hotStocks.map((s) => {
+      const row = {
+        排名: s.rank,
+        代码: s.code,
+        名称: s.name,
+        热度: s.hot,
+        涨跌幅: s.changePct != null ? `${s.changePct.toFixed(2)}%` : "--",
+        排名变化: s.rankChg,
+        概念: (s.tags || []).join("、"),
+        现价: s.price,
+        换手率: s.turnoverRate != null ? `${s.turnoverRate.toFixed(2)}%` : "--",
+        成交额万: s.turnover,
+        振幅: s.amplitude != null ? `${s.amplitude.toFixed(2)}%` : "--",
+        主力净流入万: s.mainNetInflow,
+        主力净占比: s.mainNetPct != null ? `${s.mainNetPct.toFixed(2)}%` : "--",
+        超大单净流入万: s.superLargeNet,
+        大单净流入万: s.largeNet,
+      };
+      // K 线摘要（紧凑格式）：最近 10 根日K + 均线
+      if (s.kline && s.kline.recent && s.kline.recent.length) {
+        row.K线 = `最近${s.kline.recent.length}日:[${s.kline.recent.map((k) => `${k.date}:${k.close}`).join(" ")}] MA5=${s.kline.ma5} MA10=${s.kline.ma10} MA20=${s.kline.ma20}`;
+      }
+      return row;
+    });
+    parts.push(`## 预加载热榜股票数据（${hotSummary.length} 只，含实时行情 + 主力资金流向 + 日K线摘要，已包含在上下文中无需重新调用工具）\n${JSON.stringify(hotSummary, null, 2)}`);
+  }
+
   if (contextData.positions && Array.isArray(contextData.positions) && contextData.positions.length > 0) {
     const posSummary = contextData.positions.map((p) => ({
       代码: p.code,
@@ -180,7 +209,7 @@ ${preloadedData}
 
   // 用户画像
   const profileSection = userProfile
-    ? `\n## 👤 用户画像（自动学习）\n\n${userProfile}\n\n**说明**：以上基于历史对话自动生成，了解用户偏好即可，分析时点到为止。\n`
+    ? `\n## 用户画像\n${userProfile}\n\n> 画像仅作参考，回答时点到为止，不要复述画像内容。\n`
     : "";
 
   return systemPromptTemplate
