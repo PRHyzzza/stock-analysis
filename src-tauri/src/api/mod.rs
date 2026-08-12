@@ -13,9 +13,12 @@ use std::time::Duration;
 static HTTP_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
 /// LLM 专用 HTTP 客户端（无总超时，流式响应可能持续数分钟）
 static LLM_HTTP_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+/// 代理 HTTP 客户端（走系统代理，用于 GitHub 更新检查等国内直连不通的场景）
+static PROXY_HTTP_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
 
 /// 构建项目统一的 HTTP 客户端
 /// 连接超时 10s，总超时 15s，防止单个请求卡死整个流程
+/// 显式禁用系统代理（行情 API 国内直连，避免代理挂掉影响行情）
 /// 返回全局单例引用（reqwest::Client 线程安全，连接池可复用）
 pub fn build_http_client() -> Result<&'static reqwest::Client, String> {
     HTTP_CLIENT
@@ -24,6 +27,7 @@ pub fn build_http_client() -> Result<&'static reqwest::Client, String> {
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(15))
+                .no_proxy() // 禁用自动系统代理，保持直连
                 .build()
                 .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))
         })
@@ -31,7 +35,24 @@ pub fn build_http_client() -> Result<&'static reqwest::Client, String> {
         .map_err(|e| e.clone())
 }
 
+/// 构建走系统代理的 HTTP 客户端（reqwest 在 system-proxy feature 下自动读取系统代理）
+/// 供 GitHub 更新检查等国内直连不通的请求使用；无系统代理时行为等同直连
+pub fn build_proxy_http_client() -> Result<&'static reqwest::Client, String> {
+    PROXY_HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(20))
+                .build()
+                .map_err(|e| format!("创建代理 HTTP 客户端失败: {}", e))
+        })
+        .as_ref()
+        .map_err(|e| e.clone())
+}
+
 /// 构建 LLM 专用 HTTP 客户端（无总超时，流式响应可能持续数分钟）
+/// 显式禁用系统代理，与行情客户端一致
 /// 返回全局单例引用（非流式工具调用环同样适用，避免 15s 超时截断）
 pub fn build_llm_http_client() -> Result<&'static reqwest::Client, String> {
     LLM_HTTP_CLIENT
@@ -40,6 +61,7 @@ pub fn build_llm_http_client() -> Result<&'static reqwest::Client, String> {
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .connect_timeout(Duration::from_secs(10))
                 .pool_idle_timeout(Duration::from_secs(90))
+                .no_proxy() // 禁用自动系统代理，保持直连
                 .build()
                 .map_err(|e| format!("创建 LLM HTTP 客户端失败: {}", e))
         })

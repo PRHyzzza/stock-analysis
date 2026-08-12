@@ -59,7 +59,7 @@ async function goDownload() {
       <!-- 已是最新 -->
       <div v-else-if="updateInfo && !updateInfo.has_update" class="update-result up-to-date">
         <p class="update-title">已是最新版本 ✅</p>
-        <p class="update-sub">当前 v{{ updateInfo.current }} 即为最新版本</p>
+        <p class="update-sub">当前 v{{ updateInfo.current }} · GitHub 最新 v{{ updateInfo.latest }}</p>
       </div>
 
       <!-- 检查失败 -->

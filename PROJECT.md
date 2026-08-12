@@ -144,7 +144,7 @@ App.vue ──调用──> composables/useXxx.js
 | `get_fx_rate` | Frankfurter API | 港元兑人民币汇率 |
 | `get_iwencai_robot` | 问财 get-robot-data | 自然语言选股（需 Cookie v + 浏览器 UA/Referer/Origin） |
 | `get_app_version` | 本地 | 当前应用版本（CARGO_PKG_VERSION） |
-| `check_for_update` | GitHub API | 检查最新 Release（语义化版本比较） |
+| `check_for_update` | GitHub API | 检查最新 Release（语义化版本比较；直连失败自动回退系统代理，适配国内网络） |
 
 ### 4.2 数据源特征
 
