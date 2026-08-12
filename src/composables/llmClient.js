@@ -21,6 +21,9 @@ export function callLlmStream(opts) {
   const { apiKey, model, thinkingEnabled, reasoningEffort, messages: messagesList, tools, onDelta } = opts;
 
   return new Promise(async (resolve, reject) => {
+    // 每次调用生成唯一 streamId，按事件 payload.id 过滤，
+    // 避免个股 AI 与全局 AI 并发流式时互相串流/提前终结
+    const streamId = `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     let unlistenChunk = null;
     let unlistenDone = null;
     let unlistenError = null;
@@ -38,7 +41,7 @@ export function callLlmStream(opts) {
 
     try {
       unlistenChunk = await listen("llm-chunk", (event) => {
-        if (finished) return;
+        if (finished || event.payload?.id !== streamId) return;
         const data = event.payload?.data;
         const delta = data?.choices?.[0]?.delta;
         if (!delta) return;
@@ -67,8 +70,8 @@ export function callLlmStream(opts) {
         }
       });
 
-      unlistenDone = await listen("llm-done", async () => {
-        if (finished) return;
+      unlistenDone = await listen("llm-done", async (event) => {
+        if (finished || event.payload?.id !== streamId) return;
         finished = true;
         await cleanup();
 
@@ -81,14 +84,14 @@ export function callLlmStream(opts) {
       });
 
       unlistenError = await listen("llm-error", async (event) => {
-        if (finished) return;
+        if (finished || event.payload?.id !== streamId) return;
         finished = true;
         await cleanup();
         reject(new Error(event.payload?.data?.error || "LLM 流式请求失败"));
       });
 
       await invoke("call_llm_stream", {
-        streamId: "main",
+        streamId,
         apiKey,
         model,
         messages: messagesList,

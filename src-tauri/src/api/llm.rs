@@ -134,8 +134,10 @@ pub async fn call_llm_stream(
     }
 
     // 解析 SSE 流
+    // 注意：必须按字节累积、按 b"\n\n" 切分后再解码 UTF-8。
+    // 若按 chunk from_utf8_lossy，多字节汉字跨 TCP chunk 边界会被切成 U+FFFD 乱码
     let mut stream = resp.bytes_stream();
-    let mut buffer = String::new();
+    let mut buf: Vec<u8> = Vec::new();
     let sid = stream_id.to_string();
 
     while let Some(chunk_result) = stream.next().await {
@@ -150,13 +152,13 @@ pub async fn call_llm_stream(
                 return Ok(());
             }
         };
-        let chunk_str = String::from_utf8_lossy(&chunk);
-        buffer.push_str(&chunk_str);
+        buf.extend_from_slice(&chunk);
 
-        // 处理完整的 SSE 事件（以 \n\n 分隔）
-        while let Some(pos) = buffer.find("\n\n") {
-            let event = buffer[..pos].to_string();
-            buffer = buffer[pos + 2..].to_string();
+        // 处理完整的 SSE 事件（以 \n\n 分隔；ASCII 边界即 UTF-8 字符边界，切分安全）
+        while let Some(pos) = buf.windows(2).position(|w| w == b"\n\n") {
+            let event_bytes: Vec<u8> = buf.drain(..pos).collect();
+            buf.drain(..2);
+            let event = String::from_utf8_lossy(&event_bytes);
 
             for line in event.lines() {
                 if let Some(data) = line.strip_prefix("data: ") {

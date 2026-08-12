@@ -12,6 +12,22 @@ const MODEL_KEY = "stock-analysis-ai-model";
 const THINKING_ENABLED_KEY = "stock-analysis-ai-thinking";
 const REASONING_EFFORT_KEY = "stock-analysis-ai-effort";
 
+/** localStorage 安全读取（隐私模式/quota 异常时返回 null） */
+function safeGetItem(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** localStorage 安全写入（quota 满等异常静默忽略） */
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch { /* ignore quota errors */ }
+}
+
 /** 可用模型列表（value → label） */
 const AVAILABLE_MODELS = [
   { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
@@ -113,18 +129,18 @@ const GLOBAL_CHAT_KEY = "__global__";
 
 export function useAiAnalysis(globalMode = false) {
   const currentStockCode = ref(globalMode ? GLOBAL_CHAT_KEY : null);
-  const currentModel = ref(localStorage.getItem(MODEL_KEY) || settings.aiModel);
+  const currentModel = ref(safeGetItem(MODEL_KEY) || settings.aiModel);
   const thinkingEnabled = ref(
-    localStorage.getItem(THINKING_ENABLED_KEY) !== null
-      ? localStorage.getItem(THINKING_ENABLED_KEY) !== "false"
+    safeGetItem(THINKING_ENABLED_KEY) !== null
+      ? safeGetItem(THINKING_ENABLED_KEY) !== "false"
       : settings.aiThinkingEnabled
   );
-  const reasoningEffort = ref(localStorage.getItem(REASONING_EFFORT_KEY) || settings.aiReasoningEffort);
+  const reasoningEffort = ref(safeGetItem(REASONING_EFFORT_KEY) || settings.aiReasoningEffort);
   const webSearchEnabled = ref(settings.aiWebSearchEnabled !== false);
   const messages = ref([]);
   const loading = ref(false);
   const error = ref("");
-  const apiKey = ref(localStorage.getItem(API_KEY_KEY) || "");
+  const apiKey = ref(safeGetItem(API_KEY_KEY) || "");
 
   // 当前激活的工具（根据 webSearchEnabled 动态切换）
   function activeTools() {
@@ -155,7 +171,7 @@ export function useAiAnalysis(globalMode = false) {
 
   function setApiKey(key) {
     apiKey.value = key;
-    localStorage.setItem(API_KEY_KEY, key);
+    safeSetItem(API_KEY_KEY, key);
   }
 
   function clearHistory() {
@@ -381,19 +397,19 @@ AI: ${aiResponse}`;
   function setModel(model) {
     currentModel.value = model;
     settings.aiModel = model;
-    localStorage.setItem(MODEL_KEY, model);
+    safeSetItem(MODEL_KEY, model);
   }
 
   function setThinkingEnabled(enabled) {
     thinkingEnabled.value = enabled;
     settings.aiThinkingEnabled = enabled;
-    localStorage.setItem(THINKING_ENABLED_KEY, String(enabled));
+    safeSetItem(THINKING_ENABLED_KEY, String(enabled));
   }
 
   function setReasoningEffort(effort) {
     reasoningEffort.value = effort;
     settings.aiReasoningEffort = effort;
-    localStorage.setItem(REASONING_EFFORT_KEY, effort);
+    safeSetItem(REASONING_EFFORT_KEY, effort);
   }
 
   function setWebSearchEnabled(enabled) {

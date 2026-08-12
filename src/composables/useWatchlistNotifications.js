@@ -10,9 +10,10 @@ const appWindow = getCurrentWindow();
 
 const STORAGE_KEY = "stock-analysis-notif-history";
 
-/** 获取今日日期字符串 YYYY-MM-DD */
+/** 获取今日日期字符串 YYYY-MM-DD（本地时区，避免 UTC 导致 8:00-9:30 重复通知） */
 function getToday() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /**

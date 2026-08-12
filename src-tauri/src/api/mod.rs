@@ -22,7 +22,6 @@ pub fn build_http_client() -> Result<&'static reqwest::Client, String> {
         .get_or_init(|| {
             reqwest::Client::builder()
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .danger_accept_invalid_certs(true)
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(15))
                 .build()
@@ -39,7 +38,6 @@ pub fn build_llm_http_client() -> Result<&'static reqwest::Client, String> {
         .get_or_init(|| {
             reqwest::Client::builder()
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .danger_accept_invalid_certs(true)
                 .connect_timeout(Duration::from_secs(10))
                 .pool_idle_timeout(Duration::from_secs(90))
                 .build()

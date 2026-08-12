@@ -46,6 +46,22 @@ export default defineConfig(async () => ({
     cssMinify: "lightningcss",
     // 关闭压缩大小报告，加速构建
     reportCompressedSize: false,
+    // 手动分包：图表库 / Markdown 渲染 / 框架核心各自独立 chunk，
+    // 避免单入口 >500 kB 触发 chunk 警告（Tauri 本地加载，多 chunk 无网络开销）
+    // 注意：rolldown 的 manualChunks 只支持函数形式（不支持 Rollup 的对象形式）
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          // pnpm 路径形如 node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>/...
+          const inPkg = (name) =>
+            id.includes(`node_modules/${name}/`) || id.includes(`node_modules/.pnpm/${name}@`);
+          if (inPkg("lightweight-charts")) return "vendor-charts";
+          if (inPkg("marked") || inPkg("dompurify")) return "vendor-markdown";
+          // vue 3.5 拆分为 @vue/* 子包（.pnpm 目录中 scoped 名 @ 变 +），需一并匹配
+          if (inPkg("vue") || inPkg("@vue") || inPkg("@tauri-apps")) return "vendor-vue";
+        },
+      },
+    },
   },
 
   css: {

@@ -30,7 +30,7 @@ const DEFAULTS = {
   aiModel: "deepseek-v4-flash",
   aiThinkingEnabled: true,
   aiReasoningEffort: "high",  // "low" | "high" | "max"
-  aiWebSearchEnabled: true,   // 联网搜索（DuckDuckGo，免费）
+  aiWebSearchEnabled: true,   // 联网搜索（东方财富新闻库，免费）
 };
 
 /** 加载持久化设置 */

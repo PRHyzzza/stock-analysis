@@ -127,15 +127,16 @@ fn parse_fflow_jsonp(text: &str) -> Result<(String, serde_json::Value), String> 
 }
 
 /// 获取个股主力资金流向（来自东方财富，作为腾讯 API 的备选）
-/// 优先使用 push2 实时接口，回退到 push2his 历史接口
+/// 优先使用 push2delay 实时接口，回退到 push2his 历史接口
+/// 注：push2 主域名被 WAF 拦截（连接被意外关闭），push2delay 可用
 pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
     let secid = crate::helpers::to_em_secid(code);
 
     let client = super::build_http_client()?;
 
-    // 1) push2 实时接口
+    // 1) push2delay 实时接口
     let realtime_url = format!(
-        "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid={}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65&klt=101&lmt=1&ut=b2884a393a59ad64002292a3e90d46a5&cb=jQuery",
+        "https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get?secid={}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65&klt=101&lmt=1&ut=b2884a393a59ad64002292a3e90d46a5&cb=jQuery",
         secid
     );
 

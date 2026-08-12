@@ -4,6 +4,7 @@
  */
 import { ref, computed, nextTick, watch, onMounted } from "vue";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 // 配置 marked
 marked.setOptions({
@@ -87,9 +88,8 @@ function scrollToBottom() {
 
 function renderMarkdown(text) {
   if (!text) return "";
-  const raw = marked.parse(text);
-  // marked 默认已做 HTML 转义，确保输出安全
-  return raw;
+  // marked 默认透传原始 HTML（AI 回答含联网抓取内容，不可信），必须 DOMPurify 消毒
+  return DOMPurify.sanitize(marked.parse(text));
 }
 
 defineExpose({ scrollToBottom });

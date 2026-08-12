@@ -58,12 +58,13 @@ function onSearchKeydown(e) {
   }
 }
 
-/** 高亮匹配文字 */
+/** 高亮匹配文字（先转义 HTML——股票名称来自外部搜索 API，不可信——再高亮） */
 function highlightMatch(text, keyword) {
-  if (!keyword || !keyword.trim()) return text;
+  const safeText = String(text ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  if (!keyword || !keyword.trim()) return safeText;
   const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`(${escaped})`, "gi");
-  return text.replace(re, '<mark class="search-highlight">$1</mark>');
+  return safeText.replace(re, '<mark class="search-highlight">$1</mark>');
 }
 
 function closeModal() {

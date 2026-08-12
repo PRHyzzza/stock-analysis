@@ -2,6 +2,7 @@
 import { ref, watch, computed } from "vue";
 import { useUserProfileSingleton } from "../composables/useUserProfile.js";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -25,7 +26,8 @@ watch(() => props.show, (val) => {
 const previewHtml = computed(() => {
   const text = editText.value;
   if (!text || !text.trim()) return "<p style='color:var(--text-muted)'>暂无画像内容，等待 AI 自动生成或手动编写…</p>";
-  return marked.parse(text);
+  // 画像内容由 AI 生成，marked 透传原始 HTML，需 DOMPurify 消毒
+  return DOMPurify.sanitize(marked.parse(text));
 });
 
 async function handleSave() {

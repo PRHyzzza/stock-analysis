@@ -46,9 +46,11 @@ export function usePositions() {
   // 港元兑人民币汇率（App.vue 启动时拉取；失败时回退到上次缓存值，无缓存用默认 0.91）
   const fxRate = ref(loadCachedFxRate());
 
-  // 持久化
+  // 持久化（quota 满等异常静默忽略，避免 watcher 内抛错）
   watch(positions, (val) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(val));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(val));
+    } catch { /* ignore quota errors */ }
   }, { deep: true });
 
   function setFxRate(rate) {
