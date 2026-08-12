@@ -879,11 +879,16 @@ const flowTiers = computed(() => {
   .chart-tabs {
     margin-bottom: 8px;
   }
+  /* 宽窗口下图表不再封顶 420px，随容器弹性填充，
+     避免图表底部与信息栏之间出现大片空白 */
+  .kline-flex-wrap :deep(.kline-chart-wrap) {
+    max-height: none;
+  }
   .kline-flex-wrap :deep(.kline-chart) {
     min-height: 0;
   }
   .kline-flex-wrap :deep(.intraday-chart-wrap) {
-    max-height: 420px;
+    max-height: none;
   }
   .kline-flex-wrap :deep(.intraday-chart) {
     min-height: 0;
