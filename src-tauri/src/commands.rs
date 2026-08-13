@@ -319,7 +319,7 @@ pub async fn get_iwencai_robot(
     crate::api::iwencai::fetch_iwencai_robot(
         &question,
         page.unwrap_or(1),
-        perpage.unwrap_or(20),
+        perpage.unwrap_or(50),
         &v,
         token.as_deref().unwrap_or("0ac9879417859978476843866"),
     )

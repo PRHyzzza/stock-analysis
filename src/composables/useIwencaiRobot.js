@@ -66,6 +66,16 @@ function resetV() {
   chameleonInjected = false;
 }
 
+/** 判断错误是否为风控/限流（Nginx 403），此类错误换新 v 重试可恢复 */
+function isRateLimited(msg) {
+  return (
+    msg.includes("403") ||
+    msg.includes("forbidden") ||
+    msg.includes("限流") ||
+    msg.includes("-9138")
+  );
+}
+
 /**
  * 问财自然语言选股
  * @returns {{ data, loading, error, search }}
@@ -78,21 +88,43 @@ export function useIwencaiRobot() {
 
   let requestSeq = 0; // 竞态保护：只接受最后一次请求结果
 
-  async function search(question, page = 1, perpage = 20) {
+  async function search(question, page = 1, perpage = 50) {
     if (!question || !question.trim()) return;
     const seq = ++requestSeq;
     loading.value = true;
     error.value = "";
     vError.value = false;
     try {
-      const v = await ensureV();
-      if (seq !== requestSeq) return;
-      const result = await invoke("get_iwencai_robot", {
-        question,
-        page,
-        perpage,
-        v,
-      });
+      let result;
+      try {
+        const v = await ensureV();
+        if (seq !== requestSeq) return;
+        result = await invoke("get_iwencai_robot", {
+          question,
+          page,
+          perpage,
+          v,
+        });
+      } catch (e) {
+        const msg = String(e);
+        // 风控 403：同一 v 连续请求多次会触发 Nginx 限流（实测约 4-6 次后 403），
+        // 换新 v 立即恢复。重置凭证 + 短暂延迟后重试一次。
+        if (isRateLimited(msg)) {
+          resetV();
+          await new Promise((r) => setTimeout(r, 1500));
+          if (seq !== requestSeq) return;
+          const v2 = await ensureV();
+          if (seq !== requestSeq) return;
+          result = await invoke("get_iwencai_robot", {
+            question,
+            page,
+            perpage,
+            v: v2,
+          });
+        } else {
+          throw e;
+        }
+      }
       if (seq !== requestSeq) return;
       data.value = result;
     } catch (e) {

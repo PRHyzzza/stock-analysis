@@ -62,7 +62,7 @@ App.vue ──调用──> composables/useXxx.js
 | `useAiAnalysis.js` | AI 对话（个股/全局，Agent 循环，防重复调用死循环；全局支持 @代码 引用、热榜选股） | `call_llm` + `call_llm_stream` |
 | `usePositions.js` | 持仓管理 + 盈亏（含港币→人民币汇率换算，失败回退缓存值） | `get_fx_rate` |
 | `useUserProfile.js` | 用户画像读写 | `read_user_profile` / `save_user_profile` |
-| `useIwencaiRobot.js` | 问财自然语言选股（chameleon.js 在 WebView 生成 Cookie v） | `get_iwencai_robot` |
+| `useIwencaiRobot.js` | 问财自然语言选股（chameleon.js 在 WebView 生成 Cookie v；perpage=50，403 风控自动换 v 重试） | `get_iwencai_robot` |
 
 **纯前端计算**
 
@@ -118,7 +118,7 @@ App.vue ──调用──> composables/useXxx.js
 - **单例应用**: `tauri-plugin-single-instance`，重复启动聚焦已有窗口
 - **系统托盘**: 主窗口关闭按钮 → 隐藏到托盘；托盘菜单「显示主窗口 / 退出」
 - **迷你置顶模式**: 无边框置顶小窗（`?mini=1`），自选股 10s 刷新，双击行联动主窗口选中
-- **问财选股窗口**: 独立窗口（`?iwencai=1`），自然语言选股，点击结果联动主窗口并自动关闭
+- **问财选股窗口**: 独立窗口（`?iwencai=1`），自然语言选股，点击结果联动主窗口并自动关闭；**本地分页**（免费接口忽略 page 参数，perpage=50 一次拉取、前端每页 20 行切片，翻页零请求）
 
 ---
 
@@ -144,7 +144,7 @@ App.vue ──调用──> composables/useXxx.js
 | `web_search` | 东方财富搜索 API | 财经新闻搜索（相关性排序 + 泛词剥离/去重，带发布时间/来源） |
 | `web_fetch` | 目标 URL | 网页抓取（JSON-LD→转义HTML→正文容器→meta 四级提取，限 50000 字符） |
 | `get_fx_rate` | Frankfurter API | 港元兑人民币汇率 |
-| `get_iwencai_robot` | 问财 get-robot-data | 自然语言选股（需 Cookie v + 浏览器 UA/Referer/Origin） |
+| `get_iwencai_robot` | 问财 get-robot-data | 自然语言选股（需 Cookie v + 浏览器 UA/Referer/Origin；page 参数服务端忽略，perpage 上限 100） |
 | `get_app_version` | 本地 | 当前应用版本（CARGO_PKG_VERSION） |
 | `check_for_update` | GitHub API | 检查最新 Release（语义化版本比较；直连失败自动回退系统代理，适配国内网络） |
 
@@ -157,7 +157,7 @@ App.vue ──调用──> composables/useXxx.js
 | `hotlist.rs` | UTF-8 | JSON API |
 | `llm.rs` | UTF-8 | OpenAI 兼容；V4 工具调用需回传 `reasoning_content`；SSE 按字节累积、`b"\n\n"` 切分后解码 |
 | `web.rs` | UTF-8（自动解码 GBK） | 东财搜索 API（**sort=default 相关性排序**，sort=time 会返回无关新闻）；正文提取四级降级；反爬站过滤（zhihu/baike 等 8 个）；`site:域名` 本地过滤 |
-| `iwencai.rs` | UTF-8 | 响应路径 `data.answer[0].txt[0].content.components[0].data`；meta.extra 含 row_count/token/condition |
+| `iwencai.rs` | UTF-8 | 响应路径 `data.answer[0].txt[0].content.components[0].data`；meta.extra 含 row_count/token/condition；**风控：同 v 连续 4-6 次请求 → Nginx 403（换新 v 恢复）；携带 condition 参数必 403** |
 
 ### 4.3 代码转换 (helpers.rs)
 

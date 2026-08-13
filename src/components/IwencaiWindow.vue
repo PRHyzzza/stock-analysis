@@ -22,7 +22,10 @@ const { data, loading, error, vError, search, warmV } = useIwencaiRobot();
 
 const question = ref("");
 const page = ref(1);
-const perpage = 20;
+// 请求 perpage（服务端上限 100；实测 page 参数被忽略，翻页在本地进行）
+const perpage = 50;
+// 本地每页显示行数
+const PAGE_SIZE = 20;
 const inputRef = ref(null);
 
 // 常用示例问句（点击快速填充）
@@ -32,7 +35,17 @@ const examples = [
 
 const normalized = computed(() => normalizeIwencaiResult(data.value));
 const rowCount = computed(() => data.value?.rowCount ?? 0);
-const totalPages = computed(() => Math.max(1, Math.ceil(rowCount.value / perpage)));
+// 服务端免费接口不支持 page 翻页（实测 page=2/3 返回内容与第 1 页完全相同），
+// 因此采用本地分页：一次请求 perpage=50 拉回全部行，前端按 PAGE_SIZE 切片
+const localRows = computed(() => {
+  const rows = normalized.value.rows;
+  const start = (page.value - 1) * PAGE_SIZE;
+  return rows.slice(start, start + PAGE_SIZE);
+});
+const totalPages = computed(() => {
+  const n = normalized.value.rows.length;
+  return Math.max(1, Math.ceil(n / PAGE_SIZE));
+});
 
 onMounted(() => {
   nextTick(() => inputRef.value?.focus());
@@ -43,7 +56,7 @@ onMounted(() => {
   });
 });
 
-/** 执行搜索（第一页） */
+/** 执行搜索（第 1 页） */
 function doSearch() {
   const q = question.value.trim();
   if (!q) return;
@@ -51,11 +64,10 @@ function doSearch() {
   search(q, 1, perpage);
 }
 
-/** 翻页 */
+/** 翻页：本地切片切换，不再请求服务端（服务端 page 参数无效） */
 function changePage(p) {
   if (p < 1 || p > totalPages.value || p === page.value) return;
   page.value = p;
-  search(question.value.trim(), p, perpage);
 }
 
 /** 点击行 → 通知主窗口选中股票并关闭自身 */
@@ -85,9 +97,18 @@ function onAddWatchlist(row) {
   starred.add(parsed.code);
 }
 
-/** 单元格显示（null → --） */
-function cellText(v) {
+/** 单元格显示：空值 → --；数值列按列类型/单位格式化（长小数、大数读起来更直观） */
+function cellText(v, col) {
   if (v === null || v === undefined || v === "") return "--";
+  if (col?.type === "DOUBLE" || typeof v === "number") {
+    const num = Number(v);
+    if (Number.isFinite(num)) {
+      const abs = Math.abs(num);
+      if (abs >= 1e8) return (num / 1e8).toFixed(2) + "亿";
+      if (abs >= 1e4) return (num / 1e4).toFixed(2) + "万";
+      return Number.isInteger(num) ? String(num) : num.toFixed(2);
+    }
+  }
   return String(v);
 }
 </script>
@@ -150,6 +171,9 @@ function cellText(v) {
       <section v-if="data" class="result-card">
         <div class="result-meta">
           <span class="result-count">共 <b>{{ rowCount }}</b> 条结果</span>
+          <span v-if="normalized.rows.length < rowCount" class="result-hint">
+            仅加载前 {{ normalized.rows.length }} 条（免费接口限制）
+          </span>
           <span class="result-page">第 {{ page }} / {{ totalPages }} 页</span>
         </div>
         <div class="result-table-wrap">
@@ -164,13 +188,13 @@ function cellText(v) {
             </thead>
             <tbody>
               <tr
-                v-for="(row, i) in normalized.rows"
+                v-for="(row, i) in localRows"
                 :key="i"
                 class="result-row"
                 @click="onRowClick(row)"
               >
                 <td v-for="col in normalized.columns" :key="col.key">
-                  {{ cellText(row[col.key]) }}
+                  {{ cellText(row[col.key], col) }}
                 </td>
                 <td class="td-sticky">
                   <button
@@ -412,6 +436,11 @@ function cellText(v) {
   font-weight: 600;
 }
 
+.result-hint {
+  color: var(--rust);
+  font-size: 12px;
+}
+
 .result-table-wrap {
   flex: 1;
   overflow: auto;
@@ -421,14 +450,20 @@ function cellText(v) {
 }
 
 .result-table {
-  width: 100%;
-  border-collapse: collapse;
+  /* 内容不足时撑满容器，内容超宽时自然扩展（外层 wrap 横向滚动） */
+  width: max-content;
+  min-width: 100%;
+  /* collapse 与 sticky 不兼容（滚动时边框错位），改用 separate */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12.5px;
 }
 
 .result-table th {
   position: sticky;
   top: 0;
+  /* 高于 td-sticky(z1)：垂直滚动时表头不被数据行覆盖 */
+  z-index: 2;
   background: var(--fog);
   color: var(--text-secondary);
   font-weight: 600;
@@ -436,16 +471,12 @@ function cellText(v) {
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
-  z-index: 1;
 }
 
 .result-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-light);
   white-space: nowrap;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--text-primary);
 }
 
@@ -463,10 +494,11 @@ function cellText(v) {
 }
 
 /* ===== 固定操作列（加入自选） ===== */
+/* 层级：th(2) < th-sticky(3)（表头最高，水平+垂直滚动都不被盖）；td-sticky(1) 仅水平滚动粘右 */
 .th-sticky {
   position: sticky;
   right: 0;
-  z-index: 2;
+  z-index: 3;
   background: var(--fog);
   box-shadow: -1px 0 0 var(--border-light);
 }

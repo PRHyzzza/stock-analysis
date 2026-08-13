@@ -6,7 +6,11 @@
 /// 风控要点（已实测验证）：
 ///   - 必须携带 Cookie `v`（由 chameleon.js 本地生成，前端 WebView 执行后获取）
 ///   - 必须携带完整浏览器 UA + Referer + Origin，否则 Nginx 403
-///   - 长问句（>100 字符）对"免费版"偶发 -9138 限流，重试/稍后即恢复
+///   - 同一个 v 连续请求约 4-6 次后触发频率风控 → Nginx 403，换新 v 立即恢复
+///     （前端 useIwencaiRobot 已内置 403 自动换 v 重试）
+///   - 参数中绝不能携带 condition（Nginx 直接 403）
+///   - 免费接口忽略 page 参数（page=1/2/3 返回内容完全相同），翻页须在本地进行
+///   - perpage 上限 100（传 200 也只返回 100 行），默认 50
 ///   - 响应为标准 UTF-8 JSON（中文为 \\uXXXX 转义），无需 GBK 解码
 ///
 /// 响应解析路径（用户指定）：
@@ -63,7 +67,7 @@ pub struct IwencaiRobotData {
 ///
 /// # 参数
 /// - `question`: 自然语言选股问句（如 "非ST，市值大于50亿"）
-/// - `page` / `perpage`: 分页（1-based，perpage 建议 20-50）
+/// - `page` / `perpage`: 分页参数（page 服务端忽略；perpage 上限 100，默认 50）
 /// - `v`: chameleon.js 生成的 Cookie v 值（由前端 WebView 执行 chameleon.js 获取）
 /// - `token`: 问财接口 token（用户提供，如 0ac9879417859978476843866）
 pub async fn fetch_iwencai_robot(
