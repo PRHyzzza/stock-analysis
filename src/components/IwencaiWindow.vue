@@ -18,7 +18,7 @@ import {
 
 const appWindow = getCurrentWindow();
 
-const { data, loading, error, vError, search } = useIwencaiRobot();
+const { data, loading, error, vError, search, warmV } = useIwencaiRobot();
 
 const question = ref("");
 const page = ref(1);
@@ -36,6 +36,11 @@ const totalPages = computed(() => Math.max(1, Math.ceil(rowCount.value / perpage
 
 onMounted(() => {
   nextTick(() => inputRef.value?.focus());
+  // 进入窗口立即预热问财凭证 v（chameleon.js 持续刷新，有效约 30 分钟）：
+  // 避免首次搜索时才注入导致的等待，也防止窗口闲置后凭证过期
+  warmV().catch(() => {
+    /* 预热失败不阻塞 UI，搜索时会自动重试 */
+  });
 });
 
 /** 执行搜索（第一页） */

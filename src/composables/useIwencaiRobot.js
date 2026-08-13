@@ -58,6 +58,15 @@ async function ensureV() {
 }
 
 /**
+ * 重置 v 缓存与注入标记。
+ * 下次 ensureV 会重新注入 chameleon.js 并读取最新 cookie（v 失效后调用）。
+ */
+function resetV() {
+  vCache = { value: "", ts: 0 };
+  chameleonInjected = false;
+}
+
+/**
  * 问财自然语言选股
  * @returns {{ data, loading, error, search }}
  */
@@ -91,6 +100,8 @@ export function useIwencaiRobot() {
       const msg = String(e);
       if (msg.includes("验证凭证") || msg.includes("v")) {
         vError.value = true;
+        // v 可能已过期：重置缓存，下次搜索重新注入 chameleon.js 生成新凭证
+        resetV();
       }
       error.value = msg;
       data.value = null;
@@ -99,7 +110,7 @@ export function useIwencaiRobot() {
     }
   }
 
-  return { data, loading, error, vError, search };
+  return { data, loading, error, vError, search, warmV: ensureV };
 }
 
 /**

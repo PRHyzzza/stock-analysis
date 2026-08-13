@@ -110,7 +110,7 @@ App.vue ──调用──> composables/useXxx.js
 - **持仓**: `usePositions` + `PositionModal`，localStorage 持久化，每 30s 刷新实时价计算盈亏，AI 对话时自动注入。港股自动识别（5 位代码），按汇率换算汇总
 - **用户画像**: `useUserProfile` + `ProfileModal`，Markdown 存 `app_data_dir`，AI 每次回复后自动更新（静默失败），支持手动编辑
 - **自选通知**: `useWatchlistNotifications`，涨停/跌停/±7%/±5%/快速拉升下跌(30s≥2%)，每股票每类型每日一次（按本地日期）；涨跌停阈值按板块判断（主板 ±10%/创业板科创板 ±20%/北交所 ±30%/港股无涨跌停）
-- **均线提醒**: `useMaAlerts` + `MaAlertModal`（个股详情页按钮），每只股票独立配置监控周期（MA5/10/20/30/60）与触发方向（上穿/下穿/双向），股价穿越均线时 Windows 通知，每股票每周期每日一次、仅交易时段；日K 5 分钟内存缓存避免高频请求；配置持久化 localStorage，不随自选移除而丢失
+- **均线提醒**: `useMaAlerts` + `MaAlertModal`（个股详情页按钮），每只股票独立配置监控周期（MA5/10/20/30/60）与触发方向（上穿/下穿/双向），股价穿越均线时 Windows 通知，每股票每周期每日一次、仅交易时段；日K 5 分钟内存缓存避免高频请求；配置持久化 localStorage；删除自选时弹窗确认是否一并清除该股均线提醒配置（列表删除按钮与详情页星标切换均走确认弹窗，App.vue `handleRemoveFromWatchlist` / `handleToggleWatchlist`）
 - **全局设置**: `useSettings` + `SettingsModal`，5 标签页（通知/刷新/图表/AI/关于），实时生效
 - **AI 双入口**: 个股 AI（AiAnalysisModal，注入行情/K线/资金/行业/筹码/持仓上下文）；全局 AI（GlobalAiModal，注入大盘指数+持仓，`@代码` 快捷引用个股，历史消息按 6000 字符预算裁剪；「热榜选股」按钮遍历热榜股票，批量行情 + 资金流向与日K线并发，数据以 `hotStocks` 字段注入，AI 只输出推荐标的）
 - **AI 联网搜索策略**: 联网开关对所有 AI 入口统一生效。开启时先 `web_search` 再叠加本地工具数据回答；关闭时搜索 skill 的提示词与工具一并剔除（`{{SEARCH_POLICY}}` 占位符 + `getMergedSystemPrompt({ excludeSkills })`）
