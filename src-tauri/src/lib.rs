@@ -16,7 +16,6 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 恢复/聚焦主窗口（托盘双击、左键单击、菜单项共用）
 fn show_main_window(app: &tauri::AppHandle) {
@@ -26,9 +25,6 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.set_focus();
     }
 }
-
-/// 首次隐藏到托盘时提示一次操作方式
-static HIDDEN_ONCE: AtomicBool = AtomicBool::new(false);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -82,17 +78,6 @@ pub fn run() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
-                    // 首次隐藏时提示托盘操作方式
-                    if !HIDDEN_ONCE.swap(true, Ordering::SeqCst) {
-                        use tauri_plugin_notification::NotificationExt;
-                        let _ = window
-                            .app_handle()
-                            .notification()
-                            .builder()
-                            .title("stock-analysis")
-                            .body("已最小化到系统托盘，右键托盘图标选择「退出」即可关闭应用")
-                            .show();
-                    }
                 }
             }
         })
