@@ -30,15 +30,22 @@ export function useUserProfile() {
     }
   }
 
-  /** 保存画像到文件 */
-  async function saveProfile(content) {
-    try {
-      await invoke("save_user_profile", { content });
-      profileContent.value = content;
-    } catch (e) {
-      console.error("保存用户画像失败:", e);
-      error.value = e?.message || String(e);
-    }
+  // 写串行链：并发保存（AI 后台更新 vs 手动编辑）时按调用顺序依次写入，
+  // 避免"先读后写"交错导致最终状态不是最后一次写入
+  let saveChain = Promise.resolve();
+
+  /** 保存画像到文件（串行化，后一次覆盖前一次） */
+  function saveProfile(content) {
+    saveChain = saveChain.then(async () => {
+      try {
+        await invoke("save_user_profile", { content });
+        profileContent.value = content;
+      } catch (e) {
+        console.error("保存用户画像失败:", e);
+        error.value = e?.message || String(e);
+      }
+    });
+    return saveChain;
   }
 
   /** 获取注入 AI 上下文的画像文本 */

@@ -33,6 +33,7 @@ export function createDataFetcher(commandName, options = {}) {
   const loading = ref(false);
   const error = ref("");
   let lastTarget = null; // 记录上次请求目标（用于 clearOnSwitch）
+  let seq = 0; // 请求序号：只接受最后一次请求的结果（内置竞态保护）
 
   /**
    * 加载数据
@@ -41,6 +42,7 @@ export function createDataFetcher(commandName, options = {}) {
    */
   async function load(target, ...extraArgs) {
     if (target == null) return;
+    const mySeq = ++seq;
 
     // 切换目标时清除旧数据
     if (clearOnSwitch && lastTarget && lastTarget !== target) {
@@ -55,17 +57,19 @@ export function createDataFetcher(commandName, options = {}) {
       const params = mapParams ? mapParams(target, ...extraArgs) : { code: target };
       const result = await invoke(commandName, params);
 
-      // 竞态保护
+      if (mySeq !== seq) return; // 已被更新的请求取代，丢弃旧结果
+      // 自定义竞态保护（可选）
       if (raceGuard && raceGuard(target)) return;
 
       data.value = result;
       lastTarget = target;
     } catch (e) {
+      if (mySeq !== seq) return; // 已被更新的请求取代
       if (raceGuard && raceGuard(target)) return;
       error.value = String(e);
       data.value = null;
     } finally {
-      if (!raceGuard || !raceGuard(target)) {
+      if (mySeq === seq && (!raceGuard || !raceGuard(target))) {
         loading.value = false;
       }
     }

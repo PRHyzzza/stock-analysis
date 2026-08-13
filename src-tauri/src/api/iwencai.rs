@@ -108,7 +108,15 @@ pub async fn fetch_iwencai_robot(
         .map_err(|e| format!("问财请求失败: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("问财请求失败: HTTP {}", resp.status()));
+        // 风控 403 用结构化标记 RATE_LIMITED 返回（前端按标记换新 v 重试），
+        // 避免前端靠匹配错误文案中的 "403" 等松散特征
+        let status = resp.status();
+        let msg = if status.as_u16() == 403 {
+            "问财请求被风控拦截 (RATE_LIMITED): HTTP 403，请更换 v 后重试".to_string()
+        } else {
+            format!("问财请求失败: HTTP {}", status)
+        };
+        return Err(msg);
     }
 
     let text = resp
@@ -126,7 +134,9 @@ pub async fn fetch_iwencai_robot(
             .as_str()
             .unwrap_or("未知错误")
             .to_string();
-        return Err(format!("问财查询失败 ({}): {}", status_code, msg));
+        // -9138 为频率风控，附加 RATE_LIMITED 标记供前端换 v 重试
+        let prefix = if status_code == -9138 { "[RATE_LIMITED] " } else { "" };
+        return Err(format!("{prefix}问财查询失败 ({}): {}", status_code, msg));
     }
 
     // 用户指定解析路径：data.answer[0].txt[0].content.components[0].data

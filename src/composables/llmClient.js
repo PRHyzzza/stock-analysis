@@ -33,7 +33,18 @@ export function callLlmStream(opts) {
     let reasoningContent = null;
     let finished = false;
 
+    // 超时保护：Rust 端若既不发 done 也不发 error（网络假死/进程挂起），
+    // Promise 会永久 pending 导致 loading 卡死 + 事件监听器泄漏。
+    // 120s 无任何终态事件则强制失败（思考模式长停顿也足够覆盖）
+    const timeoutTimer = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      reject(new Error("LLM 请求超时（120s 无响应）"));
+    }, opts.timeoutMs || 120000);
+
     async function cleanup() {
+      clearTimeout(timeoutTimer);
       if (unlistenChunk) { unlistenChunk(); unlistenChunk = null; }
       if (unlistenDone) { unlistenDone(); unlistenDone = null; }
       if (unlistenError) { unlistenError(); unlistenError = null; }

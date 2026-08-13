@@ -11,6 +11,8 @@ export function useStockSearch(getWatchlist) {
   const searching = ref(false);
   let debounceTimer = null;
   let blurTimer = null;
+  // 请求序号：只接受最后一次请求的结果，防止旧关键词的慢响应覆盖新结果
+  let searchSeq = 0;
 
   function onSearchInput(e) {
     const val = e.target.value;
@@ -19,6 +21,8 @@ export function useStockSearch(getWatchlist) {
     if (debounceTimer) clearTimeout(debounceTimer);
 
     if (val.trim().length === 0) {
+      // 清空时使在途请求失效，避免已清空的输入框下方重新弹出旧结果
+      searchSeq++;
       searchResults.value = [];
       showResults.value = false;
       return;
@@ -28,10 +32,12 @@ export function useStockSearch(getWatchlist) {
   }
 
   async function doSearch(keyword) {
+    const seq = ++searchSeq;
     searching.value = true;
     showResults.value = true;
     try {
       const results = await invoke("search_stocks", { keyword });
+      if (seq !== searchSeq) return; // 已被更新的请求取代，丢弃旧结果
       // 已存在的自选股排在后面
       results.sort((a, b) => {
         const aIn = getWatchlist().some((s) => s.code === a.code) ? 1 : 0;
@@ -40,14 +46,18 @@ export function useStockSearch(getWatchlist) {
       });
       searchResults.value = results;
     } catch (e) {
+      if (seq !== searchSeq) return;
       console.error("搜索失败:", e);
       searchResults.value = [];
     } finally {
-      searching.value = false;
+      if (seq === searchSeq) searching.value = false;
     }
   }
 
   function clearSearch() {
+    // 取消挂起的防抖请求并失效在途请求
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+    searchSeq++;
     searchQuery.value = "";
     searchResults.value = [];
     showResults.value = false;

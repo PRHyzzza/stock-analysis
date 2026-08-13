@@ -316,6 +316,10 @@ pub async fn get_market_treemap() -> Result<MarketTreemap, String> {
 // 问财智能选股
 // ──────────────────────────────────────────
 
+/// 问财共享兜底 token（服务端公开会话凭证，源码可见；用户未配置时使用。
+/// 优先从前端传参传入用户自己的 token，避免长期依赖共享凭证）
+const IWENCAI_DEFAULT_TOKEN: &str = "0ac9879417859978476843866";
+
 /// 问财自然语言选股（get-robot-data）
 /// `v` 为 chameleon.js 生成的 Cookie 值（前端 WebView 执行后获取），有效约 30 分钟
 #[tauri::command]
@@ -331,7 +335,7 @@ pub async fn get_iwencai_robot(
         page.unwrap_or(1),
         perpage.unwrap_or(50),
         &v,
-        token.as_deref().unwrap_or("0ac9879417859978476843866"),
+        token.as_deref().unwrap_or(IWENCAI_DEFAULT_TOKEN),
     )
     .await
 }

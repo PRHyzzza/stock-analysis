@@ -107,14 +107,18 @@ function submitForm() {
   const { code, name, buyPrice, quantity } = form.value;
   if (!code.trim()) { formError.value = "请搜索并选择股票"; return; }
   if (!name.trim()) { formError.value = "请搜索并选择股票"; return; }
-  if (!buyPrice || Number(buyPrice) <= 0) { formError.value = "请输入有效的成本"; return; }
-  if (!quantity || Number(quantity) <= 0) { formError.value = "请输入有效的持仓数量"; return; }
+  // Number.isFinite 校验：输入 "e"/"-" 等时 Number() 为 NaN，
+  // 原 !buyPrice || Number(buyPrice)<=0 对 NaN 校验失效会提交 NaN 进持仓
+  const bp = Number(buyPrice);
+  const qty = Number(quantity);
+  if (!Number.isFinite(bp) || bp <= 0) { formError.value = "请输入有效的成本"; return; }
+  if (!Number.isFinite(qty) || qty <= 0) { formError.value = "请输入有效的持仓数量"; return; }
   formError.value = "";
   const payload = {
     code: code.trim(),
     name: name.trim(),
-    buyPrice: Number(buyPrice),
-    quantity: Number(quantity),
+    buyPrice: bp,
+    quantity: qty,
     buyDate: form.value.buyDate || undefined,
   };
   if (editingCode.value) {

@@ -66,9 +66,12 @@ function resetV() {
   chameleonInjected = false;
 }
 
-/** 判断错误是否为风控/限流（Nginx 403），此类错误换新 v 重试可恢复 */
+/** 判断错误是否为风控/限流（Nginx 403 或 -9138 业务码），此类错误换新 v 重试可恢复。
+ *  Rust 端已对风控场景附加结构化标记 [RATE_LIMITED]，优先匹配标记；
+ *  不再匹配裸 "v"（invoke 错误文案几乎总含字母 v，会导致误判并重置凭证缓存） */
 function isRateLimited(msg) {
   return (
+    msg.includes("RATE_LIMITED") ||
     msg.includes("403") ||
     msg.includes("forbidden") ||
     msg.includes("限流") ||

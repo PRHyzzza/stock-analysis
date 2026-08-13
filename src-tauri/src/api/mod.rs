@@ -57,12 +57,20 @@ pub fn build_proxy_http_client() -> Result<&'static reqwest::Client, String> {
 /// 构建 LLM 专用 HTTP 客户端（无总超时，流式响应可能持续数分钟）
 /// 显式禁用系统代理，与行情客户端一致
 /// 返回全局单例引用（非流式工具调用环同样适用，避免 15s 超时截断）
+///
+/// 超时策略：
+/// - connect_timeout 10s：建连超时
+/// - read_timeout 240s：相邻两次读取之间的空闲超时。流式 SSE 思考阶段可能
+///   长时间无数据输出，240s 足够覆盖；服务端若真正停发（半开连接/挂死），
+///   240s 后读取报错，`call_llm_stream` 走"流读取中断"分支优雅退出，
+///   避免前端 loading 永久卡死
 pub fn build_llm_http_client() -> Result<&'static reqwest::Client, String> {
     LLM_HTTP_CLIENT
         .get_or_init(|| {
             reqwest::Client::builder()
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .connect_timeout(Duration::from_secs(10))
+                .read_timeout(Duration::from_secs(240))
                 .pool_idle_timeout(Duration::from_secs(90))
                 .no_proxy() // 禁用自动系统代理，保持直连
                 .build()

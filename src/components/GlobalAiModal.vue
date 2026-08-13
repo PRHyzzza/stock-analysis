@@ -236,6 +236,10 @@ async function handleSend() {
     if (e.message === "NO_API_KEY") {
       showApiKeyInput.value = true;
     }
+  } finally {
+    // @代码快捷引用只对当前消息生效：发送后清除，
+    // 否则下一条无关消息仍会把该股作为上下文注入（AI 会误以为还在该股语境）
+    quickStock.value = null;
   }
 }
 

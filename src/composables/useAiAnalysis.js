@@ -142,6 +142,10 @@ export function useAiAnalysis(globalMode = false) {
   const error = ref("");
   const apiKey = ref(safeGetItem(API_KEY_KEY) || "");
 
+  // 流代际计数：switchStock/switchGlobal 时自增，使在途流式请求的所有写入失效。
+  // 防止"流式生成中切换股票"导致旧流把内容写进新股票的对话（数据污染/越界崩溃）
+  let streamGeneration = 0;
+
   // 当前激活的工具（根据 webSearchEnabled 动态切换）
   function activeTools() {
     return buildTools(webSearchEnabled.value);
@@ -164,6 +168,7 @@ export function useAiAnalysis(globalMode = false) {
 
   /** 切换到指定股票的对话 */
   function switchStock(code) {
+    streamGeneration++; // 使在途流式请求失效（其回调/写入将被丢弃）
     currentStockCode.value = code;
     messages.value = loadStockMessages(code);
     error.value = "";
@@ -179,16 +184,22 @@ export function useAiAnalysis(globalMode = false) {
     error.value = "";
   }
 
+  // 后台画像更新串行链：并发更新会"先读后写"交错导致画像增量互相覆盖，
+  // 串行化保证每次写回都基于最新画像（后一次覆盖前一次，语义正确）
+  let profileUpdateChain = Promise.resolve();
+
   /**
    * 后台异步更新用户画像：用非流式调用让 AI 总结本轮对话，增量更新画像
    * 失败静默处理，不影响主流程
    */
-  async function updateUserProfileBackground(userText, aiResponse) {
-    try {
-      const { profileContent, saveProfile } = useUserProfileSingleton();
-      const currentProfile = profileContent.value || "";
+  function updateUserProfileBackground(userText, aiResponse) {
+    profileUpdateChain = profileUpdateChain
+      .then(async () => {
+        const { profileContent, saveProfile } = useUserProfileSingleton();
+        // 写回前重新读取最新画像，避免覆盖其他更新的结果
+        const currentProfile = profileContent.value || "";
 
-      const updatePrompt = `根据对话更新用户画像。**输出必须极简**：固定三行，每行一个短语（≤20字），禁止长句、禁止解释、禁止标题、禁止列表嵌套：
+        const updatePrompt = `根据对话更新用户画像。**输出必须极简**：固定三行，每行一个短语（≤20字），禁止长句、禁止解释、禁止标题、禁止列表嵌套：
 - 投资风格：
 - 关注方向：
 - 风险偏好：
@@ -201,24 +212,26 @@ ${currentProfile || "（空）"}
 用户: ${userText}
 AI: ${aiResponse}`;
 
-      const result = await invoke("call_llm", {
-        apiKey: apiKey.value,
-        model: "deepseek-v4-flash",
-        messages: [
-          { role: "user", content: updatePrompt },
-        ],
-        tools: [],
-        reasoningEffort: "low",
-        thinkingEnabled: false,
-      });
+        const result = await invoke("call_llm", {
+          apiKey: apiKey.value,
+          model: "deepseek-v4-flash",
+          messages: [
+            { role: "user", content: updatePrompt },
+          ],
+          tools: [],
+          reasoningEffort: "low",
+          thinkingEnabled: false,
+        });
 
-      const newContent = result?.choices?.[0]?.message?.content?.trim();
-      if (newContent && newContent !== currentProfile) {
-        await saveProfile(newContent);
-      }
-    } catch {
-      // 画像更新失败不影响主流程
-    }
+        const newContent = result?.choices?.[0]?.message?.content?.trim();
+        if (newContent && newContent !== currentProfile) {
+          await saveProfile(newContent);
+        }
+      })
+      .catch(() => {
+        // 画像更新失败不影响主流程
+      });
+    return profileUpdateChain;
   }
 
   /**
@@ -235,6 +248,10 @@ AI: ${aiResponse}`;
     messages.value.push({ role: "user", content: text });
     loading.value = true;
     error.value = "";
+
+    // 记录本次发送的代际：流式期间 switchStock/switchGlobal 会使代际失效，
+    // 后续所有写入/工具执行/错误处理都会丢弃，防止污染新股票的对话
+    const gen = streamGeneration;
 
     // 流式占位消息（最终回答会被逐字填入）
     const streamMsgIdx = messages.value.length;
@@ -261,10 +278,22 @@ AI: ${aiResponse}`;
       let finalContent = "";
       let emptySearchCount = 0;  // 连续空搜索计数
 
-      // Agent 循环：每个 round 使用流式调用，工具调用完成后继续下一轮
-      // 不限制轮数、不限制时间，直到 AI 给出最终回答
+      // Agent 循环：每个 round 使用流式调用，工具调用完成后继续下一轮。
+      // MAX_ROUNDS 上限防止模型陷入工具调用死循环（费用失控 + UI 永久锁死）；
+      // 达到上限时注入强制收尾提示，若模型仍坚持调工具则用已有内容收尾
+      const MAX_ROUNDS = 10;
       for (let round = 0; ; round++) {
+        if (gen !== streamGeneration) return ""; // 已切换股票：静默放弃在途请求
+
+        if (round === MAX_ROUNDS) {
+          currentMessages.push({
+            role: "system",
+            content: "[系统提示] 已达到最大工具调用轮数(10)，请立即停止调用工具，直接基于已有信息给出最终回答。",
+          });
+        }
+
         const result = await callLlmStreamWrapped(currentMessages, (content, reasoning) => {
+          if (gen !== streamGeneration) return; // 已切股：丢弃流式增量
           // 实时更新流式消息
           const msg = messages.value[streamMsgIdx];
           if (msg) {
@@ -274,7 +303,7 @@ AI: ${aiResponse}`;
         });
 
         const toolCallsArr = result.tool_calls;
-        if (toolCallsArr && toolCallsArr.length > 0) {
+        if (toolCallsArr && toolCallsArr.length > 0 && round < MAX_ROUNDS) {
           // 记录 assistant 消息（包含 thinking 内容 + tool_calls）
           // 修复：保留 reasoning_content，确保 V4 思考模式下多轮对话正常
           currentMessages.push({
@@ -284,12 +313,14 @@ AI: ${aiResponse}`;
             tool_calls: toolCallsArr,
           });
 
-          // 清空占位消息准备下一轮
-          const msg = messages.value[streamMsgIdx];
-          if (msg) { msg.content = ""; delete msg._reasoning; }
+          // 清空占位消息准备下一轮（带代际与存在性双重守卫）
+          const ph = messages.value[streamMsgIdx];
+          if (ph) { ph.content = ""; delete ph._reasoning; }
 
           // 依次执行工具
           for (const tc of toolCallsArr) {
+            if (gen !== streamGeneration) return ""; // 已切股：停止执行工具
+
             const fnName = tc.function?.name || tc.function_name;
             const toolFn = getToolImpl(fnName, { excludeSkills: webSearchEnabled.value ? [] : ["web-search"] });
             if (!toolFn) {
@@ -344,11 +375,12 @@ AI: ${aiResponse}`;
             });
           }
 
-          // 新一轮：重新创建流式占位
-          messages.value[streamMsgIdx].content = "";
-          delete messages.value[streamMsgIdx]._reasoning;
+          // 新一轮：重新清空流式占位（带守卫）
+          const ph2 = messages.value[streamMsgIdx];
+          if (ph2) { ph2.content = ""; delete ph2._reasoning; }
         } else {
-          // 没有工具调用 → 最终回答已在流式回调中填入
+          // 没有工具调用（或已达轮数上限）→ 最终回答已在流式回调中填入
+          if (gen !== streamGeneration) return "";
           finalContent = result.content || "";
           break;
         }
@@ -359,25 +391,31 @@ AI: ${aiResponse}`;
         const partial = messages.value[streamMsgIdx];
         if (partial?._reasoning) {
           finalContent = `（未生成完整回答，仅保留思考过程，请重试或简化您的问题）\n\n${partial._reasoning}`;
-          messages.value[streamMsgIdx].content = finalContent;
+          if (partial) partial.content = finalContent;
         } else {
           finalContent = "⚠️ 分析未返回结果，请重试或简化您的问题。";
-          messages.value[streamMsgIdx].content = finalContent;
+          if (partial) partial.content = finalContent;
         }
       }
 
-      // 移除流式标记
-      delete messages.value[streamMsgIdx]._streaming;
-      delete messages.value[streamMsgIdx]._reasoning;
+      // 移除流式标记（带存在性守卫，防止切股后索引越界）
+      const finalMsg = messages.value[streamMsgIdx];
+      if (finalMsg) {
+        delete finalMsg._streaming;
+        delete finalMsg._reasoning;
+      }
 
-      // 后台异步更新用户画像（全局对话同样学习用户偏好；热榜选股等自动指令跳过，避免污染画像）
-      if (!skipProfileUpdate) {
+      // 后台异步更新用户画像（全局对话同样学习用户偏好；热榜选股等自动指令跳过，避免污染画像；
+      // 流式期间已切股则跳过，避免把旧对话内容写进画像）
+      if (!skipProfileUpdate && gen === streamGeneration) {
         updateUserProfileBackground(text, finalContent);
       }
 
       return finalContent;
     } catch (e) {
       if (e.message === "NO_API_KEY") throw e;
+      // 已切换股票：错误不再写入新股票的对话
+      if (gen !== streamGeneration) return "";
       const errMsg = `分析出错: ${e.message || e}`;
       const msg = messages.value[streamMsgIdx];
       if (msg) {
@@ -419,6 +457,7 @@ AI: ${aiResponse}`;
 
   /** 全局模式：切换到全局对话 */
   function switchGlobal() {
+    streamGeneration++; // 使在途流式请求失效
     currentStockCode.value = GLOBAL_CHAT_KEY;
     messages.value = loadStockMessages(GLOBAL_CHAT_KEY);
     error.value = "";

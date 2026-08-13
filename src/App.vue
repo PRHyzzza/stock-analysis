@@ -19,6 +19,7 @@ import PositionModal from "./components/PositionModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import IwencaiWindow from "./components/IwencaiWindow.vue";
+import TreemapWindow from "./components/TreemapWindow.vue";
 import { useWatchlist } from "./composables/useWatchlist";
 import { usePositions } from "./composables/usePositions";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
@@ -177,12 +178,23 @@ function closeGlobalAiModal() { showGlobalAiModal.value = false; }
 
 // ---- 问财选股（独立窗口 ?iwencai=1）----
 
-/** 问财窗口选中股票 → 主窗口联动选中并加载全部数据 */
+/** 问财/云图窗口选中股票 → 主窗口联动选中并加载全部数据 */
 function selectIwencaiStock(stock) {
+  // 清洗代码：问财/云图返回的代码可能带市场后缀（如 "600519.SH"），
+  // 必须剥离为纯数字，否则 Rust 端 to_tencent_code 会拼出 "sh600519.SH" 导致全部接口失败
+  const code = String(stock.code || "").replace(/\.(SH|SZ|BJ)$/i, "");
+  if (!code) return;
+  // 市场推断：5 位=港股，43/82/83/87/88/92 开头=北交所，6 开头=沪市，其余=深市
+  let market = stock.market;
+  if (!market) {
+    if (/^\d{5}$/.test(code)) market = "HK";
+    else if (/^(43|82|83|87|88|92)/.test(code)) market = "BJ";
+    else market = code.startsWith("6") ? "SH" : "SZ";
+  }
   const full = {
-    code: stock.code,
-    name: stock.name || stock.code,
-    market: stock.market,
+    code,
+    name: stock.name || code,
+    market,
     price: 0, change: 0, changePct: 0,
     open: 0, high: 0, low: 0, prevClose: 0,
     volume: 0, turnover: 0, turnoverRate: 0, pe: 0, amplitude: 0,
@@ -230,7 +242,7 @@ function closeSettingsModal() { showSettingsModal.value = false; }
 const { indices, loadIndices } = useMarketIndices();
 const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
 const { intradayData, intradayLoading, loadIntradayData } = useIntradayData();
-const { checkAndNotify } = useWatchlistNotifications();
+const { checkAndNotify, prevPrices } = useWatchlistNotifications();
 const { configs: maAlerts, checkMaAlerts, removeConfig } = useMaAlerts();
 const { state: settings } = useSettings();
 
@@ -277,11 +289,12 @@ function onIndustryModalOpen() {
   }
 }
 
-/** 从自选移除时同步删除 AI 对话记录，并静默清除该股均线提醒配置 */
+/** 从自选移除时同步删除 AI 对话记录、均线提醒配置与通知价格快照 */
 function handleRemoveFromWatchlist(code) {
   removeFromWatchlist(code);
   deleteStockMessages(code);
   removeConfig(code);
+  delete prevPrices.value[code];
 }
 
 /** 详情页星标切换：取消自选时静默连带清除该股均线提醒配置 */
@@ -461,7 +474,8 @@ async function refreshAllQuotes() {
         const quote = quoteMap.get(stock.code);
         if (quote) {
           updateWatchlistQuote(stock.code, quote);
-          checkAndNotify(quote, settings);
+          // 通知失败（权限/系统异常）静默忽略，不影响行情刷新
+          checkAndNotify(quote, settings).catch(() => {});
         }
       });
       // 均线提醒检查（每只配置过的股票只检查一次；K 线内部 5 分钟缓存，不会高频请求）

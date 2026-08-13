@@ -10,7 +10,9 @@ function loadAllMessages() {
 }
 
 function saveAllMessages(map) {
-  localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(map));
+  try {
+    localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(map));
+  } catch { /* 隐私模式/quota 满时静默忽略，避免写入异常打断 watcher */ }
 }
 
 /** 删除指定股票的 AI 对话记录（供外部调用） */
@@ -22,7 +24,9 @@ export function deleteStockMessages(code) {
 
 export function loadStockMessages(code) {
   if (!code) return [];
-  return loadAllMessages()[code] || [];
+  const stored = loadAllMessages()[code];
+  // 存储可能被外部损坏为非数组（如字符串），校验类型防止调用方 push 崩溃
+  return Array.isArray(stored) ? stored : [];
 }
 
 export function saveStockMessages(code, messages) {

@@ -14,6 +14,11 @@ pub async fn fetch_hot_list() -> Result<HotListData, String> {
         .await
         .map_err(|e| format!("请求热榜数据失败: {}", e))?;
 
+    // 先检查状态码，避免 403/5xx 返回的 HTML 被误报为"解析 JSON 失败"
+    if !resp.status().is_success() {
+        return Err(format!("热榜接口返回 HTTP {}", resp.status()));
+    }
+
     let body: serde_json::Value = resp
         .json()
         .await

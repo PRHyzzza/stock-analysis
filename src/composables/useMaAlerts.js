@@ -87,6 +87,9 @@ export function useMaAlerts() {
   /** 上一轮价格快照（穿越检测基准，首轮仅记录） */
   const lastPrices = ref({});
 
+  // 上次检查日期：跨日时清空价格基准，防止隔夜跳空被误判为均线穿越
+  let lastCheckDate = getToday();
+
   // 配置自动持久化
   watch(configs, (val) => {
     try {
@@ -116,10 +119,12 @@ export function useMaAlerts() {
     applyConfig(code, { ...cfg, direction });
   }
 
-  /** 删除某股票的全部均线提醒 */
+  /** 删除某股票的全部均线提醒（连带清理价格基准与 K 线缓存，防止无界增长） */
   function removeConfig(code) {
     const { [code]: _removed, ...rest } = configs.value;
     configs.value = rest;
+    delete lastPrices.value[code];
+    klineCache.delete(code);
   }
 
   /** 写入配置（无周期时视为删除） */
@@ -131,7 +136,7 @@ export function useMaAlerts() {
     }
   }
 
-  /** 获取日 K 线（5 分钟缓存，命中时零请求） */
+  /** 获取日 K 线（5 分钟缓存，命中时零请求；缓存超 100 只时淘汰最旧，防无界增长） */
   async function fetchDayKline(code) {
     const cached = klineCache.get(code);
     if (cached && Date.now() - cached.fetchedAt < KLINE_CACHE_TTL) {
@@ -140,6 +145,11 @@ export function useMaAlerts() {
     try {
       const data = await invoke("get_stock_kline", { code, period: "day" });
       if (Array.isArray(data) && data.length > 0) {
+        // 简易 LRU 上限：超过 100 只时删除最早插入的条目
+        if (klineCache.size >= 100) {
+          const oldest = klineCache.keys().next().value;
+          if (oldest != null) klineCache.delete(oldest);
+        }
         klineCache.set(code, { data, fetchedAt: Date.now() });
         return data;
       }
@@ -154,7 +164,7 @@ export function useMaAlerts() {
     return history.value[getToday()]?.[code]?.includes(type) ?? false;
   }
 
-  /** 标记已通知 */
+  /** 标记已通知（写入时顺带裁剪 7 天前的记录，避免运行期间 localStorage 持续增长） */
   function markTriggeredToday(code, type) {
     const t = getToday();
     const todayData = history.value[t] || {};
@@ -164,6 +174,11 @@ export function useMaAlerts() {
         ...history.value,
         [t]: { ...todayData, [code]: [...triggers, type] },
       };
+      // 裁剪过期记录（与 loadHistory 的 7 天规则一致）
+      const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      for (const [date] of Object.entries(history.value)) {
+        if (date < cutoff) delete history.value[date];
+      }
       try {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value));
       } catch { /* ignore */ }
@@ -191,6 +206,15 @@ export function useMaAlerts() {
     if (!s?.notifyEnabled) return;
     const cfg = configs.value[quote.code];
     if (!cfg?.periods?.length) return;
+
+    // 跨日重置价格基准：次日开盘首次检测用当日价格重新建立基准，
+    // 否则昨日收盘价 vs 今日开盘价的隔夜跳空会被误判为均线穿越
+    const today = getToday();
+    if (lastCheckDate !== today) {
+      lastCheckDate = today;
+      lastPrices.value = {};
+    }
+
     // 非交易时段不通知
     if (!isTradingHours(quote.code)) return;
 

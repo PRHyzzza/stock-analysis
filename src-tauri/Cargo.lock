@@ -3512,6 +3512,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "url",
 ]
 
 [[package]]

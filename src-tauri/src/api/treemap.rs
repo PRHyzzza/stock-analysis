@@ -10,6 +10,7 @@
 use crate::types::{MarketTreemap, TreemapIndustry, TreemapSector, TreemapStock};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -17,17 +18,67 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 static TREE_CACHE: Mutex<Option<(Instant, Vec<TreemapIndustry>)>> = Mutex::new(None);
 /// 实时行情缓存(jrj 接口无风控, 3 秒缓存足够)
 static QUOTE_CACHE: Mutex<Option<(Instant, HashMap<String, (f64, f64)>)>> = Mutex::new(None);
+/// 拉取进行中标记（single-flight：并发请求合并为一次上游调用）
+static TREE_FETCHING: AtomicBool = AtomicBool::new(false);
+static QUOTE_FETCHING: AtomicBool = AtomicBool::new(false);
 
 const TREE_TTL: Duration = Duration::from_secs(3600);
 const QUOTE_TTL: Duration = Duration::from_secs(3);
 
-/// 拉取行业树结构(带 1 小时缓存)
+/// 简单的 single-flight guard：作用域内独占拉取；panic 时也保证复位标记
+struct FetchGuard<'a>(&'a AtomicBool);
+impl Drop for FetchGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// 等待并发的拉取任务完成（最多 1s），成功后复用其缓存结果
+/// 返回 true 表示已拿到可用缓存，false 表示需要自己拉取
+async fn await_concurrent_fetch(
+    cache: &Mutex<Option<(Instant, Vec<TreemapIndustry>)>>,
+    ttl: Duration,
+) -> bool {
+    for _ in 0..10 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if let Some((ts, _tree)) = cache.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+            if ts.elapsed() < ttl {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 拉取行业树结构（带 1 小时缓存 + single-flight）
 async fn fetch_treemap_tree() -> Result<Vec<TreemapIndustry>, String> {
-    if let Some((ts, tree)) = TREE_CACHE.lock().unwrap().as_ref() {
+    if let Some((ts, tree)) = TREE_CACHE.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
         if ts.elapsed() < TREE_TTL {
             return Ok(tree.clone());
         }
     }
+    // 已有并发任务在拉取 → 等待复用结果，避免重复打上游
+    if TREE_FETCHING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        if await_concurrent_fetch(&TREE_CACHE, TREE_TTL).await {
+            return Ok(TREE_CACHE
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .as_ref()
+                .map(|(_, t)| t.clone())
+                .unwrap_or_default());
+        }
+        // 拉取者失败：自己拉取
+    }
+    let _guard = FetchGuard(&TREE_FETCHING);
+    let industries = fetch_treemap_tree_uncached().await?;
+    *TREE_CACHE.lock().unwrap_or_else(|p| p.into_inner()) = Some((Instant::now(), industries.clone()));
+    Ok(industries)
+}
+
+async fn fetch_treemap_tree_uncached() -> Result<Vec<TreemapIndustry>, String> {
     let client = super::build_http_client()?;
     let resp = client
         .get("https://52etf.site/api/market/treemap?market=all&v=1")
@@ -86,18 +137,38 @@ async fn fetch_treemap_tree() -> Result<Vec<TreemapIndustry>, String> {
             sectors,
         });
     }
-    *TREE_CACHE.lock().unwrap() = Some((Instant::now(), industries.clone()));
     Ok(industries)
 }
 
-/// 拉取实时行情(现价 + 涨跌幅, 3 秒缓存)
+/// 拉取实时行情(现价 + 涨跌幅, 3 秒缓存 + single-flight)
 /// 返回 map: 股票代码("688256.SH") → (现价, 涨跌幅%)
 async fn fetch_jrj_quotes() -> Result<HashMap<String, (f64, f64)>, String> {
-    if let Some((ts, map)) = QUOTE_CACHE.lock().unwrap().as_ref() {
+    if let Some((ts, map)) = QUOTE_CACHE.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
         if ts.elapsed() < QUOTE_TTL {
             return Ok(map.clone());
         }
     }
+    // single-flight：并发轮询（主窗口 + 云图窗口）合并为一次上游请求
+    if QUOTE_FETCHING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        for _ in 0..10 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if let Some((ts, map)) = QUOTE_CACHE.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+                if ts.elapsed() < QUOTE_TTL {
+                    return Ok(map.clone());
+                }
+            }
+        }
+    }
+    let _guard = FetchGuard(&QUOTE_FETCHING);
+    let map = fetch_jrj_quotes_uncached().await?;
+    *QUOTE_CACHE.lock().unwrap_or_else(|p| p.into_inner()) = Some((Instant::now(), map.clone()));
+    Ok(map)
+}
+
+async fn fetch_jrj_quotes_uncached() -> Result<HashMap<String, (f64, f64)>, String> {
     let client = super::build_http_client()?;
     let resp = client
         .post("https://gateway.jrj.com/quot-dpyt/hq")
@@ -131,14 +202,20 @@ async fn fetch_jrj_quotes() -> Result<HashMap<String, (f64, f64)>, String> {
         let var = v.get("var").and_then(|x| x.as_f64()).unwrap_or(0.0);
         map.insert(format!("{}.{}", code, market), (np, var * 100.0));
     }
-    *QUOTE_CACHE.lock().unwrap() = Some((Instant::now(), map.clone()));
     Ok(map)
 }
 
 /// 合并行业树与实时行情, 生成完整大盘云图数据
+/// 行情接口失败时降级：行业树照常返回（价格/涨跌幅为 0），避免整图不可用
 pub async fn fetch_market_treemap() -> Result<MarketTreemap, String> {
     let mut industries = fetch_treemap_tree().await?;
-    let quotes = fetch_jrj_quotes().await?;
+    let quotes = match fetch_jrj_quotes().await {
+        Ok(q) => q,
+        Err(e) => {
+            eprintln!("大盘云图: 实时行情获取失败，降级返回行业树（无行情）: {}", e);
+            HashMap::new()
+        }
+    };
 
     let mut up = 0u32;
     let mut flat = 0u32;

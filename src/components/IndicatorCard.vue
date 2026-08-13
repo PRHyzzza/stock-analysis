@@ -12,6 +12,8 @@
  *  - detail: 底部描述文字
  *  - layout: "grid" | "chips" | "single"  布局模式
  */
+import DOMPurify from "dompurify";
+
 defineProps({
   title: { type: String, required: true },
   accent: { type: String, default: "var(--rust)" },
@@ -56,8 +58,8 @@ defineProps({
         <span class="tech-single-value" :class="rows[0].cls || ''">{{ rows[0].value }}</span>
       </div>
 
-      <!-- 底部描述 -->
-      <div v-if="detail" class="tech-detail" v-html="detail"></div>
+      <!-- 底部描述（v-html 前必须 DOMPurify 消毒，防止外部/LLM 内容注入 XSS） -->
+      <div v-if="detail" class="tech-detail" v-html="DOMPurify.sanitize(detail)"></div>
     </div>
   </div>
 </template>

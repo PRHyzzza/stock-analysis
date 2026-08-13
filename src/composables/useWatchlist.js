@@ -26,9 +26,11 @@ export function useWatchlist() {
   const searchQuery = ref("");
   const selectedStock = ref(watchlist.value[0] || null);
 
-  // 持久化
+  // 持久化（隐私模式/quota 满时静默忽略，与项目其他存储一致）
   watch(watchlist, (val) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(val));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(val));
+    } catch { /* ignore quota/security errors */ }
   }, { deep: true });
 
   const filteredWatchlist = computed(() => {

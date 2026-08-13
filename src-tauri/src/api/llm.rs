@@ -134,11 +134,49 @@ pub async fn call_llm_stream(
     }
 
     // 解析 SSE 流
-    // 注意：必须按字节累积、按 b"\n\n" 切分后再解码 UTF-8。
+    // 注意：必须按字节累积、按事件边界切分后再解码 UTF-8。
     // 若按 chunk from_utf8_lossy，多字节汉字跨 TCP chunk 边界会被切成 U+FFFD 乱码
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
     let sid = stream_id.to_string();
+
+    // 处理一个完整 SSE 事件（事件字节不含结尾分隔符）
+    // `data:` 前缀兼容有/无空格两种写法（RFC 中 "data:" 后可有可无空格）
+    let handle_event = |event_bytes: &[u8]| -> Option<()> {
+        let event = String::from_utf8_lossy(event_bytes);
+        for line in event.lines() {
+            let data = line.strip_prefix("data:").map(str::trim_start);
+            if let Some(data) = data {
+                if data == "[DONE]" {
+                    let _ = app_handle.emit("llm-done", StreamChunk {
+                        id: sid.clone(),
+                        data: serde_json::json!({}),
+                    });
+                    return None; // 终止标记
+                }
+                // 解析 JSON 并发送
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                    let _ = app_handle.emit("llm-chunk", StreamChunk {
+                        id: sid.clone(),
+                        data: parsed,
+                    });
+                }
+            }
+        }
+        Some(())
+    };
+
+    // 找到 buf 中第一个 SSE 事件边界（\n\n 或 \r\n\r\n），返回事件字节长度（不含分隔符）
+    // CRLF 兼容：\r\n\r\n 中不存在 \n\n 子序列，两种边界互不干扰
+    fn find_event_len(buf: &[u8]) -> Option<usize> {
+        if let Some(pos) = buf.windows(2).position(|w| w == b"\n\n") {
+            return Some(pos);
+        }
+        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            return Some(pos);
+        }
+        None
+    }
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = match chunk_result {
@@ -154,37 +192,34 @@ pub async fn call_llm_stream(
         };
         buf.extend_from_slice(&chunk);
 
-        // 处理完整的 SSE 事件（以 \n\n 分隔；ASCII 边界即 UTF-8 字符边界，切分安全）
-        while let Some(pos) = buf.windows(2).position(|w| w == b"\n\n") {
-            let event_bytes: Vec<u8> = buf.drain(..pos).collect();
-            buf.drain(..2);
-            let event = String::from_utf8_lossy(&event_bytes);
-
-            for line in event.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if data == "[DONE]" {
-                        let _ = app_handle.emit("llm-done", StreamChunk {
-                            id: sid.clone(),
-                            data: serde_json::json!({}),
-                        });
-                        return Ok(());
-                    }
-                    // 解析 JSON 并发送
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
-                        let _ = app_handle.emit("llm-chunk", StreamChunk {
-                            id: sid.clone(),
-                            data: parsed,
-                        });
-                    }
-                }
+        // 处理完整的 SSE 事件（ASCII 边界即 UTF-8 字符边界，切分安全）
+        while let Some(len) = find_event_len(&buf) {
+            let event_bytes: Vec<u8> = buf.drain(..len).collect();
+            // 移除分隔符（2 字节 \n\n 或 4 字节 \r\n\r\n）
+            let sep_len = if len + 1 < buf.len() && buf[len] == b'\r' && buf[len + 1] == b'\n' { 4 } else { 2 };
+            buf.drain(..sep_len);
+            if handle_event(&event_bytes).is_none() {
+                return Ok(());
             }
         }
     }
 
-    // 流意外结束
+    // 流结束：flush 剩余缓冲（最后一个事件可能没有以空行结尾，如连接被网关截断）。
+    // 不完整事件（如 data: {"partial...）JSON 解析失败会被静默忽略，不会误发
+    if !buf.is_empty() {
+        // 去掉尾部残留的行结束符（\n / \r\n），再按事件处理
+        while buf.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
+            buf.pop();
+        }
+        if !buf.is_empty() && handle_event(&buf).is_none() {
+            return Ok(());
+        }
+    }
+
+    // 流正常结束
     let _ = app_handle.emit("llm-done", StreamChunk {
         id: sid.clone(),
-        data: serde_json::json!({"warning": "流意外结束"}),
+        data: serde_json::json!({}),
     });
     Ok(())
 }

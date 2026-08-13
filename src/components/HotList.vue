@@ -43,10 +43,12 @@ async function loadHotList() {
 function selectStock(item) {
   selectedCode.value = item.code;
   // 选中并显示到右侧面板
+  // 注意：同花顺 market 字段 17=沪市、33=深市（与下方 marketLabel 一致），
+  // 不能误用 1/0 判断（原实现 === 1 恒为 false，所有沪市股被标成 SZ）
   const stock = {
     code: item.code,
     name: item.name,
-    market: item.market === 1 ? "SH" : "SZ",
+    market: marketLabel(item.market),
     price: 0,
     change: 0,
     changePct: item.rise_and_fall,

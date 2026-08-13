@@ -38,7 +38,9 @@ watch(() => props.show, (val) => {
 });
 
 watch(() => props.selectedStock?.code, (newCode) => {
-  if (props.show && newCode) {
+  // 流式生成中不切换对话（useAiAnalysis 内部有代际守卫保证不崩溃，
+  // 但主动跳过可避免在途回答被静默丢弃）
+  if (props.show && newCode && !loading.value) {
     switchStock(newCode);
   }
 });

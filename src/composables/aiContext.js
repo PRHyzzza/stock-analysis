@@ -87,15 +87,19 @@ export function serializeContext(contextData) {
   }
 
   if (contextData.positions && Array.isArray(contextData.positions) && contextData.positions.length > 0) {
-    const posSummary = contextData.positions.map((p) => ({
-      代码: p.code,
-      名称: p.name,
-      成本: p.buyPrice,
-      数量: p.quantity,
-      现价: p.price || p.buyPrice,
-      买入日期: p.buyDate || "未知",
-      盈亏: p.price && p.buyPrice ? `${((p.price - p.buyPrice) * (p.quantity || 0)).toFixed(2)} (${(((p.price - p.buyPrice) / p.buyPrice) * 100).toFixed(2)}%)` : "无实时价格",
-    }));
+    const posSummary = contextData.positions.map((p) => {
+      // price 缺失（数据未加载）时显示 "--" 而非回退到成本价（避免误导）
+      const hasPrice = p.price > 0 && p.buyPrice > 0;
+      return {
+        代码: p.code,
+        名称: p.name,
+        成本: p.buyPrice,
+        数量: p.quantity,
+        现价: p.price > 0 ? p.price : "--",
+        买入日期: p.buyDate || "未知",
+        盈亏: hasPrice ? `${((p.price - p.buyPrice) * (p.quantity || 0)).toFixed(2)} (${(((p.price - p.buyPrice) / p.buyPrice) * 100).toFixed(2)}%)` : "无实时价格",
+      };
+    });
     parts.push(`## 用户持仓数据\n${JSON.stringify(posSummary, null, 2)}\n（说明：以上是用户的当前持仓，用户可能会询问持仓分析、盈亏评估等问题，请结合这些数据回答。）`);
   }
 
@@ -104,15 +108,17 @@ export function serializeContext(contextData) {
     const costStr = chip.costLevels
       ? `COST5=${chip.costLevels.COST5}, COST15=${chip.costLevels.COST15}, COST50=${chip.costLevels.COST50}, COST85=${chip.costLevels.COST85}, COST95=${chip.costLevels.COST95}`
       : "无";
-    const profitPct = chip.distribution
+    // currentPrice 缺失时获利比例无意义，显示 "--" 而非恒为 0%（误导 AI）
+    const hasPrice = chip.currentPrice > 0 && Array.isArray(chip.distribution);
+    const profitPct = hasPrice
       ? chip.distribution.filter((d) => d.price < chip.currentPrice).reduce((s, d) => s + d.ratio, 0) * 100
-      : 0;
+      : null;
     parts.push(`## 预加载筹码分布数据
 筹码峰价格：${chip.peakPrice}
 平均持仓成本：${chip.avgCost}
 当前价：${chip.currentPrice}
-获利比例：${profitPct.toFixed(1)}%
-套牢比例：${(100 - profitPct).toFixed(1)}%
+获利比例：${profitPct != null ? `${profitPct.toFixed(1)}%` : "--"}
+套牢比例：${profitPct != null ? `${(100 - profitPct).toFixed(1)}%` : "--"}
 分位成本：${costStr}`);
   }
 

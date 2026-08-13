@@ -237,11 +237,18 @@ export function useT0Signals() {
       }
 
       // 回踩均价（上升趋势中）— 使用各时刻对应的均价
+      // 语义：过去 10 分钟内曾回踩到均价 ±0.5% 区间，且全程未跌破均价 0.5%
+      // （原实现用裸比值 >0.5 即偏离 50%，条件恒不成立，属死代码；这里统一为百分比口径）
       if (trendDir === 'up' && distFromAvg > -0.5 && distFromAvg < 0.5 &&
           prices.slice(-10).some((p, i) => {
             const aIdx = N - 10 + i
             const ap = avgPrices[aIdx]
-            return ap > 0 && (p - ap) / ap > 0.5
+            return ap > 0 && Math.abs(((p - ap) / ap) * 100) <= 0.5
+          }) &&
+          prices.slice(-10).every((p, i) => {
+            const aIdx = N - 10 + i
+            const ap = avgPrices[aIdx]
+            return ap <= 0 || ((p - ap) / ap) * 100 > -0.5
           })) {
         signalList.push({
           name: '回踩均价不破',
@@ -251,11 +258,17 @@ export function useT0Signals() {
       }
 
       // 反弹均价（下降趋势中）— 使用各时刻对应的均价
+      // 语义：过去 10 分钟内曾反弹到均价 ±0.5% 区间，且全程未突破均价 0.5%
       if (trendDir === 'down' && distFromAvg > -0.5 && distFromAvg < 0.5 &&
           prices.slice(-10).some((p, i) => {
             const aIdx = N - 10 + i
             const ap = avgPrices[aIdx]
-            return ap > 0 && (ap - p) / ap > 0.5
+            return ap > 0 && Math.abs(((p - ap) / ap) * 100) <= 0.5
+          }) &&
+          prices.slice(-10).every((p, i) => {
+            const aIdx = N - 10 + i
+            const ap = avgPrices[aIdx]
+            return ap <= 0 || ((p - ap) / ap) * 100 < 0.5
           })) {
         signalList.push({
           name: '反弹均价受阻',

@@ -25,7 +25,9 @@
  * @returns {Object|null}
  */
 export function calcChipDistribution(klineData, options = {}) {
-  const { steps = 60, smoothWindow = 3 } = options;
+  // steps 防除零/防 NaN：调用方可能传 0/负数/非数字，导致 priceStep=Infinity 传播 NaN
+  const steps = Math.max(1, Math.min(500, Math.floor(Number(options.steps) || 60)));
+  const { smoothWindow = 3 } = options;
 
   if (!klineData || klineData.length < 5) return null;
 

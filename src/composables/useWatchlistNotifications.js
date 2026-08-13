@@ -97,6 +97,10 @@ export function useWatchlistNotifications() {
   // 上一轮价格记录，用于检测快速拉升/下跌
   const prevPrices = ref({});
 
+  // 上次检查的日期：跨日时清空价格快照。
+  // 否则隔夜跳空会被当作"30s 内快速变动"在次日开盘瞬间误报快速拉升/下跌
+  let lastCheckDate = getToday();
+
   // 通知历史 { "2026-07-22": { "000001": ["limit_up", "+5%"] } }
   const history = ref(loadHistory());
 
@@ -119,7 +123,7 @@ export function useWatchlistNotifications() {
     return history.value[getToday()]?.[code]?.includes(type) ?? false;
   }
 
-  /** 标记为已触发 */
+  /** 标记为已触发（写入时顺带裁剪 7 天前的记录） */
   function markTriggeredToday(code, type) {
     const t = getToday();
     const todayData = history.value[t] || {};
@@ -129,6 +133,11 @@ export function useWatchlistNotifications() {
         ...history.value,
         [t]: { ...todayData, [code]: [...triggers, type] },
       };
+      // 裁剪过期记录（与 loadHistory 的 7 天规则一致）
+      const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      for (const [date] of Object.entries(history.value)) {
+        if (date < cutoff) delete history.value[date];
+      }
       saveHistory(history.value);
     }
   }
@@ -153,6 +162,13 @@ export function useWatchlistNotifications() {
   async function checkAndNotify(quote, s) {
     if (!quote || !quote.code) return;
 
+    // 跨日重置价格快照：隔夜跳空不能算"快速拉升/下跌"
+    const today = getToday();
+    if (lastCheckDate !== today) {
+      lastCheckDate = today;
+      prevPrices.value = {};
+    }
+
     // 非交易时段不通知（港股与 A 股时段不同，按代码区分）
     if (!isTradingHours(quote.code)) return;
 
@@ -163,23 +179,27 @@ export function useWatchlistNotifications() {
     const limit = getLimitThreshold(code);
     const triggeredTypes = [];
 
-    // ── 静态阈值检测（港股无涨跌停，limit 为 0 时跳过）──
+    // ── 静态阈值检测 ──
+    // 涨跌停仅限有涨跌停限制的市场（A 股/北交所；港股 limit=0 无涨跌停）
     if (limit > 0) {
       if (settings.notifyLimitUp && changePct >= limit) {
         triggeredTypes.push("limit_up");
-      } else if (settings.notifyUp7 && changePct >= 7) {
-        triggeredTypes.push("+7%");
-      } else if (settings.notifyUp5 && changePct >= 5) {
-        triggeredTypes.push("+5%");
       }
-
       if (settings.notifyLimitDown && changePct <= -limit) {
         triggeredTypes.push("limit_down");
-      } else if (settings.notifyDown7 && changePct <= -7) {
-        triggeredTypes.push("-7%");
-      } else if (settings.notifyDown5 && changePct <= -5) {
-        triggeredTypes.push("-5%");
       }
+    }
+    // ±5%/±7% 对港股同样适用（港股虽无涨跌停，但日常波动监控仍需这些阈值；
+    // 原实现把 ±5%/±7% 也包在 limit>0 内，港股被整体跳过）
+    if (settings.notifyUp7 && changePct >= 7) {
+      triggeredTypes.push("+7%");
+    } else if (settings.notifyUp5 && changePct >= 5) {
+      triggeredTypes.push("+5%");
+    }
+    if (settings.notifyDown7 && changePct <= -7) {
+      triggeredTypes.push("-7%");
+    } else if (settings.notifyDown5 && changePct <= -5) {
+      triggeredTypes.push("-5%");
     }
 
     // ── 快速拉升 / 快速下跌检测 ──
