@@ -111,7 +111,7 @@ async function teardownGlobalShortcuts() {
 const {
   watchlist, searchQuery, selectedStock, filteredWatchlist,
   selectStock: rawSelectStock,
-  isInWatchlist, addToWatchlist, removeFromWatchlist, updateWatchlistQuote,
+  isInWatchlist, toggleWatchlist, addToWatchlist, removeFromWatchlist, updateWatchlistQuote,
 } = useWatchlist();
 
 const { loadQuote, loadQuotesBatch } = useQuoteLoader();
@@ -257,48 +257,20 @@ function onIndustryModalOpen() {
   }
 }
 
-// ---- 移除自选确认弹窗 ----
-// 自选删除不自动清理均线提醒配置（配置独立持久化），故弹窗询问是否一并清除
-const pendingRemoveStock = ref(null);
-/** 待移除股票是否已配置均线提醒 */
-const pendingHasMaAlerts = computed(() => {
-  const code = pendingRemoveStock.value?.code;
-  return !!code && !!maAlerts.value[code]?.periods?.length;
-});
-
-/** 从自选移除时弹窗确认（同步删除 AI 对话记录；可选一并清除均线提醒） */
+/** 从自选移除时同步删除 AI 对话记录，并静默清除该股均线提醒配置 */
 function handleRemoveFromWatchlist(code) {
-  const stock = watchlist.value.find((s) => s.code === code);
-  pendingRemoveStock.value = stock ? { code, name: stock.name } : { code, name: code };
-}
-
-function cancelRemove() {
-  pendingRemoveStock.value = null;
-}
-
-/** 仅移除自选（保留均线提醒配置） */
-function confirmRemoveOnly() {
-  const { code } = pendingRemoveStock.value;
   removeFromWatchlist(code);
   deleteStockMessages(code);
-  pendingRemoveStock.value = null;
-}
-
-/** 移除自选并一并删除该股均线提醒配置 */
-function confirmRemoveWithAlerts() {
-  const { code } = pendingRemoveStock.value;
   removeConfig(code);
-  removeFromWatchlist(code);
-  deleteStockMessages(code);
-  pendingRemoveStock.value = null;
 }
 
-/** 详情页星标切换：取消自选时同样走确认弹窗 */
+/** 详情页星标切换：取消自选时静默连带清除该股均线提醒配置 */
 function handleToggleWatchlist(stock) {
   if (isInWatchlist(stock.code)) {
-    handleRemoveFromWatchlist(stock.code);
+    removeConfig(stock.code);
+    toggleWatchlist(stock);
   } else {
-    addToWatchlist(stock);
+    toggleWatchlist(stock);
   }
 }
 
@@ -630,38 +602,6 @@ onUnmounted(() => {
       :show="showSettingsModal"
       @close="closeSettingsModal"
     />
-
-    <!-- 移除自选确认弹窗（询问是否一并清除均线提醒） -->
-    <Teleport to="body">
-      <div v-if="pendingRemoveStock" class="remove-confirm-overlay" @click.self="cancelRemove">
-        <div class="remove-confirm-card">
-          <div class="remove-confirm-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
-              <path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-          </div>
-          <p class="remove-confirm-title">移除自选</p>
-          <p class="remove-confirm-message">
-            确定从自选中移除「{{ pendingRemoveStock.name }} ({{ pendingRemoveStock.code }})」吗？
-          </p>
-          <p v-if="pendingHasMaAlerts" class="remove-confirm-warning">
-            ⚠️ 该股已配置均线提醒，不会随自选删除而失效
-          </p>
-          <div class="remove-confirm-actions">
-            <button class="remove-confirm-btn remove-confirm-btn-cancel" @click="cancelRemove">取消</button>
-            <button class="remove-confirm-btn remove-confirm-btn-primary" @click="confirmRemoveOnly">仅移除自选</button>
-            <button
-              v-if="pendingHasMaAlerts"
-              class="remove-confirm-btn remove-confirm-btn-danger"
-              @click="confirmRemoveWithAlerts"
-            >
-              同时删除均线提醒
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -705,120 +645,5 @@ onUnmounted(() => {
     padding: 10px 10px;
     gap: 10px;
   }
-}
-
-/* ===== 移除自选确认弹窗 ===== */
-.remove-confirm-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1100;
-  animation: fadeIn 0.15s ease;
-}
-
-.remove-confirm-card {
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
-  padding: 28px 32px 24px;
-  width: 380px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  box-shadow: var(--shadow-modal);
-  animation: scaleIn 0.18s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes scaleIn {
-  from { transform: scale(0.92); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
-}
-
-.remove-confirm-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--red);
-  background: var(--red-bg);
-}
-
-.remove-confirm-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.remove-confirm-message {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  text-align: center;
-}
-
-.remove-confirm-warning {
-  font-size: 12px;
-  color: var(--red);
-  background: var(--red-bg);
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
-  line-height: 1.5;
-}
-
-.remove-confirm-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-  margin-top: 4px;
-}
-
-.remove-confirm-btn {
-  width: 100%;
-  padding: 10px 20px;
-  border: none;
-  border-radius: var(--radius-full);
-  font-size: 14px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.remove-confirm-btn-cancel {
-  background: var(--fog);
-  color: var(--text-secondary);
-}
-.remove-confirm-btn-cancel:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.remove-confirm-btn-primary {
-  background: var(--rust);
-  color: #fff;
-}
-.remove-confirm-btn-primary:hover {
-  background: #4a2215;
-}
-
-.remove-confirm-btn-danger {
-  background: var(--red);
-  color: #fff;
-}
-.remove-confirm-btn-danger:hover {
-  background: #c0392b;
 }
 </style>
