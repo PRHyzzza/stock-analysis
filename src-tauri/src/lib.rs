@@ -102,6 +102,7 @@ pub fn run() {
             commands::get_iwencai_robot,
             commands::get_app_version,
             commands::check_for_update,
+            commands::get_market_treemap,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

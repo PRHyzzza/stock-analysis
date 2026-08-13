@@ -144,3 +144,43 @@ pub struct HotListData {
     pub stock_list: Vec<HotStockItem>,
 }
 
+/// 大盘云图 — 个股节点(面积=流通市值, 颜色=涨跌幅)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TreemapStock {
+    pub code: String,
+    pub name: String,
+    pub value: f64,   // 流通市值(百万元)
+    pub price: f64,   // 现价
+    pub chg: f64,     // 涨跌幅 %
+}
+
+/// 大盘云图 — 细分行业节点
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TreemapSector {
+    pub code: String,
+    pub name: String,
+    pub value: f64,   // 市值合计(百万元)
+    pub chg: f64,     // 加权涨跌幅 %
+    pub stocks: Vec<TreemapStock>,
+}
+
+/// 大盘云图 — 一级行业节点
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TreemapIndustry {
+    pub code: String,
+    pub name: String,
+    pub value: f64,   // 市值合计(百万元)
+    pub chg: f64,     // 加权涨跌幅 %
+    pub sectors: Vec<TreemapSector>,
+}
+
+/// 大盘云图完整数据
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MarketTreemap {
+    pub time: String,   // 行情时间 "2026-08-13 16:40"
+    pub up: u32,        // 上涨家数
+    pub flat: u32,      // 平盘家数
+    pub down: u32,      // 下跌家数
+    pub industries: Vec<TreemapIndustry>,
+}
+

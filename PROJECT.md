@@ -12,15 +12,15 @@ stock-analysis/
 │   ├── main.js / App.vue
 │   ├── assets/      main.css (设计 token) + modal.css (弹窗共享样式)
 │   ├── components/  布局/列表/详情/弹窗/迷你窗口 + settings/(5 标签页) + ai/(4 子组件)
-│   ├── composables/ 22 个 — 数据加载 / 纯计算 / 状态持久化（见 §3.1）
+│   ├── composables/ 23 个 — 数据加载 / 纯计算 / 状态持久化（见 §3.1）
 │   ├── skills/      AI Agent 工具系统 — 10 个 skill / 13 个工具（见 §3.2）
 │   ├── prompts/     system-prompt.md
 │   └── utils/       format.js / limit.js（涨跌停幅度按板块判断）
 ├── src-tauri/                  ← Rust 后端
 │   └── src/
-│       ├── main.rs / lib.rs / commands.rs（19 个命令）
+│       ├── main.rs / lib.rs / commands.rs（20 个命令）
 │       ├── types.rs / helpers.rs
-│       └── api/       tencent / eastmoney / hotlist / llm / web / iwencai
+│       └── api/       tencent / eastmoney / hotlist / llm / web / iwencai / treemap
 └── public/
 ```
 
@@ -38,6 +38,7 @@ App.vue ──调用──> composables/useXxx.js
                           ──> api/llm.rs        (DeepSeek SSE)
                           ──> api/web.rs        (搜索 + 正文提取)
                           ──> api/iwencai.rs    (问财选股)
+                          ──> api/treemap.rs    (52etf 行业树 + jrj 行情)
 ```
 
 模式：每个 composable 返回 `{ data, loading, load(), ... }`，`App.vue` 统一调用，通过 props 下发。
@@ -63,6 +64,7 @@ App.vue ──调用──> composables/useXxx.js
 | `usePositions.js` | 持仓管理 + 盈亏（含港币→人民币汇率换算，失败回退缓存值） | `get_fx_rate` |
 | `useUserProfile.js` | 用户画像读写 | `read_user_profile` / `save_user_profile` |
 | `useIwencaiRobot.js` | 问财自然语言选股（chameleon.js 在 WebView 生成 Cookie v；perpage=50，403 风控自动换 v 重试） | `get_iwencai_robot` |
+| `useMarketTreemap.js` | 大盘云图数据（行业树+实时行情合并，8s 轮询，防重入） | `get_market_treemap` |
 
 **纯前端计算**
 
@@ -104,7 +106,7 @@ App.vue ──调用──> composables/useXxx.js
 | `UserContext.js` | `read_user_profile` / `save_user_profile` / `get_fx_rate` |
 | `TradeRules.js` | 无工具，纯提示词：A 股十大祖训交易决策规则集（风控触发项/条件审核项/硬性约束项 + 决策权重评分表），约束所有 AI 入口的操作建议逻辑 |
 
-> 19 个命令中，`call_llm` / `call_llm_stream`（AI 自身）、`get_stock_quotes_batch` / `get_iwencai_robot` / `get_app_version` / `check_for_update`（前端专用）未开放为 AI 工具，其余 13 个已开放。
+> 20 个命令中，`call_llm` / `call_llm_stream`（AI 自身）、`get_stock_quotes_batch` / `get_iwencai_robot` / `get_market_treemap` / `get_app_version` / `check_for_update`（前端专用）未开放为 AI 工具，其余 13 个已开放。
 
 ### 3.3 核心子系统
 
@@ -120,12 +122,13 @@ App.vue ──调用──> composables/useXxx.js
 - **系统托盘**: 主窗口关闭按钮 → 隐藏到托盘；托盘菜单「显示主窗口 / 退出」
 - **迷你置顶模式**: 无边框置顶小窗（`?mini=1`），自选股 10s 刷新，双击行联动主窗口选中
 - **问财选股窗口**: 独立窗口（`?iwencai=1`），自然语言选股，点击结果联动主窗口并自动关闭；**本地分页**（免费接口忽略 page 参数，perpage=50 一次拉取、前端每页 20 行切片，翻页零请求）
+- **大盘云图窗口**: 独立窗口（`?treemap=1`，标题栏按钮打开），A 股行业热力图（参考 52etf.site）：行业→细分→个股三层 squarify 布局（自实现，面积=流通市值），Canvas 渲染 + 41 色涨跌渐变（红涨绿跌 ±4%），悬停 tooltip（现价/涨跌幅/市值），8s 轮询刷新，双击个股色块联动主窗口选中；Rust 端行业树 1h 缓存 + 行情 3s 缓存
 
 ---
 
 ## 4. Rust 后端
 
-### 4.1 Tauri 命令（19 个）
+### 4.1 Tauri 命令（20 个）
 
 | 命令 | 数据源 | 说明 |
 |------|--------|------|
@@ -146,6 +149,7 @@ App.vue ──调用──> composables/useXxx.js
 | `web_fetch` | 目标 URL | 网页抓取（JSON-LD→转义HTML→正文容器→meta 四级提取，限 50000 字符） |
 | `get_fx_rate` | Frankfurter API | 港元兑人民币汇率 |
 | `get_iwencai_robot` | 问财 get-robot-data | 自然语言选股（需 Cookie v + 浏览器 UA/Referer/Origin；page 参数服务端忽略，perpage 上限 100） |
+| `get_market_treemap` | 52etf.site + jrj | 大盘云图：行业树（WAF 需 `Origin: https://52etf.site` + `x-52etf-site-request: 1` 头，见 §4.2）合并实时行情（POST quot-dpyt/hq，key 首位 1=SH/0|2=SZ），市值加权涨跌幅 + 涨/平/跌家数 |
 | `get_app_version` | 本地 | 当前应用版本（CARGO_PKG_VERSION） |
 | `check_for_update` | GitHub API | 检查最新 Release（语义化版本比较；直连失败自动回退系统代理，适配国内网络） |
 
@@ -159,6 +163,7 @@ App.vue ──调用──> composables/useXxx.js
 | `llm.rs` | UTF-8 | OpenAI 兼容；V4 工具调用需回传 `reasoning_content`；SSE 按字节累积、`b"\n\n"` 切分后解码 |
 | `web.rs` | UTF-8（自动解码 GBK） | 东财搜索 API（**sort=default 相关性排序**，sort=time 会返回无关新闻）；正文提取四级降级；反爬站过滤（zhihu/baike 等 8 个）；`site:域名` 本地过滤 |
 | `iwencai.rs` | UTF-8 | 响应路径 `data.answer[0].txt[0].content.components[0].data`；meta.extra 含 row_count/token/condition；**风控：同 v 连续 4-6 次请求 → Nginx 403（换新 v 恢复）；携带 condition 参数必 403** |
+| `treemap.rs` | UTF-8 | 52etf treemap 接口 **WAF 双重校验：① Origin 必须是 `https://52etf.site`（或 Referer 指向该站，其他 Origin 一律 403）② 必须带 `x-52etf-site-request: 1` 自定义头，缺一即 403**（不校验 TLS 指纹/UA）；市值单位百万元（前端 /10000 得亿）；jrj quot-dpyt/hq 无风控；均带内存缓存（树 1h / 行情 3s） |
 
 ### 4.3 代码转换 (helpers.rs)
 

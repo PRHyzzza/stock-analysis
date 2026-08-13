@@ -4,7 +4,10 @@ pub mod hotlist;
 pub mod iwencai;
 pub mod llm;
 pub mod tencent;
+pub mod treemap;
 pub mod web;
+
+pub use treemap::fetch_market_treemap;
 
 use std::sync::OnceLock;
 use std::time::Duration;

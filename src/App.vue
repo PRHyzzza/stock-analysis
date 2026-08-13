@@ -41,6 +41,8 @@ const sidebarView = ref("watchlist");
 const isMiniMode = new URLSearchParams(window.location.search).has("mini");
 // 问财选股窗口以 ?iwencai=1 参数加载同一前端，渲染独立选股界面
 const isIwencaiMode = new URLSearchParams(window.location.search).has("iwencai");
+// 大盘云图窗口以 ?treemap=1 参数加载同一前端，渲染 A 股热力图
+const isTreemapMode = new URLSearchParams(window.location.search).has("treemap");
 const appWindow = getCurrentWindow();
 
 /** 打开/聚焦迷你盯盘小窗 */
@@ -80,12 +82,30 @@ async function openIwencaiWindow() {
   });
 }
 
+/** 打开/聚焦大盘云图窗口 */
+async function openTreemapWindow() {
+  const existing = await WebviewWindow.getByLabel("treemap");
+  if (existing) {
+    existing.setFocus();
+    return;
+  }
+  await new WebviewWindow("treemap", {
+    url: `${window.location.origin}${window.location.pathname}?treemap=1`,
+    title: "大盘云图",
+    width: 1280,
+    height: 800,
+    minWidth: 720,
+    minHeight: 480,
+    resizable: true,
+  });
+}
+
 // 自选列表组件引用（Ctrl+K 聚焦搜索框用）
 const stockListRef = ref(null);
 
 /** 注册全局快捷键：Ctrl+K 搜索 / Ctrl+N 打开全局 AI */
 async function setupGlobalShortcuts() {
-  if (isMiniMode || isIwencaiMode) return; // 子窗口不注册
+  if (isMiniMode || isIwencaiMode || isTreemapMode) return; // 子窗口不注册
   try {
     await register("CommandOrControl+K", () => {
       stockListRef.value?.focusSearch();
@@ -334,7 +354,7 @@ let intradayTimer;
 
 /** 重新设置所有定时器（设置变更时调用） */
 function rescheduleTimers() {
-  if (isMiniMode || isIwencaiMode) return; // 子窗口自带独立刷新逻辑
+  if (isMiniMode || isIwencaiMode || isTreemapMode) return; // 子窗口自带独立刷新逻辑
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -361,9 +381,10 @@ function rescheduleTimers() {
 let unlistenMiniSelect = null;
 let unlistenIwencaiSelect = null;
 let unlistenIwencaiAdd = null;
+let unlistenTreemapSelect = null;
 
 onMounted(() => {
-  if (isMiniMode || isIwencaiMode) return; // 子窗口不执行主窗口逻辑（自带独立刷新）
+  if (isMiniMode || isIwencaiMode || isTreemapMode) return; // 子窗口不执行主窗口逻辑（自带独立刷新）
 
   document.addEventListener("keydown", onKeydown);
   // 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI）
@@ -396,6 +417,13 @@ onMounted(() => {
       refreshAllQuotes();
     }
   }).then((fn) => { unlistenIwencaiAdd = fn; });
+  // 大盘云图窗口双击色块 → 主窗口联动选中（股票可能不在自选列表，走问财同款全量加载）
+  listen("treemap-select-stock", (e) => {
+    if (e.payload?.code) {
+      selectIwencaiStock(e.payload);
+      appWindow.setFocus();
+    }
+  }).then((fn) => { unlistenTreemapSelect = fn; });
   // 拉取港元兑人民币汇率
   invoke("get_fx_rate").then((rate) => setFxRate(rate)).catch(() => {});
   // 加载用户画像
@@ -459,12 +487,13 @@ async function refreshAllQuotes() {
 }
 
 onUnmounted(() => {
-  if (isMiniMode || isIwencaiMode) return;
+  if (isMiniMode || isIwencaiMode || isTreemapMode) return;
   document.removeEventListener("keydown", onKeydown);
   teardownGlobalShortcuts();
   if (unlistenMiniSelect) unlistenMiniSelect();
   if (unlistenIwencaiSelect) unlistenIwencaiSelect();
   if (unlistenIwencaiAdd) unlistenIwencaiAdd();
+  if (unlistenTreemapSelect) unlistenTreemapSelect();
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -479,9 +508,12 @@ onUnmounted(() => {
   <!-- 问财选股窗口（?iwencai=1 参数加载） -->
   <IwencaiWindow v-else-if="isIwencaiMode" />
 
+  <!-- 大盘云图窗口（?treemap=1 参数加载） -->
+  <TreemapWindow v-else-if="isTreemapMode" />
+
   <div v-else class="app">
     <!-- 自定义标题栏 -->
-    <TitleBar @open-mini="openMiniWindow" />
+    <TitleBar @open-mini="openMiniWindow" @open-treemap="openTreemapWindow" />
 
     <!-- 指数栏 -->
     <MarketHeader

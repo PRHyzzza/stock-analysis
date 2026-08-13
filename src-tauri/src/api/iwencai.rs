@@ -170,39 +170,3 @@ pub async fn fetch_iwencai_robot(
         question: question.to_string(),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::fetch_iwencai_robot;
-
-    /// 真实接口集成测试（需要有效 v，手动运行：cargo test -p stock-analysis -- --ignored）
-    /// v 由 scripts/run-chameleon.cjs 生成，或浏览器执行 public/chameleon.js 后从 document.cookie 读取
-    #[tokio::test]
-    #[ignore]
-    async fn test_fetch_iwencai_robot_real() {
-        let v = std::env::var("IWENCAI_V").expect("需要设置 IWENCAI_V 环境变量（有效 v cookie）");
-        let result = fetch_iwencai_robot(
-            "非ST，现价与一年内最低价比从小到大排列，(9:25分至9:40分成交量÷自由流通股×100)>2，实际换手率,现价>开盘价，现价>均价,量比>1,5日均价/20日均价>1,5天日均成交量/20天日均成交量>1,3天内无涨停，集中度变小，二季报盈利或二季报预告盈利或年报盈利，现价与一年内最低价比从小到大排列，市值大于50亿",
-            1,
-            5,
-            &v,
-            "0ac9879417859978476843866",
-        )
-        .await;
-        match result {
-            Ok(data) => {
-                println!("OK columns={} rows={} row_count={} condition_len={}", data.columns.len(), data.datas.len(), data.row_count, data.condition.len());
-                for col in &data.columns {
-                    print!("{} | ", col.name);
-                }
-                println!();
-                if let Some(row) = data.datas.first() {
-                    println!("first row: {:?}", row);
-                }
-                assert!(!data.columns.is_empty());
-                assert!(!data.datas.is_empty());
-            }
-            Err(e) => panic!("请求失败: {}", e),
-        }
-    }
-}
