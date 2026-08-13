@@ -86,7 +86,7 @@ App.vue ──调用──> composables/useXxx.js
 | `llmClient.js` | SSE 流式 LLM 客户端（每次调用唯一 streamId，按事件 id 过滤防并发串流） |
 | `fetcher.js` | `createDataFetcher()` 工厂函数 |
 
-### 3.2 Skills（AI 工具系统，10 个 skill / 13 个工具）
+### 3.2 Skills（AI 工具系统，11 个 skill / 13 个工具）
 
 `index.js` 注册器合并所有 skill 的 `tools` / `toolImpl` / `systemPrompt`。新增 skill: 创建文件 → 加入 `SKILLS` 数组 → 自动生效。
 
@@ -102,6 +102,7 @@ App.vue ──调用──> composables/useXxx.js
 | `MarketOverview.js` | `get_hot_list` |
 | `StockSearch.js` | `search_stocks` |
 | `UserContext.js` | `read_user_profile` / `save_user_profile` / `get_fx_rate` |
+| `TradeRules.js` | 无工具，纯提示词：A 股十大祖训交易决策规则集（风控触发项/条件审核项/硬性约束项 + 决策权重评分表），约束所有 AI 入口的操作建议逻辑 |
 
 > 19 个命令中，`call_llm` / `call_llm_stream`（AI 自身）、`get_stock_quotes_batch` / `get_iwencai_robot` / `get_app_version` / `check_for_update`（前端专用）未开放为 AI 工具，其余 13 个已开放。
 
