@@ -1,7 +1,7 @@
 import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getMergedTools, getMergedToolImpl, getToolImpl, getMergedSystemPrompt } from "../skills/index.js";
-import { buildSystemPrompt, serializeContext } from "./aiContext.js";
+import { buildSystemPrompt, serializeContext, MARKET_RULES } from "./aiContext.js";
 import { callLlmStream } from "./llmClient.js";
 import { useUserProfileSingleton } from "./useUserProfile.js";
 import { useSettings } from "./useSettings.js";
@@ -72,6 +72,8 @@ function trimMessagesToBudget(messages, maxChars = 6000) {
 function buildGlobalSystemPrompt(userProfile, currentStock = null, contextData = null, webSearchEnabled = true) {
   const skillsPrompt = (() => { try { return getMergedSystemPrompt({ excludeSkills: webSearchEnabled ? [] : ["web-search"] }); } catch { return ""; } })();
   const preloaded = contextData ? serializeContext(contextData) : "";
+  // 全局 AI 同样注入北京时间（模型需要知道"今天"才能判断新闻新旧）
+  const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
 
   return `你是一个专业的 A 股 + 港股投资分析助手。你可以帮助用户：
 - 查询任意 A 股 / 港股股票的实时行情、K 线数据、资金流向
@@ -79,17 +81,14 @@ function buildGlobalSystemPrompt(userProfile, currentStock = null, contextData =
 - 分析行业板块、大盘指数走势
 - 回答投资相关的各类问题
 
+当前北京时间：${beijingTime}
+
 ## 可用工具
 你拥有以下工具可以调用：
 ${skillsPrompt}
 
 ## 联网搜索${webSearchEnabled ? `
-联网搜索已开启。**回答任何问题前，先搜索再回答**，流程如下：
-1. **想关键词**：把问题拆成 2-3 组**实词**关键词（如「茅台怎么样」→「贵州茅台 批价」「贵州茅台 中报」）
-2. **搜索**：调用 \`web_search\` 获取最新新闻/公告/政策；搜不到换通用说法重试，最多 2 次
-3. **叠加软件数据**：再调用本地工具获取实时数据（个股→\`get_stock_quote\`/\`get_stock_kline\`/\`get_stock_money_flow\`，大盘→\`get_market_indices\`）
-4. **综合回答**：搜索信息 + 实时数据结合，标注来源；两者矛盾以实时数据为准
-⚠️ **关键词铁律**：搜索词只用实词（实体+维度+年份），**禁止**「最新消息/最新新闻/怎么样/如何/情况/动态」等泛词——泛词会导致搜索返回无关新闻` : `
+联网搜索已开启。遵循下方《联网搜索能力》规则：先拆实词关键词搜索、再叠加本地工具数据、最后综合回答（标注来源）；关键词只用实词，禁用泛词。搜不到就明确告知，不要编造新闻内容。` : `
 联网搜索已关闭，不要尝试调用搜索工具，直接使用本地工具与已有知识回答。`}
 
 ## 用户画像
@@ -103,10 +102,7 @@ ${preloaded}
 **注意**：以上大盘指数、持仓及热榜股票数据已随对话预加载。用户询问大盘环境、指数走势、持仓情况或热榜选股时，直接使用这些数据回答，无需重复调用工具。若热榜数据存在，请基于预加载的热榜行情与资金流数据综合分析哪些股票值得买入。
 ` : ""}
 
-## A 股交易制度
-- **T+1**：当日买入次日才能卖出
-- **涨跌停**：主板 ±10%，创业板/科创板 ±20%，北交所 ±30%
-- **特殊标识**：ST/*ST（风险警示）、N（新股首日）、C（上市次日至第5日）、U（科创板未盈利）
+${MARKET_RULES.A}
 
 ## 港股交易制度
 - **T+0**：当日买入可当日卖出，无涨跌停限制
@@ -115,11 +111,12 @@ ${preloaded}
 - **货币**：港元 (HKD) 计价
 
 ## 注意事项
+- **数据必须真实（最高优先级）**：所有价格、涨跌幅、资金、财务数值必须来自工具返回结果，不得编造或推测；工具失败时明确告知「数据获取失败」
 - 数据仅供参考，不构成投资建议
 - 分析股票时调用工具获取实时数据，通用知识可直接回答
 - 港股以港元计价，分析时注意货币单位
 - 用户输入 @代码（如 @600519）时，该股票行情已注入上下文，优先直接分析
-- 用中文回复，简洁专业`;
+- 用中文回复：常规问答 300 字以内；用户要求详细分析时可放宽至 600-800 字，选 2 个最相关维度深入`;
 }
 
 // ============ Composable ============
@@ -187,12 +184,20 @@ export function useAiAnalysis(globalMode = false) {
   // 后台画像更新串行链：并发更新会"先读后写"交错导致画像增量互相覆盖，
   // 串行化保证每次写回都基于最新画像（后一次覆盖前一次，语义正确）
   let profileUpdateChain = Promise.resolve();
+  // 画像更新节流：10 分钟内最多 1 次（每轮对话都调 LLM 更新画像成本高，
+  // 且大部分轮次无新信息）；极短消息（"继续/展开"等）无增量信息，跳过
+  let lastProfileUpdateAt = 0;
 
   /**
    * 后台异步更新用户画像：用非流式调用让 AI 总结本轮对话，增量更新画像
    * 失败静默处理，不影响主流程
    */
   function updateUserProfileBackground(userText, aiResponse) {
+    const now = Date.now();
+    if (now - lastProfileUpdateAt < 10 * 60 * 1000) return Promise.resolve();
+    if (!userText || userText.trim().length <= 10) return Promise.resolve();
+    lastProfileUpdateAt = now;
+
     profileUpdateChain = profileUpdateChain
       .then(async () => {
         const { profileContent, saveProfile } = useUserProfileSingleton();

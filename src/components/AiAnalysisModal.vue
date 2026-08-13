@@ -6,6 +6,7 @@ import AiChatMessages from "./ai/AiChatMessages.vue";
 import AiChatFooter from "./ai/AiChatFooter.vue";
 import AiModelControls from "./ai/AiModelControls.vue";
 import { calcChipDistribution } from "../composables/useChipDistribution";
+import { calcMACD, calcKDJ, calcRSI, calcWR, calcMATrend, getCrossSignal } from "../composables/useTechIndicators";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -84,6 +85,8 @@ async function handleSend() {
       indices: props.indices,
       chipData,
       positions: props.positions,
+      // 预计算技术指标：系统算好最新值/信号注入上下文，避免模型手算 EMA 递归出错
+      indicators: calcIndicators(props.klineData),
     };
     await sendMessage(text, props.selectedStock, contextData);
   } catch (e) {
@@ -91,6 +94,32 @@ async function handleSend() {
       showApiKeyInput.value = true;
     }
   }
+}
+
+/**
+ * 预计算技术指标（最新值 + 交叉信号）
+ * 返回 null 表示 K 线数据不足，不注入
+ */
+function calcIndicators(klineData) {
+  if (!klineData || klineData.length < 26) return null;
+  const closes = klineData.map((k) => k.close);
+  const macdArr = calcMACD(closes);
+  const kdjArr = calcKDJ(klineData);
+  const rsiArr = calcRSI(closes);
+  const wrArr = calcWR(klineData);
+  const ma = calcMATrend(closes);
+  const round2 = (v) => (v == null ? null : Math.round(v * 100) / 100);
+  return {
+    均线: Object.fromEntries(Object.entries(ma).map(([k, v]) => [`MA${k}`, round2(v)])),
+    MACD: macdArr.length
+      ? { DIF: round2(macdArr[macdArr.length - 1].dif), DEA: round2(macdArr[macdArr.length - 1].dea), 柱: round2(macdArr[macdArr.length - 1].macd), 信号: getCrossSignal(macdArr, "dif", "dea") || "无" }
+      : null,
+    KDJ: kdjArr.length
+      ? (() => { const v = kdjArr[kdjArr.length - 1]; return { K: round2(v.k), D: round2(v.d), J: round2(v.j) }; })()
+      : null,
+    RSI14: rsiArr.length ? round2(rsiArr[rsiArr.length - 1]) : null,
+    WR14: wrArr.length ? round2(wrArr[wrArr.length - 1]) : null,
+  };
 }
 
 function handleClear() {

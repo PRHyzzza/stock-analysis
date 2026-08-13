@@ -3,7 +3,39 @@
  * 负责将预加载数据序列化为系统提示词上下文
  */
 import systemPromptTemplate from "../prompts/system-prompt.md?raw";
-import { getMergedTools, getMergedSystemPrompt } from "../skills/index.js";
+import { getMergedSystemPrompt } from "../skills/index.js";
+
+/**
+ * 公共提示词片段（个股 AI 与全局 AI 共用，避免两处重复维护）
+ */
+
+/** 市场交易规则（按市场选择） */
+export const MARKET_RULES = {
+  HK: `## 港股市场须知
+- **交易制度**：港股实行 T+0 交易，当日买入可当日卖出
+- **无涨跌停限制**：港股不设涨跌停板，价格可大幅波动
+- **交易时段**：早市 9:30-12:00，午市 13:00-16:00（全日交易）
+- **交收制度**：T+2 交收（交易日后的第二个工作日完成资金与股票交割）
+- **货币单位**：以港元 (HKD) 计价
+- **费用结构**：涉及印花税、交易征费、交易费等多个项目，成本高于 A 股`,
+  A: `## A 股市场须知
+- **交易制度**：A 股实行 T+1 交易，当日买入次日才能卖出
+- **涨跌停限制**：主板 ±10%，创业板 ±20%，科创板 ±20%，北交所 ±30%，退市整理期 ±10%
+- **交易时段**：集合竞价 9:15-9:25，连续竞价 9:30-11:30、13:00-15:00
+- **特殊标识**：ST/*ST 为风险警示股，N 为新股首日，C 为上市次日至第 5 日，U 为科创板未盈利
+- **关键资金指标**：北向资金（沪深港通）是 A 股重要的外资风向标（当前无北向实时数据源，勿给出具体数值）`,
+};
+
+/** 联网搜索策略（完整四步流程见 WebSearch skill 的《联网搜索能力》，此处只留指引指针） */
+export function buildSearchPolicy(webSearchEnabled) {
+  return webSearchEnabled
+    ? `
+## 联网搜索
+联网搜索已开启。遵循下方《联网搜索能力》规则执行：先拆实词关键词搜索、再叠加本地工具数据、最后综合回答（标注来源）；关键词只用实词，禁用「最新消息/怎么样」等泛词。`
+    : `
+## 联网搜索
+联网搜索已关闭，不要尝试调用搜索工具，直接使用本地工具与已有知识回答。`;
+}
 
 /**
  * 计算移动平均线
@@ -33,16 +65,23 @@ export function serializeContext(contextData) {
 
   if (contextData.klineData && Array.isArray(contextData.klineData) && contextData.klineData.length > 0) {
     const recent = contextData.klineData.slice(-30);
+    // 只注入 MA 最新值（注入整条 MA 序列会浪费数千 token，模型只需最新值判断位置关系）
     const maPeriods = [5, 10, 20, 30, 60];
     const maData = {};
     for (const p of maPeriods) {
       if (contextData.klineData.length >= p) {
         const maValues = computeMA(contextData.klineData, p);
-        maData[`MA${p}`] = maValues.slice(-30);
+        const latest = maValues[maValues.length - 1];
+        maData[`MA${p}`] = latest ? latest.value : null;
       }
     }
     parts.push(`## 预加载 K 线数据（最近 ${recent.length} 根日K，已包含在上下文中无需重新调用工具）\n${JSON.stringify(recent, null, 2)}`);
-    parts.push(`## 预计算移动平均线（MA）\n${JSON.stringify(maData, null, 2)}\n（说明：以上为系统预计算的 MA5/MA10/MA20/MA30/MA60 值，你可以直接使用，无需自己计算。）`);
+    parts.push(`## 预计算移动平均线（MA 最新值，系统计算，直接引用）\n${JSON.stringify(maData, null, 2)}\n（说明：以上为系统预计算的 MA5/MA10/MA20/MA30/MA60 最新值，你可以直接使用，无需自己计算。）`);
+  }
+
+  // 预计算技术指标（MACD/KDJ/RSI/WR 最新值与信号，系统计算避免模型手算出错）
+  if (contextData.indicators) {
+    parts.push(`## 预计算技术指标（系统计算，直接引用，无需自行计算）\n${JSON.stringify(contextData.indicators, null, 2)}`);
   }
 
   if (contextData.moneyFlow) {
@@ -135,23 +174,10 @@ export function serializeContext(contextData) {
  */
 export function buildSystemPrompt(currentStock, contextData, userProfile, webSearchEnabled = true) {
   const exclude = webSearchEnabled ? [] : ["web-search"];
-  const TOOLS = getMergedTools({ excludeSkills: exclude });
   const skillsPrompt = getMergedSystemPrompt({ excludeSkills: exclude });
 
-  // 联网搜索策略（所有 AI 入口统一：开启 → 先搜索再回答；关闭 → 明确不搜索）
-  const searchPolicy = webSearchEnabled
-    ? `
-## 联网搜索
-联网搜索已开启。**回答任何问题前，先搜索再回答**，流程如下：
-1. **想关键词**：把问题拆成 2-3 组实词关键词（如「茅台怎么样」→「贵州茅台 最新消息」）
-2. **搜索**：调用 \`web_search\` 获取最新新闻/公告/政策；搜不到换通用说法重试，最多 2 次
-3. **叠加软件数据**：再调用本地工具获取实时数据（个股→\`get_stock_quote\`/\`get_stock_kline\`/\`get_stock_money_flow\`，大盘→\`get_market_indices\`）
-4. **综合回答**：搜索信息 + 实时数据结合，标注来源；两者矛盾以实时数据为准
-`
-    : `
-## 联网搜索
-联网搜索已关闭，不要尝试调用搜索工具，直接使用本地工具与已有知识回答。
-`;
+  // 联网搜索策略（完整流程在 WebSearch skill 内，此处为指引指针，避免重复）
+  const searchPolicy = buildSearchPolicy(webSearchEnabled);
 
   // 北京时间（始终计算，每次请求都附带最新时间）
   const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
@@ -180,20 +206,8 @@ export function buildSystemPrompt(currentStock, contextData, userProfile, webSea
 `;
   }
 
-  // 市场交易规则
-  const marketRules = isHK ? `## 港股市场须知
-- **交易制度**：港股实行 T+0 交易，当日买入可当日卖出
-- **无涨跌停限制**：港股不设涨跌停板，价格可大幅波动
-- **交易时段**：早市 9:30-12:00，午市 13:00-16:00（全日交易）
-- **交收制度**：T+2 交收（交易日后的第二个工作日完成资金与股票交割）
-- **货币单位**：以港元 (HKD) 计价
-- **费用结构**：涉及印花税、交易征费、交易费等多个项目，成本高于 A 股`
-    : `## A 股市场须知
-- **交易制度**：A 股实行 T+1 交易，当日买入次日才能卖出
-- **涨跌停限制**：主板 ±10%，创业板 ±20%，科创板 ±20%，北交所 ±30%，退市整理期 ±10%
-- **交易时段**：集合竞价 9:15-9:25，连续竞价 9:30-11:30、13:00-15:00
-- **特殊标识**：ST/*ST 为风险警示股，N 为新股首日，C 为上市次日至第 5 日，U 为科创板未盈利
-- **关键资金指标**：北向资金（沪深港通）是 A 股重要的外资风向标`;
+  // 市场交易规则（公共常量）
+  const marketRules = MARKET_RULES[isHK ? "HK" : "A"];
 
   // 预加载数据
   const preloadedData = serializeContext(contextData);
@@ -208,23 +222,24 @@ ${preloadedData}
 `
     : "";
 
-  // 工具列表
-  const toolsList = TOOLS.map(
-    (t) => `- \`${t.function.name}\` — ${t.function.description}`
-  ).join("\n");
-
   // 用户画像
   const profileSection = userProfile
     ? `\n## 用户画像\n${userProfile}\n\n> 画像仅作参考，回答时点到为止，不要复述画像内容。\n`
     : "";
 
-  return systemPromptTemplate
+  const prompt = systemPromptTemplate
     .replace("{{BEIJING_TIME}}", beijingTime)
     .replace("{{PRELOAD_SECTION}}", preloadSection)
-    .replace("{{TOOLS}}", toolsList)
     .replace("{{SKILL_PROMPTS}}", skillsPrompt)
     .replace("{{SEARCH_POLICY}}", searchPolicy)
     .replace("{{USER_PROFILE}}", profileSection)
     .replace("{{MARKET_RULES}}", marketRules)
     .replace("{{STOCK_CONTEXT}}", context);
+
+  // 占位符残留检查：拼写错误会原样漏进提示词且无提示，这里兜底告警
+  if (prompt.includes("{{")) {
+    const leftovers = prompt.match(/\{\{[A-Z_]+\}\}/g);
+    console.warn("system prompt 存在未替换占位符:", leftovers);
+  }
+  return prompt;
 }
