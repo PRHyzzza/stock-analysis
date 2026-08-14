@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { getLimitPct } from '../utils/limit'
+import { calcTrapSignals } from './useTrapSignals'
 
 /**
  * useT0Signals — 日内 T+0 交易信号系统（基于分时数据 + 日K趋势）
@@ -329,6 +330,27 @@ export function useT0Signals() {
       })
     }
 
+    // 5. 分时量价陷阱（诱多/诱空）：标记并入分时图，信号并入列表
+    const trapRes = calcTrapSignals(intradayData)
+    for (const t of trapRes.traps) {
+      signalList.push({
+        name: `${t.type === 'bull' ? '诱多' : '诱空'}·${t.name}`,
+        desc: t.desc,
+        action: t.action,
+        trap: true,
+        trapType: t.type,
+        severity: t.severity,
+        confirm: t.confirm,
+        time: t.time,
+      })
+    }
+    if (trapRes.traps.some((t) => t.type === 'bull')) {
+      risks.push('检测到诱多嫌疑（放量滞涨/冲高回落/尾盘虚拉），追高需极度谨慎')
+    }
+    if (trapRes.traps.some((t) => t.type === 'bear')) {
+      risks.push('检测到诱空嫌疑（急跌收复/低位反转），恐慌杀跌需谨慎')
+    }
+
     // ======== 方向判断 ========
     let direction = '观望'
     const directionReason = []
@@ -397,6 +419,12 @@ export function useT0Signals() {
         color: '#27ae60', shape: 'arrowUp', text: '偏离<-3%', size: 2,
       })
     }
+    // 量价陷阱标记（诱多红↓ / 诱空绿↑），与已有标记按 时间+文本 去重
+    for (const m of trapRes.markers) {
+      if (!markers.some((x) => x.time === m.time && x.text === m.text)) {
+        markers.push(m)
+      }
+    }
     signalMarkers.value = markers
 
     summary.value = {
@@ -412,6 +440,7 @@ export function useT0Signals() {
         trend: trendDir === 'up' ? '上升' : trendDir === 'down' ? '下降' : '横盘',
         changePct: changePct.toFixed(2),
         ma5, ma10, macdState, dataPoints: N,
+        trapCount: trapRes.traps.length,
       },
     }
   }
