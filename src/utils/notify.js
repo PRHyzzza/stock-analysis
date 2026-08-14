@@ -11,7 +11,7 @@ import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 const appWindow = getCurrentWindow();
 
 /** 确保通知权限已授予 */
-export async function ensureNotificationPermission() {
+async function ensureNotificationPermission() {
   let permitted = await isPermissionGranted();
   if (!permitted) {
     permitted = (await requestPermission()) === "granted";

@@ -30,7 +30,7 @@ export function isTradingHours(code) {
 }
 
 /** 距今 N 天前的日期字符串 YYYY-MM-DD（用于裁剪历史记录） */
-export function daysAgoISO(days) {
+function daysAgoISO(days) {
   return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 }
 

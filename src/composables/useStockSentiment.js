@@ -88,7 +88,7 @@ function hasNegationBefore(title, pos) {
  * 标题情绪分类：看多 / 看空 / 中性（观望）
  * @returns {"bullish"|"bearish"|"neutral"}
  */
-export function classifyTitle(title) {
+function classifyTitle(title) {
   const t = String(title || "").toLowerCase().trim();
   if (!t) return "neutral";
 

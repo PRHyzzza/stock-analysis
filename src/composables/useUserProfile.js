@@ -10,7 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
  *   3. 每轮对话结束后，自动调用 AI 更新画像（增量进化）
  *   4. saveProfile() 写入 user-profile.md 到 Tauri app data dir
  */
-export function useUserProfile() {
+function useUserProfile() {
   const profileContent = ref("");       // md 原文
   const loading = ref(false);
   const error = ref("");

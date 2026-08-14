@@ -16,7 +16,7 @@ stock-analysis/
 │   ├── App.vue / main.js      入口；App.vue 管窗口/定时器/跨窗口联动
 │   ├── assets/                main.css（设计 token）+ modal.css（弹窗样式）
 │   ├── components/            布局/列表/详情/弹窗/迷你窗 + settings/(5) + ai/(4)
-│   ├── composables/           28 个（§3.1）
+│   ├── composables/           29 个（§3.1）
 │   ├── skills/                13 skill / 17 工具（§3.2）
 │   ├── prompts/               system-prompt.md（AI 提示词模板，§3.4）
 │   └── utils/                 format.js / limit.js（涨跌停按板块）/ marketTime.js / notify.js / klineCache.js
@@ -38,7 +38,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 ## 3. 前端模块
 
-### 3.1 Composables（28 个）
+### 3.1 Composables（29 个）
 
 **数据加载（invoke 后端）**
 
@@ -80,7 +80,6 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `usePriceAlerts` | 自定义价格/条件提醒（突破/跌破目标价 + 可选放量 N×5日均量；一次性/每日两种模式；穿越检测基于价格快照，跨日重置基准） |
 | `aiMessageStore` | AI 消息按股票隔离持久化 |
 | `llmClient` | SSE 流式客户端（streamId 过滤 + 120s 超时） |
-| `fetcher` | `createDataFetcher()` 工厂（内置序号竞态） |
 
 **窗口与系统**
 

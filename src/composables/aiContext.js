@@ -27,7 +27,7 @@ export const MARKET_RULES = {
 };
 
 /** 联网搜索策略（完整四步流程见 WebSearch skill 的《联网搜索能力》，此处只留指引指针） */
-export function buildSearchPolicy(webSearchEnabled) {
+function buildSearchPolicy(webSearchEnabled) {
   return webSearchEnabled
     ? `
 ## 联网搜索

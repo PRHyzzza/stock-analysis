@@ -5,7 +5,7 @@
  * 包含：模型下拉选择器、思考链开关、推理深度选择器
  * 从 AiAnalysisModal.vue 分离，保持独立状态管理。
  */
-import { ref, onMounted, onUnmounted, watch } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useAiAnalysis } from "../../composables/useAiAnalysis.js";
 
 const {

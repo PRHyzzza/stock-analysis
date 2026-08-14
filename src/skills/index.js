@@ -19,7 +19,7 @@ import StockPicks from "./StockPicks.js";
 import SentimentAnalysis from "./SentimentAnalysis.js";
 
 /** 所有技能列表 */
-export const SKILLS = [
+const SKILLS = [
   StockQuote,
   KlineAnalysis,
   MoneyFlow,
