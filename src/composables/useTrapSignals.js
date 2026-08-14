@@ -63,13 +63,27 @@ export function calcTrapSignals(intradayData) {
   // 无任何量能数据时无法做量价判断，全部跳过
   if (mean(volumes) <= 0) return { traps, markers };
 
-  // 量能基准：全分量能中位数（稳健），异常时退化为均值
-  const volBase = median(volumes) || mean(volumes);
-  /** 截至索引 i 的前 w 分钟平均量 / 基准 */
+  // 量能基准：滚动基准（前 30 分钟中位数）+ 全局兜底。
+  // A 股上午量能显著大于下午，用全天中位数做基准会导致上下午系统性偏差
+  // （上午正常分钟量偏高被误判"放量"，下午正常分钟量偏低被误判"缩量"）
+  const globalBase = median(volumes) || mean(volumes);
+  /** 第 i 分钟的滚动基准：i-30..i-11 中位数（滞后 10 分钟）。
+   *  滞后设计：当前与最近 10 分钟的放量不影响基准，放量事件起点必然被捕捉；
+   *  放量持续超过 10 分钟后基准自然含入放量段，量比回归 1（持续的放量已是常态，不再误报）。
+   *  样本不足时用全局兜底 */
+  const baseAt = (i) => {
+    const from = Math.max(0, i - 30);
+    const to = Math.max(0, i - 10);
+    if (to - from < 5) return globalBase;
+    const m = median(volumes.slice(from, to));
+    return m > 0 ? m : globalBase;
+  };
+  /** 截至索引 i 的前 w 分钟平均量 / 滚动基准 */
   const vRatio = (i, w) => {
     const s = volumes.slice(Math.max(0, i - w + 1), i + 1);
     const m = mean(s);
-    return volBase > 0 ? m / volBase : 1;
+    const b = baseAt(i);
+    return b > 0 ? m / b : 1;
   };
 
   // 局部极值（带最小波动幅度约束）：窗口 ±W，突出度（相对窗口内最值）≥0.5% 才算有效摆动点。
@@ -98,9 +112,17 @@ export function calcTrapSignals(intradayData) {
     }
   }
 
+  // 同类型陷阱最近一次触发的分钟索引（15 分钟间隔去重，防连续满足条件时重复打标）
+  const lastTrapMinute = {};
+
   const addTrap = (t) => {
     // 同名称同时间去重
     if (traps.some((x) => x.name === t.name && x.time === t.time)) return;
+    // 同类型 15 分钟间隔去重：条件连续满足（如高位滞涨持续 10 分钟）时只报首个，
+    // 否则同一形态会在连续分钟上重复打标，图上标记堆积
+    const m = t.minute ?? -999;
+    if (lastTrapMinute[t.name] != null && m - lastTrapMinute[t.name] < 15) return;
+    lastTrapMinute[t.name] = m;
     traps.push(t);
     markers.push({
       time: t.time,
@@ -135,6 +157,7 @@ export function calcTrapSignals(intradayData) {
       type: "bull",
       name: "放量冲高回落",
       time: items[p].time,
+      minute: p,
       price: prices[p],
       severity: rise >= 2.5 && volRise >= 2 ? "强" : confirmed ? "中" : "弱",
       desc: `${items[p].time} 起 ${p - pv} 分钟内从 ${prices[pv].toFixed(2)} 拉升至 ${prices[p].toFixed(2)}（+${rise.toFixed(1)}%），量能达基准 ${volRise.toFixed(1)} 倍，随后回落 ${(-drop).toFixed(1)}%${confirmed ? "并跌破启动位/均价" : "，尚未跌破启动位"}`,
@@ -161,6 +184,7 @@ export function calcTrapSignals(intradayData) {
       type: "bear",
       name: "放量急跌后收复",
       time: items[v].time,
+      minute: v,
       price: prices[v],
       severity: -fall >= 2.5 && volFall >= 2 ? "强" : confirmed ? "中" : "弱",
       desc: `${items[v].time} 前 ${v - pp} 分钟内从 ${prices[pp].toFixed(2)} 跌至 ${prices[v].toFixed(2)}（${fall.toFixed(1)}%），量能达基准 ${volFall.toFixed(1)} 倍，随后反弹 ${riseBack.toFixed(1)}%${confirmed ? "并收复启动位/均价" : "，尚未收复"}`,
@@ -181,6 +205,7 @@ export function calcTrapSignals(intradayData) {
         type: "bull",
         name: "高位放量滞涨",
         time: items[N - 1].time,
+        minute: N - 1,
         price: prices[N - 1],
         severity: "中",
         desc: `价格维持日内高位（距最高 ${distHigh.toFixed(1)}%），近 5 分钟量能达基准 ${vol5.toFixed(1)} 倍但价格几乎不动（${chg5.toFixed(2)}%）`,
@@ -202,6 +227,7 @@ export function calcTrapSignals(intradayData) {
         type: "bull",
         name: "尾盘无量急拉",
         time: items[N - 1].time,
+        minute: N - 1,
         price: prices[N - 1],
         severity: "中",
         desc: `尾盘 15 分钟拉升 ${move15.toFixed(1)}% 但量能仅为基准 ${vol15.toFixed(1)} 倍`,
@@ -218,6 +244,7 @@ export function calcTrapSignals(intradayData) {
           type: "bear",
           name: "尾盘低位放量急砸",
           time: items[N - 1].time,
+          minute: N - 1,
           price: prices[N - 1],
           severity: "中",
           desc: `尾盘 15 分钟下跌 ${(-move15).toFixed(1)}%，量能达基准 ${vol15.toFixed(1)} 倍，价格处于日内低位`,
@@ -229,6 +256,7 @@ export function calcTrapSignals(intradayData) {
           type: "bull",
           name: "尾盘高位放量砸盘",
           time: items[N - 1].time,
+          minute: N - 1,
           price: prices[N - 1],
           severity: "中",
           desc: `尾盘 15 分钟下跌 ${(-move15).toFixed(1)}% 且放量（${vol15.toFixed(1)} 倍基准），价格仍在日内中高位`,
@@ -259,6 +287,7 @@ export function calcTrapSignals(intradayData) {
           type: "bull",
           name: "高开冲高破均价",
           time: items[breakIdx].time,
+          minute: breakIdx,
           price: prices[breakIdx],
           severity: gap >= 3 ? "强" : "中",
           desc: `高开 ${gap.toFixed(1)}%，冲高 ${pct(open, peak).toFixed(1)}% 后于 ${items[breakIdx].time} 跌破均价`,
@@ -279,6 +308,7 @@ export function calcTrapSignals(intradayData) {
         type: "bear",
         name: "低位放量反转",
         time: items[lowIdx].time,
+        minute: lowIdx,
         price: prices[lowIdx],
         severity: "中",
         desc: `日内低点 ${items[lowIdx].time} 后放量（近 10 分钟 ${vol10.toFixed(1)} 倍基准）拉升 ${riseFromLow.toFixed(1)}%，重新站上均价`,

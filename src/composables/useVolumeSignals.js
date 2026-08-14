@@ -60,11 +60,24 @@ export function calcVolumeSignals(intradayData) {
   // 无量能数据时无法做量价判断
   if (mean(volumes) <= 0) return { signals, markers: [] };
 
-  // 量能基准：全分量能中位数（对集合竞价异常量稳健）
-  const volBase = median(volumes) || mean(volumes);
-  /** 第 i 分钟量比 */
-  const vr = (i) => (volBase > 0 ? volumes[i] / volBase : 0);
-  /** [from, to] 区间平均量 */
+  // 量能基准：滚动基准（前 30 分钟中位数）+ 全局兜底。
+  // A 股上午量能显著大于下午（开盘时段可达全天 3-5×），用全天中位数做基准会
+  // 导致上午"放量"误报、下午"缩量"误报——滚动基准让"放量/缩量"相对近期常态判断
+  const globalBase = median(volumes) || mean(volumes);
+  /** 第 i 分钟的滚动基准：i-30..i-11 中位数（滞后 10 分钟）。
+   *  滞后设计：当前与最近 10 分钟的放量不影响基准，放量事件起点必然被捕捉；
+   *  放量持续超过 10 分钟后基准自然含入放量段，量比回归 1（持续的放量已是常态，不再误报）。
+   *  样本不足时用全局兜底 */
+  const baseAt = (i) => {
+    const from = Math.max(0, i - 30);
+    const to = Math.max(0, i - 10);
+    if (to - from < 5) return globalBase;
+    const m = median(volumes.slice(from, to));
+    return m > 0 ? m : globalBase;
+  };
+  /** 第 i 分钟量比（相对滚动基准） */
+  const vr = (i) => (baseAt(i) > 0 ? volumes[i] / baseAt(i) : 0);
+  /** [from, to] 区间平均量（相对滚动基准） */
   const meanVol = (from, to) => mean(volumes.slice(Math.max(0, from), Math.min(N, to + 1)));
 
   /** 距均价偏离（%，正=上方） */
@@ -120,39 +133,44 @@ export function calcVolumeSignals(intradayData) {
     }
 
     // 3. 放量突破 / 破位（30 分钟前高/前低）
-    if (i >= 30 && v >= 1.5) {
+    // 要求"明显越过"（>0.2%）而非刚好穿越——随机游走中价格必然反复穿过前高，
+    // 仅穿越即报会大量误报；同时提高量能门槛到 2×、要求 5 分钟动能 ≥0.5%
+    if (i >= 30 && v >= 2) {
       const prevHigh = Math.max(...prices.slice(i - 30, i - 4));
       const prevLow = Math.min(...prices.slice(i - 30, i - 4));
-      if (prices[i] > prevHigh && chg5 >= 0.3) {
-        add(i, "突破↑", "bull", `${items[i].time} 放量突破 30 分钟前高 ${prevHigh.toFixed(2)}（量 ${v.toFixed(1)}×）`);
+      if (prices[i] > prevHigh * 1.002 && chg5 >= 0.5) {
+        add(i, "突破↑", "bull", `${items[i].time} 放量突破 30 分钟前高 ${prevHigh.toFixed(2)}（+${(((prices[i] - prevHigh) / prevHigh) * 100).toFixed(1)}%，量 ${v.toFixed(1)}×）`);
         continue;
       }
-      if (prices[i] < prevLow && chg5 <= -0.3) {
-        add(i, "破位↓", "bear", `${items[i].time} 放量跌破 30 分钟前低 ${prevLow.toFixed(2)}（量 ${v.toFixed(1)}×）`);
+      if (prices[i] < prevLow * 0.998 && chg5 <= -0.5) {
+        add(i, "破位↓", "bear", `${items[i].time} 放量跌破 30 分钟前低 ${prevLow.toFixed(2)}（${(((prices[i] - prevLow) / prevLow) * 100).toFixed(1)}%，量 ${v.toFixed(1)}×）`);
         continue;
       }
     }
 
-    // 4. 量价背离：新高无量（顶背离）/ 新低无量（底背离）
+    // 4. 量价背离：显著新高/新低（≥0.3%）+ 量能明显萎缩（<前段 0.6×）+ 当前非放量
     if (i >= 15) {
-      const isLocalHigh = prices[i] >= hi5 && prices[i] > Math.max(...prices.slice(Math.max(0, i - 30), i - 5));
-      if (isLocalHigh && meanVol(i - 4, i) < meanVol(i - 14, i - 5) * 0.7) {
-        add(i, "顶背离", "bear", `${items[i].time} 创 30 分钟新高但量能萎缩（${(meanVol(i - 4, i) / volBase).toFixed(1)}× vs 前段 ${(meanVol(i - 14, i - 5) / volBase).toFixed(1)}×），上涨动能不足`);
+      const prevHigh30 = Math.max(...prices.slice(Math.max(0, i - 30), i - 5));
+      const isLocalHigh = prices[i] >= hi5 && prices[i] > prevHigh30 * 1.003;
+      if (isLocalHigh && meanVol(i - 4, i) < meanVol(i - 14, i - 5) * 0.6 && v <= 1.5) {
+        add(i, "顶背离", "bear", `${items[i].time} 创 30 分钟新高（+${(((prices[i] - prevHigh30) / prevHigh30) * 100).toFixed(1)}%）但量能萎缩（前 5 分钟 ${(meanVol(i - 4, i) / baseAt(i)).toFixed(1)}× vs 前段 ${(meanVol(i - 14, i - 5) / baseAt(i)).toFixed(1)}×），上涨动能不足`);
         continue;
       }
-      const isLocalLow = prices[i] <= lo5 && prices[i] < Math.min(...prices.slice(Math.max(0, i - 30), i - 5));
-      if (isLocalLow && meanVol(i - 4, i) < meanVol(i - 14, i - 5) * 0.7) {
-        add(i, "底背离", "bull", `${items[i].time} 创 30 分钟新低但量能萎缩（${(meanVol(i - 4, i) / volBase).toFixed(1)}× vs 前段 ${(meanVol(i - 14, i - 5) / volBase).toFixed(1)}×），抛压衰竭`);
+      const prevLow30 = Math.min(...prices.slice(Math.max(0, i - 30), i - 5));
+      const isLocalLow = prices[i] <= lo5 && prices[i] < prevLow30 * 0.997;
+      if (isLocalLow && meanVol(i - 4, i) < meanVol(i - 14, i - 5) * 0.6 && v <= 1.5) {
+        add(i, "底背离", "bull", `${items[i].time} 创 30 分钟新低（${(((prices[i] - prevLow30) / prevLow30) * 100).toFixed(1)}%）但量能萎缩（前 5 分钟 ${(meanVol(i - 4, i) / baseAt(i)).toFixed(1)}× vs 前段 ${(meanVol(i - 14, i - 5) / baseAt(i)).toFixed(1)}×），抛压衰竭`);
         continue;
       }
     }
 
     // 5. 缩量回踩（均价上方缩量回调，洗盘特征）/ 缩量反抽（均价下方缩量反弹，弱反弹）
+    // distAvg 阈值 ±0.5%：价格必须明显偏离均价才标注，避免盘整期（贴近均价波动）反复触发
     if (v <= 0.5) {
-      if (chg5 < 0 && da > 0.2) {
-        add(i, "缩量回踩", "bull", `${items[i].time} 回调 ${(-chg5).toFixed(1)}% 但量仅基准 ${v.toFixed(1)} 倍，且价格仍在均价上方，洗盘概率大`);
-      } else if (chg5 > 0 && da < -0.2) {
-        add(i, "缩量反抽", "bear", `${items[i].time} 反弹 ${chg5.toFixed(1)}% 但量仅基准 ${v.toFixed(1)} 倍，且价格仍在均价下方，反弹乏力`);
+      if (chg5 < 0 && da > 0.5) {
+        add(i, "缩量回踩", "bull", `${items[i].time} 回调 ${(-chg5).toFixed(1)}% 但量仅基准 ${v.toFixed(1)} 倍，且价格在均价上方 ${da.toFixed(1)}%，洗盘概率大`);
+      } else if (chg5 > 0 && da < -0.5) {
+        add(i, "缩量反抽", "bear", `${items[i].time} 反弹 ${chg5.toFixed(1)}% 但量仅基准 ${v.toFixed(1)} 倍，且价格在均价下方 ${(-da).toFixed(1)}%，反弹乏力`);
       }
     }
   }
