@@ -347,8 +347,20 @@ export function useT0Signals() {
       })
     }
 
-    // 6. 分时量价信号（放量涨跌/天量/缩量回踩反抽/突破破位/背离）：整线扫描，只上图标记
+    // 6. 分时量价信号（天量/突破/背离/缩量 + 前瞻预警）：整线扫描，只上图标记
     const volRes = calcVolumeSignals(intradayData)
+    // 前瞻预警（放量急拉⚠/放量急跌⚠/无量拉升⚠）并入 T+0 信号列表（当下可判，带行动建议）
+    for (const s of volRes.signals) {
+      if (s.level === "warn") {
+        signalList.push({
+          name: s.name,
+          desc: s.desc,
+          action: "实时预警（当下可判，不依赖后续走势）：追高/杀跌前先看量能验证",
+          warn: true,
+          time: s.time,
+        })
+      }
+    }
 
     // ======== 方向判断 ========
     let direction = '观望'

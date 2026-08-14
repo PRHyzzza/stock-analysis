@@ -10,7 +10,7 @@
  *   警示：天量↑ / 天量↓（单分钟量 ≥6× 基准）
  *   （普通放量↑↓已移除：信息量低且与突破/破位语义重叠）
  *
- * 防标记爆炸：同一分钟只保留一个标记（按优先级：天量 > 突破/破位 > 背离 > 缩量），
+ * 防标记爆炸：同一分钟只保留一个标记（按优先级：天量 > 前瞻预警 > 突破/破位 > 背离 > 缩量），
  * 同类型信号 10 分钟内只标首个；开盘前仅剔除 09:30 集合竞价分钟。
  *
  * 输入：intradayData = { items: [{ time, price, avgPrice, volume, turnover, vwap }], preClose, date }
@@ -32,11 +32,14 @@ function pct(a, b) {
   return a > 0 ? ((b - a) / a) * 100 : 0;
 }
 
-/** 标记外观：方向语义（红=涨/偏多，绿=跌/偏空，橙=天量，蓝=回踩，灰=反抽，橙红=顶背离，青=底背离） */
+/** 标记外观：方向语义（红=涨/偏多，绿=跌/偏空，橙=天量，紫=前瞻预警，蓝=回踩，灰=反抽，橙红=顶背离，青=底背离） */
 const MARKER_STYLE = {
   "天量↑": { color: "#f39c12", shape: "circle", position: "aboveBar" },
   "天量↓": { color: "#f39c12", shape: "circle", position: "belowBar" },
   "天量": { color: "#f39c12", shape: "circle", position: "aboveBar" },
+  "放量急拉⚠": { color: "#8e44ad", shape: "circle", position: "aboveBar" },
+  "放量急跌⚠": { color: "#8e44ad", shape: "circle", position: "belowBar" },
+  "无量拉升⚠": { color: "#8e44ad", shape: "circle", position: "aboveBar" },
   "缩量回踩": { color: "#3498db", shape: "circle", position: "belowBar" },
   "缩量反抽": { color: "#7f8c8d", shape: "circle", position: "aboveBar" },
   "突破↑": { color: "#e74c3c", shape: "arrowUp", position: "aboveBar" },
@@ -93,7 +96,7 @@ export function calcVolumeSignals(intradayData) {
    * @param {string} type bull | bear | neutral
    * @param {string} desc 描述
    */
-  const add = (i, name, type, desc) => {
+  const add = (i, name, type, desc, level) => {
     if (i < 1 || i >= N) return false; // 只跳过 09:30 集合竞价分钟（开盘放量急拉是重要信号，不得整体跳过）
     if (seenAt.has(i)) return false; // 同分钟只留一个
     if (lastAt[name] != null && i - lastAt[name] < 10) return false; // 同类型间隔去重
@@ -101,7 +104,7 @@ export function calcVolumeSignals(intradayData) {
     if (!style) return false;
     seenAt.add(i);
     lastAt[name] = i;
-    signals.push({ time: items[i].time, name, type, desc });
+    signals.push({ time: items[i].time, name, type, desc, level });
     return true;
   };
 
@@ -123,9 +126,16 @@ export function calcVolumeSignals(intradayData) {
       if (add(i, name, "neutral", `${items[i].time} 单分钟量达基准 ${v.toFixed(1)} 倍${chg5 >= 0.5 ? "，价格上行" : chg5 <= -0.5 ? "，价格下行" : "，价格横盘"}，异动需警惕`)) continue;
     }
 
-    // 2. 普通放量（放量↑/放量↓）已移除：4-6× 量 + 0.5% 动能每天出现太多次，信息量低，
-    //    且与"突破↑/破位↓"（越过关键位的放量）语义重叠。只保留极端（天量）与
-    //    关键位突破/缩量/背离等有决策含义的信号
+    // 2. 前瞻预警（当下可判、不依赖后续数据——实盘反应点，先于"疑似诱多?"的跌破确认）：
+    //    放量急拉/急跌：5 分钟动能 ≥0.6% + 量 ≥2.5× → 追高/杀跌风险提示
+    //    无量拉升：5 分钟动能 ≥0.8% + 量 ≤0.4× → 无承接的虚涨
+    if (v >= 2.5 && chg5 >= 0.6) {
+      if (add(i, "放量急拉⚠", "bull", `${items[i].time} 起 5 分钟急拉 ${chg5.toFixed(1)}%（量 ${v.toFixed(1)}× 基准），追高风险——警惕冲高回落`, "warn")) continue;
+    } else if (v >= 2.5 && chg5 <= -0.6) {
+      if (add(i, "放量急跌⚠", "bear", `${items[i].time} 起 5 分钟急跌 ${(-chg5).toFixed(1)}%（量 ${v.toFixed(1)}× 基准），恐慌盘涌出——勿低位割肉`, "warn")) continue;
+    } else if (v <= 0.4 && chg5 >= 0.8) {
+      if (add(i, "无量拉升⚠", "bull", `${items[i].time} 起 5 分钟拉升 ${chg5.toFixed(1)}% 但量仅 ${v.toFixed(1)}× 基准，无承接的虚涨`, "warn")) continue;
+    }
 
     // 3. 放量突破 / 破位（30 分钟前高/前低）
     // 要求"明显越过"（>0.2%）而非刚好穿越——随机游走中价格必然反复穿过前高，
