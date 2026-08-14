@@ -1,6 +1,6 @@
 import { ref } from 'vue'
-import { getLimitPct } from '../utils/limit'
-import { calcTrapSignals } from './useTrapSignals'
+import { getLimitPct } from '../utils/limit.js'
+import { calcTrapSignals } from './useTrapSignals.js'
 
 /**
  * useT0Signals — 日内 T+0 交易信号系统（基于分时数据 + 日K趋势）
@@ -344,12 +344,6 @@ export function useT0Signals() {
         time: t.time,
       })
     }
-    if (trapRes.traps.some((t) => t.type === 'bull')) {
-      risks.push('检测到诱多嫌疑（放量滞涨/冲高回落/尾盘虚拉），追高需极度谨慎')
-    }
-    if (trapRes.traps.some((t) => t.type === 'bear')) {
-      risks.push('检测到诱空嫌疑（急跌收复/低位反转），恐慌杀跌需谨慎')
-    }
 
     // ======== 方向判断 ========
     let direction = '观望'
@@ -403,6 +397,13 @@ export function useT0Signals() {
     if (N < 30) risks.push('开盘数据量不足，信号可靠性低')
     if (nearLimitPct > 0 && changePct > limitPct - 1) risks.push(`已逼近涨停板（${limitPct.toFixed(0)}%），追涨挂单可能成交后回落`)
     if (nearLimitPct > 0 && changePct < -(limitPct - 1)) risks.push(`已逼近跌停板（${limitPct.toFixed(0)}%），明日可能继续低开`)
+    // 量价陷阱风险（trapRes 在信号检测段计算，risks 声明在本段，故在此追加）
+    if (trapRes.traps.some((t) => t.type === 'bull')) {
+      risks.push('检测到诱多嫌疑（放量滞涨/冲高回落/尾盘虚拉），追高需极度谨慎')
+    }
+    if (trapRes.traps.some((t) => t.type === 'bear')) {
+      risks.push('检测到诱空嫌疑（急跌收复/低位反转），恐慌杀跌需谨慎')
+    }
     risks.push('A 股 T+1 制度，做T需依托底仓，分析仅供参考')
 
     // ======== 图表标记 ========

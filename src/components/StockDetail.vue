@@ -88,7 +88,13 @@ watch(
   [() => props.klineData, () => props.intradayData, () => props.selectedStock],
   ([kline, intraday, stock]) => {
     if (intraday && intraday.items && intraday.items.length > 0) {
-      computeT0Signals(kline, intraday, stock);
+      // 信号分析为尽力而为的辅助功能：内部异常不得打断组件更新队列
+      // （历史教训：一次未捕获异常会级联打崩整个渲染周期）
+      try {
+        computeT0Signals(kline, intraday, stock);
+      } catch (e) {
+        console.error("计算 T+0/量价陷阱信号失败:", e);
+      }
     }
   },
   { immediate: true, deep: false }
