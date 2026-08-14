@@ -12,7 +12,6 @@
 stock-analysis/
 ├── AGENTS.md                  AI 代理必读指令（DSH 会话自动注入）
 ├── PROJECT.md                 本文档（架构/约定真源）
-├── docs/                      设计文档（ai-screening-design.md：AI 化选股方案，待实施）
 ├── src/                       Vue 前端
 │   ├── App.vue / main.js      入口；App.vue 管窗口/定时器/跨窗口联动
 │   ├── assets/                main.css（设计 token）+ modal.css（弹窗样式）
