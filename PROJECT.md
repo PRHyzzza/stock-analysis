@@ -17,7 +17,7 @@ stock-analysis/
 │   ├── assets/                main.css（设计 token）+ modal.css（弹窗样式）
 │   ├── components/            布局/列表/详情/弹窗/迷你窗 + settings/(5) + ai/(4)
 │   ├── composables/           28 个（§3.1）
-│   ├── skills/                13 skill / 15 工具（§3.2）
+│   ├── skills/                13 skill / 17 工具（§3.2）
 │   ├── prompts/               system-prompt.md（AI 提示词模板，§3.4）
 │   └── utils/                 format.js / limit.js（涨跌停按板块）/ marketTime.js / notify.js / klineCache.js
 ├── src-tauri/                 Rust 后端
@@ -89,15 +89,15 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useChildWindows` | 子窗口管理（迷你/问财，打开或聚焦已存在窗口） |
 | `useGlobalShortcuts` | 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI；子窗口不注册，回调经 handlers 注入） |
 
-### 3.2 Skills（13 skill / 15 工具）
+### 3.2 Skills（13 skill / 17 工具）
 
 `index.js` 合并所有 skill 的 `tools` / `toolImpl` / `systemPrompt`；新增 skill → 创建文件 → 加入 `SKILLS` 数组。
 
 | Skill | 工具 |
 |-------|------|
-| `StockQuote` | `get_stock_quote` |
+| `StockQuote` | `get_stock_quote` / `get_stock_quotes_batch`（≤50 只批量对比，省工具轮次） |
 | `KlineAnalysis` | `get_stock_kline`（含指标计算公式；上下文已有预计算值时直接引用） |
-| `MoneyFlow` | `get_stock_money_flow` |
+| `MoneyFlow` | `get_stock_money_flow` / `get_stock_money_flow_history`（近 N 日主力净流入趋势，默认 30 天） |
 | `Industry` | `get_stock_industry` |
 | `MarketIndices` | `get_market_indices` |
 | `WebSearch` | `web_search` / `web_fetch`（**四步搜索流程 + 关键词铁律的唯一真源**） |
@@ -109,7 +109,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `SentimentAnalysis` | `get_stock_sentiment`（个股社区情绪：股吧帖子统计 + 情绪档位 + 热帖，复用 useStockSentiment 推导；提示词约束只依据返回帖子判断、提示水军/反话失真） |
 | `UserContext` | `read/save_user_profile` / `get_fx_rate` |
 
-> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`、`get_stock_quotes_batch`、`get_stock_money_flow_history`、`get_app_version`、`check_for_update`。
+> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`（AI 自身管道）、`get_app_version` / `check_for_update`（应用级）。
 
 ### 3.3 核心子系统（一行一系统）
 
