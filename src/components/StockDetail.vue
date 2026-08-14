@@ -719,7 +719,8 @@ const sinceAddedPct = computed(() => {
   border-radius: var(--radius-full, 9999px);
   font-weight: 600;
   line-height: 1.5;
-  cursor: help;
+  /* 无点击行为，悬停提示用默认箭头光标（不用 help 问号图标） */
+  cursor: default;
   white-space: nowrap;
 }
 .trap-bull {
