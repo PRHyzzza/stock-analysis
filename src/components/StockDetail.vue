@@ -78,11 +78,6 @@ const currencySymbol = computed(() => isHK.value ? "HK$" : "¥");
 /** T+0 信号系统 */
 const { signalMarkers, summary: t0Summary, compute: computeT0Signals } = useT0Signals();
 
-/** 量价陷阱信号（诱多/诱空，来自 T+0 摘要中的 trap 标记项） */
-const trapSignals = computed(() =>
-  (t0Summary.value?.signals || []).filter((s) => s.trap)
-);
-
 // 当分时数据或K线数据变化时重新计算信号
 watch(
   [() => props.klineData, () => props.intradayData, () => props.selectedStock],
@@ -209,20 +204,6 @@ const sinceAddedPct = computed(() => {
           :signal-markers="signalMarkers"
           :code="selectedStock?.code ?? ''"
         />
-      </div>
-
-      <!-- 量价陷阱提示条（诱多/诱空，仅分时模式且有信号时显示） -->
-      <div v-if="chartMode === 'intraday' && trapSignals.length > 0" class="trap-strip">
-        <span class="trap-strip-title">量价陷阱</span>
-        <span
-          v-for="(t, i) in trapSignals"
-          :key="i"
-          class="trap-chip"
-          :class="t.trapType === 'bull' ? 'trap-bull' : 'trap-bear'"
-          :title="`${t.desc}｜操作：${t.action}｜确认：${t.confirm || '—'}`"
-        >
-          {{ t.trapType === 'bull' ? '? 疑似诱多' : '? 疑似诱空' }} {{ t.name }} · {{ t.time }} · {{ t.severity }}
-        </span>
       </div>
 
       <!-- 今开/最高/昨收/最低 已作为参考线叠加在分时图中（IntradayChart），此处只保留量额类指标 -->
@@ -673,45 +654,5 @@ const sinceAddedPct = computed(() => {
   margin: 0;
   font-size: 12px;
   opacity: 0.8;
-}
-
-/* ===== 量价陷阱提示条（诱多/诱空） ===== */
-.trap-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: 10px 0 4px;
-  padding: 8px 12px;
-  background: var(--card-bg);
-  border: 1px solid var(--border-light, var(--border));
-  border-radius: 10px;
-  font-size: 11px;
-}
-.trap-strip-title {
-  flex-shrink: 0;
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 0.02em;
-}
-.trap-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border-radius: var(--radius-full, 9999px);
-  font-weight: 600;
-  line-height: 1.5;
-  /* 无点击行为，悬停提示用默认箭头光标（不用 help 问号图标） */
-  cursor: default;
-  white-space: nowrap;
-}
-.trap-bull {
-  color: var(--red);
-  background: var(--red-bg);
-}
-.trap-bear {
-  color: var(--green);
-  background: var(--green-bg);
 }
 </style>
