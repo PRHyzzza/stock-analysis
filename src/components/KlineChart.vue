@@ -52,6 +52,27 @@ let costPriceLine = null;
  *  定时刷新数据时保留用户的缩放/平移 */
 let fittedDataKey = "";
 
+/** 分钟级周期（腾讯 mkline 返回 yyyyMMddHHmm，需转时间戳；日/周/月返回 yyyy-mm-dd 直接用） */
+const MINUTE_PERIODS = new Set(["m5", "m15", "m30", "m60"]);
+
+/**
+ * 把后端 K 线 date 字段转为 lightweight-charts 可用的 time：
+ * - "yyyyMMddHHmm"（分钟级）→ Unix 秒级时间戳（东八区时间按 UTC 处理，
+ *   与 IntradayChart 保持一致，保证 crosshair 时间显示正确）
+ * - "yyyy-mm-dd"（日/周/月）→ 原样返回（business day 字符串）
+ */
+function toChartTime(dateStr) {
+  if (typeof dateStr === "string" && /^\d{12}$/.test(dateStr)) {
+    const year = parseInt(dateStr.slice(0, 4), 10);
+    const month = parseInt(dateStr.slice(4, 6), 10) - 1; // 0-based
+    const day = parseInt(dateStr.slice(6, 8), 10);
+    const h = parseInt(dateStr.slice(8, 10), 10);
+    const m = parseInt(dateStr.slice(10, 12), 10);
+    return Math.floor(Date.UTC(year, month, day, h, m) / 1000);
+  }
+  return dateStr;
+}
+
 /** 渲染/更新持仓成本线：持仓时显示，否则移除 */
 function updateCostLine() {
   if (!candleSeries) return;
@@ -287,8 +308,14 @@ function updateChartData(newData) {
   const candleData = [];
   const volumeData = [];
 
+  // 分钟级周期显示时分刻度，日/周/月只显示日期
+  const isMinute = MINUTE_PERIODS.has(props.period);
+  chart.applyOptions({
+    timeScale: { timeVisible: isMinute, secondsVisible: false },
+  });
+
   for (const item of newData) {
-    const time = item.date;
+    const time = toChartTime(item.date);
     candleData.push({
       time,
       open: item.open,
@@ -394,7 +421,7 @@ function updateChartData(newData) {
     if (props.markers && props.markers.length > 0) {
       markersPlugin.setMarkers(
         props.markers.map((m) => ({
-          time: m.time,
+          time: toChartTime(m.time),
           position: m.position || "belowBar",
           color: m.color || "#f0b429",
           shape: m.shape || "arrowUp",
@@ -410,7 +437,9 @@ function updateChartData(newData) {
   // 渲染 T+0 信号标记
   if (signalMarkersPlugin) {
     if (props.signalMarkers && props.signalMarkers.length > 0) {
-      signalMarkersPlugin.setMarkers(props.signalMarkers);
+      signalMarkersPlugin.setMarkers(
+        props.signalMarkers.map((m) => ({ ...m, time: toChartTime(m.time) }))
+      );
     } else {
       signalMarkersPlugin.setMarkers([]);
     }
@@ -475,7 +504,7 @@ watch(
       if (markers && markers.length > 0) {
         markersPlugin.setMarkers(
           markers.map((m) => ({
-            time: m.time,
+            time: toChartTime(m.time),
             position: m.position || "belowBar",
             color: m.color || "#f0b429",
             shape: m.shape || "arrowUp",
@@ -497,7 +526,9 @@ watch(
   (markers) => {
     if (signalMarkersPlugin) {
       if (markers && markers.length > 0) {
-        signalMarkersPlugin.setMarkers(markers);
+        signalMarkersPlugin.setMarkers(
+          markers.map((m) => ({ ...m, time: toChartTime(m.time) }))
+        );
       } else {
         signalMarkersPlugin.setMarkers([]);
       }
