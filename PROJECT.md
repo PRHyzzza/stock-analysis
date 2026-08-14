@@ -64,8 +64,9 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useTechIndicators` | MACD/KDJ/RSI/WR/EMA 纯函数（AI 预计算注入复用） |
 | `useChipDistribution` | 筹码分布（三角形法） |
 | `useSupportResistance` | 支撑/阻力（聚类 + 斐波那契） |
-| `useT0Signals` | 日内 T+0 信号（含分时量价陷阱标记合并） |
+| `useT0Signals` | 日内 T+0 信号（含分时量价陷阱/量价信号标记合并） |
 | `useTrapSignals` | 分时量价陷阱识别纯函数（诱多：放量冲高回落/高位滞涨/尾盘无量急拉/高开破均价；诱空：放量急跌收复/低位反转/尾盘急砸；输出强度分级 + 确认条件） |
+| `useVolumeSignals` | 分时量价信号标注纯函数（整线扫描：放量↑↓/天量/缩量回踩·反抽/放量突破·破位/顶·底背离；同分钟去重 + 同类型 10 分钟间隔去重，防标记爆炸） |
 | `aiContext` | 提示词构建 + 上下文序列化（§3.4） |
 
 **状态与持久化**
@@ -120,6 +121,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **通知基础设施**: 三套通知共用 `utils/marketTime.js`（getToday/isTradingHours/pruneHistory）+ `utils/notify.js`（权限确保/sendAlertNotification）+ `utils/klineCache.js`（日K 5min 共享缓存，LRU 100）——自选通知/均线提醒/价格提醒均复用，改动通知逻辑先看这三处
 - **资金流向可视化**: 详情页"资金流向"按钮 → `MoneyFlowModal`（复用 `MoneyFlowSection`：当日 5 档分档快照 + 近 30 日主力净流入柱状图（lightweight-charts，净流入红/净流出绿 + 紫色 MA5 均线 + 今日/5/10/20 日累计摘要）+ T+0 信号徽标）；数据源东财 push2his daykline（单位万元），前端 2min 节流防高频
 - **分时量价陷阱**: `useTrapSignals` 纯函数并入 T0 信号链路——诱多（放量冲高回落/高位放量滞涨/尾盘无量急拉/高开冲高破均价）与诱空（放量急跌后收复/低位放量反转/尾盘低位放量急砸）识别，量能基准=全分量能中位数；输出强度分级（强/中/弱）+ 确认条件（"诱"为前瞻判断，需确认信号，不输出确定结论）；分时图红↓诱多/绿↑诱空箭头标记（与偏离标记按 时间+文本 去重）+ T+0 摘要信号/风险 + 详情页分时模式下"量价陷阱"提示条（chip 悬停显示详情）
+- **分时量价信号**: `useVolumeSignals` 纯函数整线扫描——放量↑↓（5 分钟变动 ≥0.5% + 量 ≥2× 基准）、天量（≥4×）、缩量回踩（均价上方缩量回调，偏多）/缩量反抽（均价下方缩量反弹，偏空）、放量突破·破位（30 分钟前高/前低 + 量 ≥1.5×）、顶·底背离（新高/新低无量，前 5 分钟量 < 前段 0.7×）；同分钟去重（天量 > 放量 > 突破 > 背离 > 缩量）+ 同类型 10 分钟间隔去重；标记并入分时图（同分钟陷阱优先），计数与最近 6 条明细写入 T0 summary.raw
 - **全局设置**: 5 标签页（通知/刷新/图表/AI/关于），实时生效
 - **AI 双入口**: 个股 AI 注入行情/K线/资金/行业/筹码/持仓 + 预计算指标；全局 AI 注入指数/持仓，`@代码` 快捷引用（发送后清除），热榜选股（`hotStocks` 注入）；两处均开放 `stock_screener`（问财选股）工具
 - **AI 选股**: 问财结果窗口「AI 分析这批股票」按钮 → `iwencai-ai-analyze` 事件 → 主窗口打开全局 AI 并 `injectContextMessage` 注入结果表（带 `_injected` 标记不持久化，跳过画像更新）；解读提示词含**超短线买入建议**（资金流/换手/量比/涨速筛选 3-10 只 + render_stock_picks 卡片，无标的不硬凑）；API Key 未配置时请求保留，配置后自动重试

@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { getLimitPct } from '../utils/limit.js'
 import { calcTrapSignals } from './useTrapSignals.js'
+import { calcVolumeSignals } from './useVolumeSignals.js'
 
 /**
  * useT0Signals — 日内 T+0 交易信号系统（基于分时数据 + 日K趋势）
@@ -345,6 +346,9 @@ export function useT0Signals() {
       })
     }
 
+    // 6. 分时量价信号（放量涨跌/天量/缩量回踩反抽/突破破位/背离）：整线扫描，只上图标记
+    const volRes = calcVolumeSignals(intradayData)
+
     // ======== 方向判断 ========
     let direction = '观望'
     const directionReason = []
@@ -426,6 +430,16 @@ export function useT0Signals() {
         markers.push(m)
       }
     }
+    // 量价信号标记（放量/天量/缩量/突破/背离），同分钟陷阱优先（陷阱更严重，先占位）
+    for (const m of volRes.markers) {
+      const hasTrapAtTime = markers.some(
+        (x) => x.time === m.time && (x.text === '诱多⚠' || x.text === '诱空⚠')
+      )
+      if (hasTrapAtTime) continue
+      if (!markers.some((x) => x.time === m.time && x.text === m.text)) {
+        markers.push(m)
+      }
+    }
     signalMarkers.value = markers
 
     summary.value = {
@@ -442,6 +456,8 @@ export function useT0Signals() {
         changePct: changePct.toFixed(2),
         ma5, ma10, macdState, dataPoints: N,
         trapCount: trapRes.traps.length,
+        volumeSignalCount: volRes.signals.length,
+        volumeSignals: volRes.signals.slice(-6).map((s) => ({ time: s.time, name: s.name, type: s.type })),
       },
     }
   }
