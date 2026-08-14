@@ -16,29 +16,29 @@ stock-analysis/
 │   ├── App.vue / main.js      入口；App.vue 管窗口/定时器/跨窗口联动
 │   ├── assets/                main.css（设计 token）+ modal.css（弹窗样式）
 │   ├── components/            布局/列表/详情/弹窗/迷你窗 + settings/(5) + ai/(4)
-│   ├── composables/           27 个（§3.1）
-│   ├── skills/                12 skill / 14 工具（§3.2）
+│   ├── composables/           28 个（§3.1）
+│   ├── skills/                13 skill / 15 工具（§3.2）
 │   ├── prompts/               system-prompt.md（AI 提示词模板，§3.4）
 │   └── utils/                 format.js / limit.js（涨跌停按板块）/ marketTime.js / notify.js / klineCache.js
 ├── src-tauri/                 Rust 后端
 │   ├── .cargo/config.toml     USTC sparse 镜像（勿删）
 │   ├── capabilities/          default.json 窗口权限：main/mini/iwencai
 │   └── src/
-│       ├── commands.rs        20 个命令（§4.1）
+│       ├── commands.rs        21 个命令（§4.1）
 │       ├── types.rs / helpers.rs（代码转换 §4.3）
-│       └── api/               tencent / eastmoney / hotlist / llm / web / iwencai
+│       └── api/               tencent / eastmoney / hotlist / llm / web / iwencai / guba
 └── public/
 ```
 
 ## 2. 数据流
 
-App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 腾讯 GBK / eastmoney 东财 / hotlist 同花顺 / llm DeepSeek SSE / web 搜索+抓取 / iwencai 问财）
+App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 腾讯 GBK / eastmoney 东财 / hotlist 同花顺 / llm DeepSeek SSE / web 搜索+抓取 / iwencai 问财 / guba 股吧）
 
 模式：每个 composable 返回 `{ data, loading, load(), ... }`，App.vue 统一调用、props 下发。
 
 ## 3. 前端模块
 
-### 3.1 Composables（27 个）
+### 3.1 Composables（28 个）
 
 **数据加载（invoke 后端）**
 
@@ -55,6 +55,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useUserProfile` | 画像读写（后台更新 10min 节流） | `read/save_user_profile` |
 | `useIwencaiRobot` | 问财选股窗口（响应式状态 + 竞态保护） | `get_iwencai_robot` |
 | `iwencaiClient` | 问财凭证/查询共享模块（chameleon.js 生成 Cookie v、403 换 v 重试、会话级查询缓存 LRU 50；窗口与 AI 工具 `stock_screener` 共用） | `get_iwencai_robot` |
+| `useStockSentiment` | 社区情绪（股吧帖子 5min 缓存 + 看多看空关键词分类 + 情绪档位/热度推导；分类函数 `classifyTitle`/`deriveSentiment` 供 AI 工具复用） | `get_stock_guba_posts` |
 
 **纯计算**
 
@@ -86,7 +87,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useChildWindows` | 子窗口管理（迷你/问财，打开或聚焦已存在窗口） |
 | `useGlobalShortcuts` | 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI；子窗口不注册，回调经 handlers 注入） |
 
-### 3.2 Skills（12 skill / 14 工具）
+### 3.2 Skills（13 skill / 15 工具）
 
 `index.js` 合并所有 skill 的 `tools` / `toolImpl` / `systemPrompt`；新增 skill → 创建文件 → 加入 `SKILLS` 数组。
 
@@ -103,6 +104,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `StockSearch` | `search_stocks` |
 | `IwencaiSelect` | `stock_screener`（问财自然语言选股：条件翻译/结果压缩——**全量返回整个匹配列表 ≤100 只**，列白名单 ≤6 列 ≤12000 字符/每轮 ≤2 次防限流，复用 iwencaiClient） |
 | `StockPicks` | `render_stock_picks`（选股/推荐结果卡片：toolImpl 返回 `PICKS_MARKER` 前缀 JSON，useAiAnalysis 拦截附到 `msg.picks`，AiChatMessages 渲染卡片 + 加入自选/查看详情按钮） |
+| `SentimentAnalysis` | `get_stock_sentiment`（个股社区情绪：股吧帖子统计 + 情绪档位 + 热帖，复用 useStockSentiment 推导；提示词约束只依据返回帖子判断、提示水军/反话失真） |
 | `UserContext` | `read/save_user_profile` / `get_fx_rate` |
 
 > 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`、`get_stock_quotes_batch`、`get_stock_money_flow_history`、`get_app_version`、`check_for_update`。
@@ -120,6 +122,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **AI 双入口**: 个股 AI 注入行情/K线/资金/行业/筹码/持仓 + 预计算指标；全局 AI 注入指数/持仓，`@代码` 快捷引用（发送后清除），热榜选股（`hotStocks` 注入）；两处均开放 `stock_screener`（问财选股）工具
 - **AI 选股**: 问财结果窗口「AI 分析这批股票」按钮 → `iwencai-ai-analyze` 事件 → 主窗口打开全局 AI 并 `injectContextMessage` 注入结果表（带 `_injected` 标记不持久化，跳过画像更新）；解读提示词含**超短线买入建议**（资金流/换手/量比/涨速筛选 3-10 只 + render_stock_picks 卡片，无标的不硬凑）；API Key 未配置时请求保留，配置后自动重试
 - **选股卡片**: `render_stock_picks` 工具把 AI 选股结论渲染成聊天卡片（代码/名称/现价/涨跌幅/理由 + 「＋ 自选」「查看详情」按钮；两按钮事件经 GlobalAiModal/AiAnalysisModal 透传到 App.vue：加自选/复用 selectIwencaiStock 全量加载选中）
+- **社区情绪**: 详情页「社区情绪」按钮 → SentimentModal（股吧帖子：情绪档位/看多占比条/热度/热帖列表，标题点击 opener 打开原文）；「AI 解读情绪」→ 全局 AI 注入（`sentimentRequest` 管道，复用 injectContextMessage）；AI 工具 `get_stock_sentiment` 对话内随时查；港股返回空
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`，开启时 `buildSearchPolicy()` 注入一行指针，关闭时剔除该 skill
 - **快捷键/单例/托盘**: Ctrl+K 搜索、Ctrl+N 全局 AI；single-instance 聚焦已有窗口；关窗隐藏托盘
 - **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页零请求；输入框「✨ AI 优化」按意图+画像改写查询，空输入禁用；结果可一键「AI 分析这批股票」注入全局 AI 解读）
@@ -134,17 +137,18 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 ## 4. Rust 后端
 
-### 4.1 Tauri 命令（20 个）
+### 4.1 Tauri 命令（21 个）
 
 | 命令 | 数据源 | 说明 |
 |------|--------|------|
 | `get_stock_quote` / `get_stock_quotes_batch` | Tencent | 实时行情 / 批量（A 股 50 只/批，港股逐只） |
-| `get_stock_kline` / `get_stock_intraday` | Tencent | K 线（日/周/月）/ 分时 |
+| `get_stock_kline` / `get_stock_intraday` | Tencent | K 线（日/周/月 + 5/15/30/60 分，见 §4.2）/ 分时 |
 | `get_stock_money_flow` | Tencent → 东财备选 | 资金流向 5 档（双数据源见 §7.5） |
 | `get_stock_money_flow_history` | East Money push2his | 近 N 日资金流向历史（默认 30，单位万元，klines 按日期升序直接映射，勿反转） |
 | `get_stock_industry` | East Money HSF10 | 行业分析（港股返回空） |
 | `get_market_indices` | Tencent（并行） | 七大指数（失败兜底用真实名称） |
 | `search_stocks` / `get_hot_list` | Tencent / 同花顺 | 搜索 / 实时热榜 |
+| `get_stock_guba_posts` | East Money guba | 股吧帖子（HTML 内嵌 `var article_list={"re":[...]}` 括号深度扫描提取，按 stockbar_code 过滤；港股返回空） |
 | `call_llm` / `call_llm_stream` | DeepSeek | 非流式 / SSE 流式（边界兼容 CRLF + 尾块 flush，见 §4.2） |
 | `read/save_user_profile` | 本地文件 | 画像 md 读写 |
 | `web_search` / `web_fetch` | 东财 / 目标 URL | 新闻搜索（相关性排序）/ 正文抓取（四级降级 + SSRF 防护，见 §4.2） |
@@ -156,12 +160,13 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 | 文件 | 编码 | 注意 |
 |------|------|------|
-| `tencent.rs` | **GBK** → `encoding_rs` | `~` 分隔，无反爬；批量 `q=` 逗号拼接 |
+| `tencent.rs` | **GBK** → `encoding_rs` | `~` 分隔，无反爬；批量 `q=` 逗号拼接；**分钟 K 线**（`m5/m15/m30/m60`）走 `ifzq.gtimg.cn/appstock/app/kline/mkline`（数据键=period 本身，320 根，无复权概念，**港股不支持**降级提示），日/周/月走 `web.ifzq.gtimg.cn fqkline`（qfq 前复权 120 根） |
 | `eastmoney.rs` | UTF-8 | push2 主域被 WAF 拦，用 push2delay → push2his 兜底 |
 | `hotlist.rs` | UTF-8 | JSON API |
 | `llm.rs` | UTF-8 | V4 需回传 `reasoning_content`；SSE 按事件边界（`\n\n`/`\r\n\r\n`）切分 + 流末 flush 尾块；`data:` 兼容有/无空格；LLM client 240s 读超时 |
 | `web.rs` | UTF-8（无 charset 头时探测 GBK） | sort=default 相关性排序；中文无空格查询按子串剥泛词、维度词截断提实体；四级正文提取；反爬站过滤（8 个）；**SSRF 防护**（私网/回环拒绝、禁跨主机重定向、≤50MB） |
 | `iwencai.rs` | UTF-8 | 路径 `data.answer[0].txt[0].content.components[0].data`；**同 v 连续 4-6 次 → 403（换 v 恢复）；带 condition 必 403**；风控错误带 `[RATE_LIMITED]` 标记 |
+| `guba.rs` | UTF-8 | HTML 页面末尾内嵌 `var article_list={"re":[...]}`（括号深度扫描提取，忽略字符串内 `{}`）；`gbapi.eastmoney.com` JSON 接口 403 不可用；页面混入关联吧帖子，须按 `stockbar_code` 过滤 |
 
 ### 4.3 代码转换 (helpers.rs)
 

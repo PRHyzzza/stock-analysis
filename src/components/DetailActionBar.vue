@@ -21,6 +21,7 @@ const emit = defineEmits([
   "open-chip-modal",
   "open-money-flow",
   "open-alerts",
+  "open-sentiment",
   "open-ai-modal",
   "toggle-watchlist",
 ]);
@@ -73,6 +74,12 @@ const emit = defineEmits([
       </svg>
       <span>提醒</span>
       <span v-if="alertCount > 0" class="ma-badge">{{ alertCount }}</span>
+    </button>
+    <button class="btn btn-sentiment" @click="emit('open-sentiment')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M12 22c4.4 0 7-2.8 7-6.5 0-3.2-2-5.5-3.5-7.5-.5 1.5-1.2 2.6-2.5 3.5.3-3-1-6.5-3.5-8.5.2 3-1.5 5-2.8 6.7C5.2 11.4 5 13 5 15.5 5 19.2 7.6 22 12 22Z" stroke-linejoin="round"/>
+      </svg>
+      <span>社区情绪</span>
     </button>
     <button class="btn btn-ai" @click="emit('open-ai-modal')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -246,6 +253,23 @@ const emit = defineEmits([
   background: var(--apricot-wash);
   border-color: var(--rust);
   color: var(--rust);
+}
+
+/* Steep: 社区情绪按钮 — 火焰图标 + Ghost 风格 */
+.btn-sentiment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+  position: relative;
+}
+.btn-sentiment:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: rgba(93, 42, 26, 0.04);
 }
 
 /* 已配置时显示周期数徽标 */

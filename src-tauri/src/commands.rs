@@ -2,10 +2,10 @@ use crate::api::{
     call_llm as call_llm_api, fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
     fetch_industry_name, fetch_intraday_data, fetch_kline_data, fetch_money_flow,
     fetch_money_flow_eastmoney, fetch_money_flow_history, fetch_search_results,
-    fetch_stock_quote, fetch_stock_quotes_batch, parse_industry_analysis,
+    fetch_stock_guba_posts, fetch_stock_quote, fetch_stock_quotes_batch, parse_industry_analysis,
 };
 use crate::types::{
-    HotListData, IndustryData, IntradayData, KlineItem, MarketIndex, MoneyFlow,
+    GubaPost, HotListData, IndustryData, IntradayData, KlineItem, MarketIndex, MoneyFlow,
     MoneyFlowHistoryItem, SearchResult, StockQuote, UpdateInfo,
 };
 use std::fs;
@@ -56,6 +56,20 @@ pub async fn get_stock_intraday(code: String) -> Result<IntradayData, String> {
 #[tauri::command]
 pub async fn get_stock_quote(code: String) -> Result<StockQuote, String> {
     fetch_stock_quote(&code).await
+}
+
+/// 获取个股社区情绪（东方财富股吧帖子）
+/// 港股暂不支持股吧格式，返回空列表
+#[tauri::command]
+pub async fn get_stock_guba_posts(
+    code: String,
+    count: Option<usize>,
+) -> Result<Vec<GubaPost>, String> {
+    // 港股无对应股吧页面，返回空列表
+    if crate::helpers::is_hk_stock(&code) {
+        return Ok(vec![]);
+    }
+    fetch_stock_guba_posts(&code, count.unwrap_or(20).min(50)).await
 }
 
 

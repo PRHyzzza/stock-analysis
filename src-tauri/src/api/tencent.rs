@@ -312,16 +312,34 @@ pub async fn fetch_search_results(keyword: &str) -> Result<Vec<SearchResult>, St
 }
 
 /// 获取个股 K 线数据（来自腾讯财经）
-/// period: "day" | "week" | "month"
+/// period: "day" | "week" | "month" | "m5" | "m15" | "m30" | "m60"
+///
+/// 分钟级周期（m5/m15/m30/m60）走 mkline 接口（无复权概念，数据键 = period 本身）；
+/// 日/周/月走 fqkline 接口（前复权，数据键 qfqday/qfqweek/qfqmonth）。
 pub async fn fetch_kline_data(code: &str, period: &str) -> Result<Vec<KlineItem>, String> {
     use crate::helpers::parse_json_f64;
 
     let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
-    let url = format!(
-        "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={},{},,,120,qfq",
-        t_code, period
-    );
+    let is_minute = matches!(period, "m5" | "m15" | "m30" | "m60");
+
+    // 腾讯 mkline 接口不支持港股分钟 K 线（实测 param error），降级提示
+    if is_minute && crate::helpers::is_hk_stock(code) {
+        return Err("港股暂不支持分钟 K 线".to_string());
+    }
+
+    let url = if is_minute {
+        // 分钟 K：mkline 接口，单次最多约 320 根（5分≈6.7 交易日，60分≈2.5 个月）
+        format!(
+            "https://ifzq.gtimg.cn/appstock/app/kline/mkline?param={},{},,320",
+            t_code, period
+        )
+    } else {
+        format!(
+            "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={},{},,,120,qfq",
+            t_code, period
+        )
+    };
 
     let resp = client
         .get(&url)
@@ -336,21 +354,28 @@ pub async fn fetch_kline_data(code: &str, period: &str) -> Result<Vec<KlineItem>
         .await
         .map_err(|e| format!("解析 JSON 失败: {}", e))?;
 
-    let data_key = match period {
-        "week" => "qfqweek",
-        "month" => "qfqmonth",
-        _ => "qfqday",
+    let klines = if is_minute {
+        // mkline 响应：data.{t_code}.{period} 直接是数组（另有 qt/prec 等字段）
+        data.get("data")
+            .and_then(|d| d.get(&t_code))
+            .and_then(|s| s.get(period))
+            .and_then(|d| d.as_array())
+            .ok_or_else(|| "未找到分钟 K 线数据".to_string())?
+    } else {
+        let data_key = match period {
+            "week" => "qfqweek",
+            "month" => "qfqmonth",
+            _ => "qfqday",
+        };
+        data.get("data")
+            .and_then(|d| d.get(&t_code))
+            .and_then(|s| s.get(data_key).or_else(|| {
+                let fallback = match period { "week" => "week", "month" => "month", _ => "day" };
+                s.get(fallback)
+            }))
+            .and_then(|d| d.as_array())
+            .ok_or_else(|| "未找到 K 线数据".to_string())?
     };
-
-    let klines = data
-        .get("data")
-        .and_then(|d| d.get(&t_code))
-        .and_then(|s| s.get(data_key).or_else(|| {
-            let fallback = match period { "week" => "week", "month" => "month", _ => "day" };
-            s.get(fallback)
-        }))
-        .and_then(|d| d.as_array())
-        .ok_or_else(|| "未找到 K 线数据".to_string())?;
 
     let items: Vec<KlineItem> = klines.iter().filter_map(|k| {
         let arr = k.as_array()?;

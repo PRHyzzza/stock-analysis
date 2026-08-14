@@ -87,6 +87,7 @@ pub fn run() {
             commands::get_stock_intraday,
             commands::get_stock_kline,
             commands::get_stock_quote,
+            commands::get_stock_guba_posts,
             commands::get_stock_quotes_batch,
             commands::get_market_indices,
             commands::search_stocks,

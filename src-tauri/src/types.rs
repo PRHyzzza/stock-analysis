@@ -157,3 +157,15 @@ pub struct HotListData {
     pub stock_list: Vec<HotStockItem>,
 }
 
+/// 股吧帖子（个股社区情绪数据）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GubaPost {
+    pub id: i64,                 // 帖子 ID
+    pub title: String,           // 标题
+    pub author: String,          // 作者昵称
+    pub click_count: u64,        // 阅读量
+    pub comment_count: u64,      // 回复数
+    pub publish_time: String,    // 发布时间 "YYYY-MM-DD HH:MM:SS"
+}
+

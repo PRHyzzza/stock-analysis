@@ -560,6 +560,27 @@ onUnmounted(() => {
         <div class="kline-periods">
           <button
             class="period-btn"
+            :class="{ active: props.period === 'm5' }"
+            @click="emit('change-period', 'm5')"
+          >5分</button>
+          <button
+            class="period-btn"
+            :class="{ active: props.period === 'm15' }"
+            @click="emit('change-period', 'm15')"
+          >15分</button>
+          <button
+            class="period-btn"
+            :class="{ active: props.period === 'm30' }"
+            @click="emit('change-period', 'm30')"
+          >30分</button>
+          <button
+            class="period-btn"
+            :class="{ active: props.period === 'm60' }"
+            @click="emit('change-period', 'm60')"
+          >60分</button>
+          <span class="period-sep"></span>
+          <button
+            class="period-btn"
             :class="{ active: props.period === 'day' }"
             @click="emit('change-period', 'day')"
           >日 K</button>
@@ -667,6 +688,14 @@ onUnmounted(() => {
   background: var(--card-bg);
   color: var(--ink);
   box-shadow: 0 0 0 1px rgba(23, 25, 28, 0.04), 0 1px 3px rgba(23, 25, 28, 0.06);
+}
+
+/* 分钟周期与日/周/月之间的分隔线 */
+.period-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 3px 4px;
+  background: var(--border);
 }
 
 .kline-legend {

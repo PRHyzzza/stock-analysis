@@ -44,7 +44,58 @@ function safeGet(key) {
   }
 }
 
-// 常用示例问句（点击快速填充）
+/** localStorage 安全写入（quota 满等异常静默忽略） */
+function safeSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch { /* ignore quota errors */ }
+}
+
+// ── 查询历史（快捷选股）：每次查询自动记录，可单条删除/清空 ──
+const HISTORY_KEY = "stock-analysis-iwencai-history";
+const HISTORY_MAX = 20; // 最多保留 20 条，超出丢弃最旧
+
+/** 加载查询历史（数组，最新在前） */
+function loadHistory() {
+  try {
+    const raw = safeGet(HISTORY_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.slice(0, HISTORY_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+const searchHistory = ref(loadHistory());
+
+/** 记录一次查询：去重（重复的移到最前）+ 上限裁剪 + 持久化 */
+function recordSearch(q) {
+  const text = String(q || "").trim();
+  if (!text) return;
+  const rest = searchHistory.value.filter((h) => h !== text);
+  searchHistory.value = [text, ...rest].slice(0, HISTORY_MAX);
+  safeSet(HISTORY_KEY, JSON.stringify(searchHistory.value));
+}
+
+/** 删除单条历史 */
+function removeHistoryItem(q) {
+  searchHistory.value = searchHistory.value.filter((h) => h !== q);
+  safeSet(HISTORY_KEY, JSON.stringify(searchHistory.value));
+}
+
+/** 清空全部历史 */
+function clearSearchHistory() {
+  searchHistory.value = [];
+  safeSet(HISTORY_KEY, JSON.stringify([]));
+}
+
+/** 点击历史条目：填入输入框并立即查询 */
+function useHistory(q) {
+  question.value = q;
+  doSearch();
+}
+
+// 预置示例问句（点击快速填充输入框；查询历史见上方 searchHistory）
 const examples = [
   "非ST ，现价与一年内最低价比从小到大排列，(9:25分至9:40分成交量÷自由流通股×100)>2，实际换手率,现价>开盘价，现价>均价,量比>1,5日均价/20日均价>1,5天日均成交量/20天日均成交量>1,3天内无涨停，集中度变小，二季报盈利或二季报预告盈利或年报盈利，现价与一年内最低价比从小到大排列，市值大于50亿",
 ];
@@ -72,12 +123,13 @@ onMounted(() => {
   });
 });
 
-/** 执行搜索（第 1 页） */
+/** 执行搜索（第 1 页）；同时把本次查询记入历史（快捷选股区） */
 function doSearch() {
   const q = question.value.trim();
   if (!q) return;
   page.value = 1;
   aiSent.value = false;
+  recordSearch(q);
   search(q, 1, perpage);
 }
 
@@ -271,6 +323,7 @@ function cellText(v, col) {
           @keydown.enter.exact.prevent="doSearch"
         ></textarea>
         <div class="query-actions">
+          <!-- 预置示例（点击填充输入框） -->
           <div class="query-examples">
             <span class="example-label">试试：</span>
             <button
@@ -279,6 +332,15 @@ function cellText(v, col) {
               class="example-chip"
               @click="question = ex"
             >{{ ex }}</button>
+          </div>
+          <!-- 最近查询（自动记录，可单条删除/清空；点击直接重新查询） -->
+          <div v-if="searchHistory.length" class="query-examples history-row">
+            <span class="example-label">最近查询：</span>
+            <span v-for="h in searchHistory" :key="h" class="history-chip">
+              <button class="history-chip-btn" :title="h" @click="useHistory(h)">{{ h }}</button>
+              <button class="history-chip-del" title="删除该记录" @click="removeHistoryItem(h)">×</button>
+            </span>
+            <button class="history-clear" title="清空全部查询记录" @click="clearSearchHistory">清空</button>
           </div>
         </div>
         <!-- AI 优化提示 -->
@@ -590,6 +652,80 @@ function cellText(v, col) {
   border-color: var(--rust);
   color: var(--rust);
   background: rgba(93, 42, 26, 0.04);
+}
+
+/* ── 最近查询历史 ── */
+.history-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.history-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+}
+
+.history-chip-btn {
+  max-width: 320px;
+  padding: 4px 6px 4px 14px;
+  border-radius: var(--radius-full) 0 0 var(--radius-full);
+  border: 1px solid var(--border);
+  border-right: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.15s;
+}
+.history-chip-btn:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: rgba(93, 42, 26, 0.04);
+}
+
+.history-chip-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 24px;
+  padding: 0;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.history-chip-del:hover {
+  border-color: rgba(220, 38, 38, 0.4);
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.history-clear {
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.history-clear:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.06);
 }
 
 /* ===== 错误横幅（复用 modal.css 视觉） ===== */

@@ -3,6 +3,7 @@ import KlineChart from "./KlineChart.vue";
 import IntradayChart from "./IntradayChart.vue";
 import MoneyFlowModal from "./MoneyFlowModal.vue";
 import AlertsModal from "./AlertsModal.vue";
+import SentimentModal from "./SentimentModal.vue";
 import DetailActionBar from "./DetailActionBar.vue";
 import { signChar } from "../utils/format";
 import { useT0Signals } from "../composables/useT0Signals.js";
@@ -33,6 +34,7 @@ const emit = defineEmits([
   "open-ai-modal",
   "open-chip-modal",
   "load-intraday",
+  "sentiment-ai-analyze",
 ]);
 
 const chartMode = ref("intraday"); // "kline" | "intraday"
@@ -45,9 +47,10 @@ const { getConfig: getMaConfig } = useMaAlerts();
 /** 价格提醒数量（合并弹窗「价格提醒」Tab 用） */
 const { countEnabledForCode: countPriceAlerts } = usePriceAlerts();
 
-/** 合并提醒弹窗 / 资金流向弹窗 */
+/** 合并提醒弹窗 / 资金流向弹窗 / 社区情绪弹窗 */
 const showAlertsModal = ref(false);
 const showMoneyFlowModal = ref(false);
+const showSentimentModal = ref(false);
 
 /** 当前股票是否已配置均线提醒（合并按钮徽标用） */
 const maAlertActive = computed(() =>
@@ -247,6 +250,7 @@ const sinceAddedPct = computed(() => {
         @open-chip-modal="emit('open-chip-modal')"
         @open-money-flow="showMoneyFlowModal = true"
         @open-alerts="showAlertsModal = true"
+        @open-sentiment="showSentimentModal = true"
         @open-ai-modal="emit('open-ai-modal')"
         @toggle-watchlist="emit('toggle-watchlist', $event)"
       />
@@ -283,6 +287,14 @@ const sinceAddedPct = computed(() => {
       :kline-data="klineData"
       :kline-period="klinePeriod"
       @close="showAlertsModal = false"
+    />
+
+    <!-- 社区情绪弹窗（股吧看多看空统计 + 热帖） -->
+    <SentimentModal
+      :show="showSentimentModal"
+      :stock="selectedStock"
+      @close="showSentimentModal = false"
+      @ai-analyze="emit('sentiment-ai-analyze', $event)"
     />
   </main>
 </template>
