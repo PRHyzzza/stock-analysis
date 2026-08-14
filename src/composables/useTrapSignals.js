@@ -154,58 +154,71 @@ export function calcTrapSignals(intradayData) {
   const lowIdx = prices.indexOf(intradayLow);
 
   // ═══ A. 放量冲高回落（诱多）═══
+  // 反后视镜设计：不等"回落 ≥50%"事后确认，而是找峰后**第一个跌破启动位或均价的分钟**
+  // （跌破当下即可判定，且是更明确的转弱信号）——时间戳打在跌破点，盘中实时可见
   for (const p of peaks) {
     if (p < 6 || p > N - 8) continue; // 只跳过 09:30 集合竞价附近的未完成摆动（开盘放量急拉是重要信号，不得整体跳过开盘段）
     const pv = nearestBefore(valleys, p);
     const nv = nearestAfter(valleys, p);
     if (pv == null || nv == null || p - pv > 40 || nv - p > 40) continue;
     const rise = pct(prices[pv], prices[p]);
-    const drop = pct(prices[p], prices[nv]);
-    if (rise < 1.2 || drop > -0.15) continue; // 有像样的拉升，且已回落
+    if (rise < 1.2) continue; // 有像样的拉升
     // 放量强度 = 上升区间内最大连续 5 分钟均量 / 基准（脉冲放量不被区间平均稀释）
     const volRise = maxWinMean(pv, p, 5) / baseAt(p);
     if (volRise < 1.5) continue; // 拉升必须放量
-    if (-drop < 0.5 * rise) continue; // 回落不足拉升一半，不构成陷阱
-    const backPct = pct(prices[pv], prices[nv]);
-    const confirmed = backPct <= 0 || prices[nv] < avgPrices[nv];
+    // 峰后第一个跌破启动位或均价的分钟（实时确认点）
+    let brokeIdx = -1;
+    for (let i = p + 1; i <= Math.min(nv ?? N - 1, N - 1); i++) {
+      if (prices[i] < prices[pv] || (avgPrices[i] > 0 && prices[i] < avgPrices[i])) {
+        brokeIdx = i;
+        break;
+      }
+    }
+    if (brokeIdx < 0) continue;
     addTrap({
       type: "bull",
       name: "放量冲高回落",
-      time: items[p].time,
-      minute: p,
-      price: prices[p],
-      severity: rise >= 2.5 && volRise >= 2 ? "强" : confirmed ? "中" : "弱",
-      desc: `${items[p].time} 起 ${p - pv} 分钟内从 ${prices[pv].toFixed(2)} 拉升至 ${prices[p].toFixed(2)}（+${rise.toFixed(1)}%），量能达基准 ${volRise.toFixed(1)} 倍，随后回落 ${(-drop).toFixed(1)}%${confirmed ? "并跌破启动位/均价" : "，尚未跌破启动位"}`,
-      action: "诱多风险：冲高买入者被套概率大；反弹至前高附近减仓，跌破日内低点离场",
-      confirm: confirmed ? "已确认" : `确认信号：跌破启动位 ${prices[pv].toFixed(2)} 或均价`,
+      time: items[brokeIdx].time,
+      minute: brokeIdx,
+      price: prices[brokeIdx],
+      severity: rise >= 2.5 && volRise >= 2 ? "强" : "中",
+      desc: `${items[p].time} 放量拉升 ${rise.toFixed(1)}%（量 ${volRise.toFixed(1)}× 基准，${items[pv].time} ${prices[pv].toFixed(2)} 起）后于 ${items[brokeIdx].time} 跌破${prices[brokeIdx] < prices[pv] ? `启动位 ${prices[pv].toFixed(2)}` : `均价 ${avgPrices[brokeIdx].toFixed(2)}`}，冲高买入者被套`,
+      action: "诱多风险：反弹至前高附近减仓，跌破日内低点离场",
+      confirm: "已确认（跌破启动位/均价，实时信号）",
     });
   }
 
   // ═══ B. 放量急跌后收复（诱空）═══
+  // 反后视镜设计：不等"反弹 ≥50%"事后确认，找谷后**第一个收复启动位或站上均价的分钟**
   for (const v of valleys) {
     if (v < 6 || v > N - 8) continue; // 只跳过 09:30 集合竞价附近的未完成摆动
     const pp = nearestBefore(peaks, v);
     const np = nearestAfter(peaks, v);
     if (pp == null || np == null || v - pp > 40 || np - v > 40) continue;
     const fall = pct(prices[pp], prices[v]);
-    const riseBack = pct(prices[v], prices[np]);
-    if (fall > -1.2 || riseBack < 0.15) continue;
+    if (fall > -1.2) continue;
     // 放量强度 = 下跌区间内最大连续 5 分钟均量 / 基准
     const volFall = maxWinMean(pp, v, 5) / baseAt(v);
     if (volFall < 1.5) continue;
-    if (riseBack < 0.5 * -fall) continue;
-    const backPct = pct(prices[pp], prices[np]);
-    const confirmed = backPct >= 0 || prices[np] > avgPrices[np];
+    // 谷后第一个收复启动位或站上均价的分钟（实时确认点）
+    let recoverIdx = -1;
+    for (let i = v + 1; i <= Math.min(np ?? N - 1, N - 1); i++) {
+      if (prices[i] > prices[pp] || (avgPrices[i] > 0 && prices[i] > avgPrices[i])) {
+        recoverIdx = i;
+        break;
+      }
+    }
+    if (recoverIdx < 0) continue;
     addTrap({
       type: "bear",
       name: "放量急跌后收复",
-      time: items[v].time,
-      minute: v,
-      price: prices[v],
-      severity: -fall >= 2.5 && volFall >= 2 ? "强" : confirmed ? "中" : "弱",
-      desc: `${items[v].time} 前 ${v - pp} 分钟内从 ${prices[pp].toFixed(2)} 跌至 ${prices[v].toFixed(2)}（${fall.toFixed(1)}%），量能达基准 ${volFall.toFixed(1)} 倍，随后反弹 ${riseBack.toFixed(1)}%${confirmed ? "并收复启动位/均价" : "，尚未收复"}`,
-      action: "诱空嫌疑：恐慌卖出者可能卖飞；回踩不破新低可关注低吸，站稳均价再加码",
-      confirm: confirmed ? "已确认" : `确认信号：收复 ${prices[pp].toFixed(2)} 或站上均价`,
+      time: items[recoverIdx].time,
+      minute: recoverIdx,
+      price: prices[recoverIdx],
+      severity: -fall >= 2.5 && volFall >= 2 ? "强" : "中",
+      desc: `${items[v].time} 前 ${v - pp} 分钟内放量下跌 ${fall.toFixed(1)}%（量 ${volFall.toFixed(1)}× 基准）后于 ${items[recoverIdx].time} 收复${prices[recoverIdx] > prices[pp] ? `启动位 ${prices[pp].toFixed(2)}` : `均价 ${avgPrices[recoverIdx].toFixed(2)}`}，恐慌卖出者踏空`,
+      action: "诱空嫌疑：回踩不破新低可关注低吸，站稳均价再加码",
+      confirm: "已确认（收复启动位/站上均价，实时信号）",
     });
   }
 
@@ -232,53 +245,59 @@ export function calcTrapSignals(intradayData) {
   }
 
   // ═══ D. 尾盘 15 分钟量价检查（诱多 / 诱空）═══
+  // 反后视镜设计：滚动窗口而非固定"最后 15 分钟"——尾盘段（最后 30 分钟）内
+  // 任一窗口结束点出现满足条件的 15 分钟形态立即标注（快照式实时预警），
+  // 不必等收盘才判定；同类型 15 分钟间隔去重控制数量
   if (N >= 30) {
-    const s = N - 15;
-    const move15 = pct(prices[s], prices[N - 1]);
-    const vol15 = vRatio(N - 1, 15);
+    const tailStart = Math.max(15, N - 30);
+    for (let i = tailStart + 14; i < N; i++) {
+      const s = i - 14;
+      const move15 = pct(prices[s], prices[i]);
+      const vol15 = vRatio(i, 15);
 
-    // D1. 尾盘无量急拉（诱多）
-    if (move15 >= 1.2 && vol15 <= 0.6) {
-      addTrap({
-        type: "bull",
-        name: "尾盘无量急拉",
-        time: items[N - 1].time,
-        minute: N - 1,
-        price: prices[N - 1],
-        severity: "中",
-        desc: `尾盘 15 分钟拉升 ${move15.toFixed(1)}% 但量能仅为基准 ${vol15.toFixed(1)} 倍`,
-        action: "虚拉诱多嫌疑：无资金承接，次日低开/回落风险高；不宜尾盘追买",
-        confirm: "确认信号：次日开盘走弱或低开",
-      });
-    }
-
-    // D2. 尾盘放量急砸：低位砸 = 诱空/恐慌；高位砸 = 出货（对多头不利）
-    if (move15 <= -1 && vol15 >= 1.5) {
-      const nearLow = prices[N - 1] <= intradayLow * 1.008;
-      if (nearLow) {
-        addTrap({
-          type: "bear",
-          name: "尾盘低位放量急砸",
-          time: items[N - 1].time,
-          minute: N - 1,
-          price: prices[N - 1],
-          severity: "中",
-          desc: `尾盘 15 分钟下跌 ${(-move15).toFixed(1)}%，量能达基准 ${vol15.toFixed(1)} 倍，价格处于日内低位`,
-          action: "诱空/恐慌嫌疑：杀跌盘集中涌出；低位割肉风险大，已持仓不宜尾盘割肉",
-          confirm: "确认信号：次日高开或盘中快速反弹站上均价",
-        });
-      } else {
+      // D1. 无量急拉（诱多）
+      if (move15 >= 1.2 && vol15 <= 0.6) {
         addTrap({
           type: "bull",
-          name: "尾盘高位放量砸盘",
-          time: items[N - 1].time,
-          minute: N - 1,
-          price: prices[N - 1],
+          name: "尾盘无量急拉",
+          time: items[i].time,
+          minute: i,
+          price: prices[i],
           severity: "中",
-          desc: `尾盘 15 分钟下跌 ${(-move15).toFixed(1)}% 且放量（${vol15.toFixed(1)} 倍基准），价格仍在日内中高位`,
-          action: "高位出货嫌疑：资金夺路而逃，次日惯性低开概率大；不接飞刀",
-          confirm: "确认信号：跌破日内均价/前低",
+          desc: `${items[s].time}-${items[i].time} 拉升 ${move15.toFixed(1)}% 但量能仅为基准 ${vol15.toFixed(1)} 倍`,
+          action: "虚拉诱多嫌疑：无资金承接，回落/次日低开风险高；不宜追买",
+          confirm: "确认信号：跌破拉升起点或次日开盘走弱",
         });
+      }
+
+      // D2. 放量急砸：低位砸 = 诱空/恐慌；高位砸 = 出货（对多头不利）
+      if (move15 <= -1 && vol15 >= 1.5) {
+        const nearLow = prices[i] <= intradayLow * 1.008;
+        if (nearLow) {
+          addTrap({
+            type: "bear",
+            name: "尾盘低位放量急砸",
+            time: items[i].time,
+            minute: i,
+            price: prices[i],
+            severity: "中",
+            desc: `${items[s].time}-${items[i].time} 下跌 ${(-move15).toFixed(1)}%，量能达基准 ${vol15.toFixed(1)} 倍，价格处于日内低位`,
+            action: "诱空/恐慌嫌疑：杀跌盘集中涌出；低位割肉风险大，已持仓不宜低位割肉",
+            confirm: "确认信号：次日高开或盘中快速反弹站上均价",
+          });
+        } else {
+          addTrap({
+            type: "bull",
+            name: "尾盘高位放量砸盘",
+            time: items[i].time,
+            minute: i,
+            price: prices[i],
+            severity: "中",
+            desc: `${items[s].time}-${items[i].time} 下跌 ${(-move15).toFixed(1)}% 且放量（${vol15.toFixed(1)} 倍基准），价格仍在日内中高位`,
+            action: "高位出货嫌疑：资金夺路而逃，次日惯性低开概率大；不接飞刀",
+            confirm: "确认信号：跌破日内均价/前低",
+          });
+        }
       }
     }
   }
