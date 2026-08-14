@@ -129,6 +129,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **社区情绪**: 详情页「社区情绪」按钮 → SentimentModal（股吧帖子：情绪档位/看多占比条/热度/热帖列表，标题点击 opener 打开原文）；「AI 解读情绪」→ 全局 AI 注入（`sentimentRequest` 管道，复用 injectContextMessage）；AI 工具 `get_stock_sentiment` 对话内随时查；港股返回空
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`，开启时 `buildSearchPolicy()` 注入一行指针，关闭时剔除该 skill
 - **快捷键/单例/托盘**: Ctrl+K 搜索、Ctrl+N 全局 AI；single-instance 聚焦已有窗口；关窗隐藏托盘
+- **时段感知轮询**: App.vue 四个定时器（指数/行情/K线/分时）回调经 `sessionTick` 守卫——A 股或港股任一在交易时段才发请求，盘外（收盘/午休/周末）零请求空转，开盘瞬间自动恢复并立即刷新；手动刷新不受限
 - **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页零请求；输入框「✨ AI 优化」按意图+画像改写查询，空输入禁用；结果可一键「AI 分析这批股票」注入全局 AI 解读）
 
 ### 3.4 AI 提示词体系（改提示词必读）

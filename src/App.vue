@@ -33,6 +33,7 @@ import { usePriceAlerts } from "./composables/usePriceAlerts";
 import { useChildWindows } from "./composables/useChildWindows";
 import { useGlobalShortcuts } from "./composables/useGlobalShortcuts";
 import { useSettings } from "./composables/useSettings";
+import { isTradingHours } from "./utils/marketTime.js";
 
 // ---- 侧边栏视图切换 ----
 const sidebarView = ref("watchlist");
@@ -335,6 +336,33 @@ let quotesTimer;
 let klineTimer;
 let intradayTimer;
 
+// ── 交易时段感知轮询 ──
+// 盘外（收盘/午休/周末）自动停请求，开盘自动恢复：
+// 定时器回调经 sessionTick 守卫，盘外只做一次轻量时段判断（无 HTTP 请求），
+// 时段切换瞬间立即刷新一次并重建定时器（兜底设置变更）。手动刷新不受限。
+// 自选可能混合 A 股/港股，任一市场在交易时段即视为盘中。
+let inSession = false;
+
+/** A 股或港股任一在交易时段 */
+function isMarketSession() {
+  return isTradingHours() || isTradingHours("00700");
+}
+
+/** 定时器回调守卫 */
+function sessionTick(fn) {
+  const now = isMarketSession();
+  const switched = now !== inSession;
+  inSession = now;
+  if (!now) return; // 盘外：不发请求（空转开销可忽略，换取开盘瞬间自动恢复）
+  if (switched) {
+    // 刚进入交易时段：立即刷新一次 + 重建定时器（间隔可能已被设置修改）
+    rescheduleTimers();
+    fn();
+    return;
+  }
+  fn();
+}
+
 /** 重新设置所有定时器（设置变更时调用） */
 function rescheduleTimers() {
   if (isMiniMode || isIwencaiMode) return; // 子窗口自带独立刷新逻辑
@@ -344,20 +372,20 @@ function rescheduleTimers() {
   clearInterval(intradayTimer);
 
   if (settings.indicesRefreshMs > 0) {
-    indicesTimer = setInterval(loadIndices, settings.indicesRefreshMs);
+    indicesTimer = setInterval(() => sessionTick(loadIndices), settings.indicesRefreshMs);
   }
   if (settings.quotesRefreshMs > 0) {
-    quotesTimer = setInterval(refreshAllQuotes, settings.quotesRefreshMs);
+    quotesTimer = setInterval(() => sessionTick(refreshAllQuotes), settings.quotesRefreshMs);
   }
   if (settings.klineRefreshMs > 0) {
-    klineTimer = setInterval(() => {
+    klineTimer = setInterval(() => sessionTick(() => {
       if (selectedStock.value) loadKlineData(selectedStock.value);
-    }, settings.klineRefreshMs);
+    }), settings.klineRefreshMs);
   }
   if (settings.intradayRefreshMs > 0) {
-    intradayTimer = setInterval(() => {
+    intradayTimer = setInterval(() => sessionTick(() => {
       if (selectedStock.value) loadIntradayData(selectedStock.value);
-    }, settings.intradayRefreshMs);
+    }), settings.intradayRefreshMs);
   }
 }
 
