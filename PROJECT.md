@@ -12,12 +12,13 @@
 stock-analysis/
 ├── AGENTS.md                  AI 代理必读指令（DSH 会话自动注入）
 ├── PROJECT.md                 本文档（架构/约定真源）
+├── docs/                      设计文档（ai-screening-design.md：AI 化选股方案，待实施）
 ├── src/                       Vue 前端
 │   ├── App.vue / main.js      入口；App.vue 管窗口/定时器/跨窗口联动
 │   ├── assets/                main.css（设计 token）+ modal.css（弹窗样式）
 │   ├── components/            布局/列表/详情/弹窗/迷你窗 + settings/(5) + ai/(4)
-│   ├── composables/           26 个（§3.1）
-│   ├── skills/                11 skill / 13 工具（§3.2）
+│   ├── composables/           27 个（§3.1）
+│   ├── skills/                12 skill / 14 工具（§3.2）
 │   ├── prompts/               system-prompt.md（AI 提示词模板，§3.4）
 │   └── utils/                 format.js / limit.js（涨跌停按板块）/ marketTime.js / notify.js / klineCache.js
 ├── src-tauri/                 Rust 后端
@@ -38,7 +39,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 ## 3. 前端模块
 
-### 3.1 Composables（26 个）
+### 3.1 Composables（27 个）
 
 **数据加载（invoke 后端）**
 
@@ -53,7 +54,8 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useAiAnalysis` | AI 对话：Agent 循环 10 轮上限、流式切股代际守卫、@代码/热榜选股、注入预计算指标 | `call_llm` + `call_llm_stream` |
 | `usePositions` | 持仓 + 盈亏（港股汇率换算） | `get_fx_rate` |
 | `useUserProfile` | 画像读写（后台更新 10min 节流） | `read/save_user_profile` |
-| `useIwencaiRobot` | 问财选股（chameleon.js 生成 Cookie v，403 换 v 重试） | `get_iwencai_robot` |
+| `useIwencaiRobot` | 问财选股窗口（响应式状态 + 竞态保护） | `get_iwencai_robot` |
+| `iwencaiClient` | 问财凭证/查询共享模块（chameleon.js 生成 Cookie v、403 换 v 重试、会话级查询缓存 LRU 50；窗口与 AI 工具 `stock_screener` 共用） | `get_iwencai_robot` |
 
 **纯计算**
 
@@ -85,7 +87,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useChildWindows` | 子窗口管理（迷你/问财，打开或聚焦已存在窗口） |
 | `useGlobalShortcuts` | 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI；子窗口不注册，回调经 handlers 注入） |
 
-### 3.2 Skills（11 skill / 13 工具）
+### 3.2 Skills（12 skill / 14 工具）
 
 `index.js` 合并所有 skill 的 `tools` / `toolImpl` / `systemPrompt`；新增 skill → 创建文件 → 加入 `SKILLS` 数组。
 
@@ -100,10 +102,11 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `Intraday` | `get_stock_intraday` |
 | `MarketOverview` | `get_hot_list` |
 | `StockSearch` | `search_stocks` |
+| `IwencaiSelect` | `stock_screener`（问财自然语言选股：条件翻译/结果压缩——**全量返回整个匹配列表 ≤100 只**，列白名单 ≤6 列 ≤12000 字符/每轮 ≤2 次防限流，复用 iwencaiClient） |
+| `StockPicks` | `render_stock_picks`（选股/推荐结果卡片：toolImpl 返回 `PICKS_MARKER` 前缀 JSON，useAiAnalysis 拦截附到 `msg.picks`，AiChatMessages 渲染卡片 + 加入自选/查看详情按钮） |
 | `UserContext` | `read/save_user_profile` / `get_fx_rate` |
-| `TradeRules` | 无工具：A 股十大祖训决策规则（风控 > 交易），约束操作建议 |
 
-> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`、`get_stock_quotes_batch`、`get_stock_money_flow_history`、`get_iwencai_robot`、`get_app_version`、`check_for_update`。
+> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`、`get_stock_quotes_batch`、`get_stock_money_flow_history`、`get_app_version`、`check_for_update`。
 
 ### 3.3 核心子系统（一行一系统）
 
@@ -115,15 +118,18 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **通知基础设施**: 三套通知共用 `utils/marketTime.js`（getToday/isTradingHours/pruneHistory）+ `utils/notify.js`（权限确保/sendAlertNotification）+ `utils/klineCache.js`（日K 5min 共享缓存，LRU 100）——自选通知/均线提醒/价格提醒均复用，改动通知逻辑先看这三处
 - **资金流向可视化**: 详情页"资金流向"按钮 → `MoneyFlowModal`（复用 `MoneyFlowSection`：当日 5 档分档快照 + 近 30 日主力净流入柱状图（lightweight-charts，净流入红/净流出绿 + 紫色 MA5 均线 + 今日/5/10/20 日累计摘要）+ T+0 信号徽标）；数据源东财 push2his daykline（单位万元），前端 2min 节流防高频
 - **全局设置**: 5 标签页（通知/刷新/图表/AI/关于），实时生效
-- **AI 双入口**: 个股 AI 注入行情/K线/资金/行业/筹码/持仓 + 预计算指标；全局 AI 注入指数/持仓，`@代码` 快捷引用（发送后清除），热榜选股（`hotStocks` 注入）
+- **AI 双入口**: 个股 AI 注入行情/K线/资金/行业/筹码/持仓 + 预计算指标；全局 AI 注入指数/持仓，`@代码` 快捷引用（发送后清除），热榜选股（`hotStocks` 注入）；两处均开放 `stock_screener`（问财选股）工具
+- **AI 选股**: 问财结果窗口「AI 分析这批股票」按钮 → `iwencai-ai-analyze` 事件 → 主窗口打开全局 AI 并 `injectContextMessage` 注入结果表（带 `_injected` 标记不持久化，跳过画像更新）；解读提示词含**超短线买入建议**（资金流/换手/量比/涨速筛选 3-10 只 + render_stock_picks 卡片，无标的不硬凑）；API Key 未配置时请求保留，配置后自动重试
+- **选股卡片**: `render_stock_picks` 工具把 AI 选股结论渲染成聊天卡片（代码/名称/现价/涨跌幅/理由 + 「＋ 自选」「查看详情」按钮；两按钮事件经 GlobalAiModal/AiAnalysisModal 透传到 App.vue：加自选/复用 selectIwencaiStock 全量加载选中）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`，开启时 `buildSearchPolicy()` 注入一行指针，关闭时剔除该 skill
 - **快捷键/单例/托盘**: Ctrl+K 搜索、Ctrl+N 全局 AI；single-instance 聚焦已有窗口；关窗隐藏托盘
-- **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页零请求）
+- **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页零请求；输入框「✨ AI 优化」按意图+画像改写查询，空输入禁用；结果可一键「AI 分析这批股票」注入全局 AI 解读）
 
 ### 3.4 AI 提示词体系（改提示词必读）
 
 - **模板**: `prompts/system-prompt.md`，占位符 `{{BEIJING_TIME}}` / `{{SEARCH_POLICY}}` / `{{PRELOAD_SECTION}}` / `{{SKILL_PROMPTS}}` / `{{USER_PROFILE}}` / `{{MARKET_RULES}}` / `{{STOCK_CONTEXT}}`（无 `{{TOOLS}}`，工具走 API 参数）
 - **填充**: `aiContext.js` `buildSystemPrompt`（个股）+ `useAiAnalysis.js` `buildGlobalSystemPrompt`（全局）；公共常量 `MARKET_RULES` / `buildSearchPolicy` 在 `aiContext.js`；替换后校验占位符残留
+- **独立提示词（不在三处主管道内）**: 问财窗口「AI 优化」改写查询的 prompt 内嵌在 `IwencaiWindow.vue optimizeQuery()`（`call_llm` 直调，要求输出 `{"query": ...}` JSON + 注入画像）；改动时同步本行
 - **注入**: `serializeContext` → K线 30 根 + MA 最新值 + 预计算技术指标 + 资金/行业/指数/热榜/持仓/筹码
 - **硬约束**: 数值必须来自工具返回，失败明示「数据获取失败」，禁编造
 

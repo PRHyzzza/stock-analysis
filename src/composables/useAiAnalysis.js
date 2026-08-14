@@ -1,6 +1,7 @@
 import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getMergedTools, getMergedToolImpl, getToolImpl, getMergedSystemPrompt } from "../skills/index.js";
+import { PICKS_MARKER } from "../skills/StockPicks.js";
 import { buildSystemPrompt, serializeContext, MARKET_RULES } from "./aiContext.js";
 import { callLlmStream } from "./llmClient.js";
 import { useUserProfileSingleton } from "./useUserProfile.js";
@@ -154,12 +155,14 @@ export function useAiAnalysis(globalMode = false) {
   watch(() => settings.aiReasoningEffort, (v) => { if (v) reasoningEffort.value = v; });
   watch(() => settings.aiWebSearchEnabled, (v) => { webSearchEnabled.value = v !== false; });
 
-  // 自动持久化当前股票的消息（仅自选股才保存；全局模式始终保存）
+  // 自动持久化当前股票的消息（仅自选股才保存；全局模式始终保存）。
+  // 带 _injected 标记的外部注入消息（如问财选股结果解读）不持久化，避免污染对话历史
   watch(messages, (val) => {
+    const persistable = val.filter((m) => !m._injected);
     if (globalMode && currentStockCode.value) {
-      saveStockMessages(currentStockCode.value, val);
+      saveStockMessages(currentStockCode.value, persistable);
     } else if (currentStockCode.value && isStockInWatchlist(currentStockCode.value)) {
-      saveStockMessages(currentStockCode.value, val);
+      saveStockMessages(currentStockCode.value, persistable);
     }
   }, { deep: true });
 
@@ -242,15 +245,16 @@ AI: ${aiResponse}`;
   /**
    * 发送消息 → Agent 循环 + 流式输出 + 后台画像更新
    * @param {boolean} skipProfileUpdate - true 时不更新用户画像（自动生成的分析指令，如热榜选股）
+   * @param {Object} opts - { injected: true } 时消息带 _injected 标记（不持久化，用于外部注入）
    */
-  async function sendMessage(text, currentStock, contextData, skipProfileUpdate = false) {
+  async function sendMessage(text, currentStock, contextData, skipProfileUpdate = false, opts = {}) {
     if (!text.trim() || loading.value) return "";
     if (!apiKey.value) {
       error.value = "请先设置 API Key";
       throw new Error("NO_API_KEY");
     }
 
-    messages.value.push({ role: "user", content: text });
+    messages.value.push({ role: "user", content: text, ...(opts.injected ? { _injected: true } : {}) });
     loading.value = true;
     error.value = "";
 
@@ -282,6 +286,7 @@ AI: ${aiResponse}`;
       let currentMessages = [...allMessages];
       let finalContent = "";
       let emptySearchCount = 0;  // 连续空搜索计数
+      let pendingPicks = null;   // render_stock_picks 拦截的卡片数据（附到最终回答）
 
       // Agent 循环：每个 round 使用流式调用，工具调用完成后继续下一轮。
       // MAX_ROUNDS 上限防止模型陷入工具调用死循环（费用失控 + UI 永久锁死）；
@@ -353,6 +358,29 @@ AI: ${aiResponse}`;
 
             const toolResult = await toolFn(args);
 
+            // render_stock_picks：拦截卡片数据（带 PICKS_MARKER 前缀），
+            // 长 JSON 不进模型上下文，只回传确认；卡片附到最终 assistant 消息渲染
+            if (
+              fnName === "render_stock_picks" &&
+              typeof toolResult === "string" &&
+              toolResult.startsWith(PICKS_MARKER)
+            ) {
+              try {
+                const parsed = JSON.parse(toolResult.slice(PICKS_MARKER.length));
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  pendingPicks = parsed;
+                  currentMessages.push({
+                    role: "tool",
+                    tool_call_id: tc.id,
+                    content: `[已渲染 ${parsed.length} 只股票卡片，请直接在回答中引用卡片内容]`,
+                  });
+                  continue;
+                }
+              } catch {
+                /* 解析失败：降级为普通工具结果处理 */
+              }
+            }
+
             // 检测连续空搜索：搜 2 次都没结果 → 注入提示让 AI 放弃搜索
             if (fnName === "web_search" && toolResult.startsWith("[空结果]")) {
               emptySearchCount++;
@@ -408,6 +436,8 @@ AI: ${aiResponse}`;
       if (finalMsg) {
         delete finalMsg._streaming;
         delete finalMsg._reasoning;
+        // 附上 render_stock_picks 的卡片数据（AiChatMessages 渲染）
+        if (pendingPicks?.length) finalMsg.picks = pendingPicks;
       }
 
       // 后台异步更新用户画像（全局对话同样学习用户偏好；热榜选股等自动指令跳过，避免污染画像；
@@ -473,6 +503,18 @@ AI: ${aiResponse}`;
     return sendMessage(text, stock, contextData, skipProfileUpdate);
   }
 
+  /**
+   * 外部注入消息并立即触发分析（如问财选股结果解读）。
+   * 注入的消息带 _injected 标记：仅本次会话展示，不持久化到本地历史。
+   * 自动跳过用户画像更新（系统生成的分析指令，不反映用户偏好）。
+   * @param {string} text 注入文本（通常含选股结果表）
+   * @param {Object|null} contextData 预加载数据（指数/持仓）
+   */
+  async function injectContextMessage(text, contextData = null) {
+    if (!globalMode) throw new Error("injectContextMessage 仅支持全局模式");
+    return sendMessage(text, null, contextData, true, { injected: true });
+  }
+
   /** 非流式调用（兼容旧逻辑，不再使用） */
   async function callLlm(messagesList) {
     const { tools } = activeTools();
@@ -520,6 +562,7 @@ AI: ${aiResponse}`;
     webSearchEnabled,
     sendMessage,
     sendGlobalMessage,
+    injectContextMessage,
     switchGlobal,
     globalMode,
     clearHistory,

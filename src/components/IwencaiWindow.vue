@@ -10,11 +10,13 @@
 import { ref, computed, reactive, onMounted, nextTick } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import {
   useIwencaiRobot,
   normalizeIwencaiResult,
   parseIwencaiCode,
 } from "../composables/useIwencaiRobot";
+import { useUserProfileSingleton } from "../composables/useUserProfile";
 
 const appWindow = getCurrentWindow();
 
@@ -27,6 +29,20 @@ const perpage = 50;
 // 本地每页显示行数
 const PAGE_SIZE = 20;
 const inputRef = ref(null);
+// "AI 分析这批股票"已发送标记（短暂显示 ✓ 后复位）
+const aiSent = ref(false);
+// "AI 优化"状态与提示
+const aiOptimizing = ref(false);
+const aiHint = ref("");
+
+/** localStorage 安全读取（隐私模式/quota 异常时返回 null） */
+function safeGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 
 // 常用示例问句（点击快速填充）
 const examples = [
@@ -61,7 +77,105 @@ function doSearch() {
   const q = question.value.trim();
   if (!q) return;
   page.value = 1;
+  aiSent.value = false;
   search(q, 1, perpage);
+}
+
+/**
+ * 清洗 AI 返回的优化查询：剥 markdown 围栏/常见前缀，换行压成 "; "
+ */
+function cleanOptimizedQuery(text) {
+  let t = String(text || "").trim();
+  // 剥 markdown 代码块围栏
+  t = t.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/i, "");
+  // 优先按 JSON 解析（{ "query": "..." }）
+  const jsonMatch = t.match(/\{[\s\S]*"query"[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.query && String(parsed.query).trim()) {
+        t = String(parsed.query).trim();
+      }
+    } catch { /* 解析失败走文本清洗 */ }
+  }
+  // 剥常见前缀标签
+  t = t.replace(/^(优化后(的)?(问财)?(查询|语句)?[:：]?|查询语句[:：]?|问财[:：]?|建议(查询|语句)[:：]?)\s*/i, "");
+  // 换行 → 分号分隔（问财条件语法），连续空白压成单空格
+  t = t.replace(/\s*\n\s*/g, "; ").replace(/[;；]\s*$/g, "").trim();
+  return t;
+}
+
+/** "✨ AI 优化"：理解输入框内容的目的 + 结合用户画像风格，改写/补全为更专业的问财查询 */
+async function optimizeQuery() {
+  const raw = question.value.trim();
+  if (!raw || aiOptimizing.value) return;
+
+  const apiKey = safeGet("stock-analysis-ai-api-key");
+  if (!apiKey) {
+    aiHint.value = "⚠️ 请先在主窗口「AI 设置」中配置 API Key";
+    return;
+  }
+
+  aiOptimizing.value = true;
+  aiHint.value = "";
+  try {
+    // 读取用户画像（投资风格/关注方向/风险偏好）
+    const { loadProfile, getProfileForContext } = useUserProfileSingleton();
+    await loadProfile().catch(() => {});
+    const profile = getProfileForContext() || "（未设置）";
+
+    const model = safeGet("stock-analysis-ai-model") || "deepseek-v4-flash";
+    const prompt =
+      `你是问财选股查询优化助手。用户输入了选股条件，请理解他的意图，结合用户画像中的投资风格，` +
+      `把条件改写为更专业、更完整的问财查询语句。\n\n` +
+      `规则：\n` +
+      `1. 只输出 JSON：{"query": "优化后的查询语句"}，不要输出任何其他内容、解释或 Markdown。\n` +
+      `2. 条件之间用分号「;」分隔；用「大于/小于/不低于/不高于/等于」等明确表述。\n` +
+      `3. 市值/成交额等带单位（亿/万），如「总市值大于100亿」。\n` +
+      `4. 保留用户明确指定的条件；可结合画像风格补充常见维度（如换手率、量比、涨幅、市值区间、市盈率等），` +
+      `但不要偏离用户意图，不要添加用户明确排除的内容。\n\n` +
+      `用户画像：\n${profile}\n\n` +
+      `用户输入：\n${raw}`;
+
+    const result = await invoke("call_llm", {
+      apiKey,
+      model,
+      messages: [{ role: "user", content: prompt }],
+      tools: [],
+      reasoningEffort: "low",
+      thinkingEnabled: false,
+    });
+
+    const optimized = cleanOptimizedQuery(result?.choices?.[0]?.message?.content || "");
+    if (!optimized) {
+      aiHint.value = "AI 未能生成有效查询，请手动调整或重试";
+      return;
+    }
+
+    question.value = optimized;
+    aiHint.value = "✅ 已按你的风格优化查询并开始搜索";
+    doSearch();
+  } catch (e) {
+    aiHint.value = `AI 优化失败: ${e?.message || e}`;
+  } finally {
+    aiOptimizing.value = false;
+  }
+}
+
+/** "AI 分析这批股票"：把当前查询 + 完整结果表发给主窗口全局 AI 解读（整个列表不截断） */
+function onAiAnalyze() {
+  if (!data.value || !normalized.value.rows.length) return;
+  emit("iwencai-ai-analyze", {
+    question: question.value.trim(),
+    total: data.value.rowCount ?? normalized.value.rows.length,
+    columns: normalized.value.columns.map((c) => ({
+      key: c.key ?? c.label ?? c.name,
+      name: c.name || c.key,
+    })),
+    rows: normalized.value.rows,
+  });
+  aiSent.value = true;
+  setTimeout(() => { aiSent.value = false; }, 3000);
 }
 
 /** 翻页：本地切片切换，不再请求服务端（服务端 page 参数无效） */
@@ -121,14 +235,28 @@ function cellText(v, col) {
         <span class="toolbar-badge">问财</span>
         <span class="toolbar-title">智能选股</span>
       </div>
-      <button
-        class="search-btn"
-        :disabled="loading || !question.trim()"
-        @click="doSearch"
-      >
-        <span v-if="loading" class="spinner"></span>
-        {{ loading ? "查询中…" : "查询" }}
-      </button>
+      <div class="toolbar-actions">
+        <button
+          class="ai-optimize-btn"
+          :disabled="!question.trim() || aiOptimizing"
+          :title="question.trim() ? 'AI 根据你的输入意图和画像风格优化选股条件' : '输入选股条件后才能优化'"
+          @click="optimizeQuery"
+        >
+          <span v-if="aiOptimizing" class="ai-opt-spinner"></span>
+          <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" stroke="currentColor" stroke-width="0.5"/>
+          </svg>
+          {{ aiOptimizing ? "优化中…" : "AI 优化" }}
+        </button>
+        <button
+          class="search-btn"
+          :disabled="loading || !question.trim()"
+          @click="doSearch"
+        >
+          <span v-if="loading" class="spinner"></span>
+          {{ loading ? "查询中…" : "查询" }}
+        </button>
+      </div>
     </header>
 
     <div class="iwencai-body">
@@ -153,6 +281,8 @@ function cellText(v, col) {
             >{{ ex }}</button>
           </div>
         </div>
+        <!-- AI 优化提示 -->
+        <div v-if="aiHint" class="ai-hint" :class="{ ok: aiHint.startsWith('✅') }">{{ aiHint }}</div>
       </section>
 
       <!-- v 凭证错误提示 -->
@@ -175,6 +305,18 @@ function cellText(v, col) {
             仅加载前 {{ normalized.rows.length }} 条（免费接口限制）
           </span>
           <span class="result-page">第 {{ page }} / {{ totalPages }} 页</span>
+          <button
+            class="ai-analyze-btn"
+            :class="{ sent: aiSent }"
+            :disabled="!normalized.rows.length"
+            title="把当前筛选结果发送给 AI 解读（打开全局 AI 分析）"
+            @click="onAiAnalyze"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" v-if="!aiSent">
+              <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" stroke="currentColor" stroke-width="0.5"/>
+            </svg>
+            {{ aiSent ? "✓ 已发送 AI 分析" : "AI 分析这批股票" }}
+          </button>
         </div>
         <div class="result-table-wrap">
           <table class="result-table">
@@ -298,6 +440,69 @@ function cellText(v, col) {
 .search-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ===== AI 优化按钮 ===== */
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-optimize-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--rust);
+  background: var(--apricot-wash);
+  color: var(--rust);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.ai-optimize-btn:hover:not(:disabled) {
+  background: var(--rust);
+  color: #fff;
+}
+.ai-optimize-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ai-opt-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--rust);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.ai-optimize-btn:hover:not(:disabled) .ai-opt-spinner {
+  border-color: #fff;
+  border-top-color: transparent;
+}
+
+/* ===== AI 优化提示 ===== */
+.ai-hint {
+  margin-top: 10px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  color: #dc2626;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ai-hint.ok {
+  background: rgba(39, 174, 96, 0.06);
+  border-color: rgba(39, 174, 96, 0.25);
+  color: var(--green);
 }
 
 .spinner {
@@ -439,6 +644,38 @@ function cellText(v, col) {
 .result-hint {
   color: var(--rust);
   font-size: 12px;
+}
+
+/* ===== AI 分析这批股票按钮 ===== */
+.ai-analyze-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 4px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--rust);
+  background: var(--apricot-wash);
+  color: var(--rust);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.ai-analyze-btn:hover:not(:disabled) {
+  background: var(--rust);
+  color: #fff;
+}
+.ai-analyze-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ai-analyze-btn.sent {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.06);
+  color: var(--green);
 }
 
 .result-table-wrap {

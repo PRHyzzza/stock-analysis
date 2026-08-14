@@ -18,7 +18,7 @@ const props = defineProps({
   positions: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "add-watchlist", "view-stock"]);
 
 const {
   messages,
@@ -184,6 +184,8 @@ function doSuggestion(text) {
             :loading="loading"
             :selected-stock="selectedStock"
             @suggestion="doSuggestion"
+            @add-watchlist="emit('add-watchlist', $event)"
+            @view-stock="emit('view-stock', $event)"
           />
         </div>
 

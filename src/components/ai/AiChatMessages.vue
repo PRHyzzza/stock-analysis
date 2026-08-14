@@ -5,6 +5,7 @@
 import { ref, computed, nextTick, watch, onMounted } from "vue";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { signChar } from "../../utils/format.js";
 
 // 配置 marked
 marked.setOptions({
@@ -19,7 +20,7 @@ const props = defineProps({
   globalMode: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["suggestion"]);
+const emit = defineEmits(["suggestion", "add-watchlist", "view-stock"]);
 
 const messagesContainer = ref(null);
 const reasoningEl = ref(null);
@@ -90,6 +91,12 @@ function renderMarkdown(text) {
   if (!text) return "";
   // marked 默认透传原始 HTML（AI 回答含联网抓取内容，不可信），必须 DOMPurify 消毒
   return DOMPurify.sanitize(marked.parse(text));
+}
+
+/** 现价格式化（NaN/空显示 --） */
+function fmtPrice(v) {
+  const num = Number(v);
+  return Number.isFinite(num) ? num.toFixed(2) : "--";
 }
 
 defineExpose({ scrollToBottom });
@@ -164,6 +171,29 @@ defineExpose({ scrollToBottom });
           </div>
           <!-- 正常渲染 markdown -->
           <div v-else class="msg-text markdown-body" v-html="renderMarkdown(msg.content)"></div>
+
+          <!-- 选股/推荐结果卡片（render_stock_picks 渲染） -->
+          <div v-if="msg.picks && msg.picks.length" class="picks-block">
+            <div v-for="(pick, pi) in msg.picks" :key="pi" class="pick-card">
+              <div class="pick-head">
+                <span class="pick-code">{{ pick.code }}</span>
+                <span class="pick-name">{{ pick.name }}</span>
+                <span v-if="pick.price != null" class="pick-price">{{ fmtPrice(pick.price) }}</span>
+                <span
+                  v-if="pick.changePct != null"
+                  class="pick-chg"
+                  :class="Number(pick.changePct) >= 0 ? 'up' : 'down'"
+                >
+                  {{ signChar(Number(pick.changePct)) }}{{ Number(pick.changePct).toFixed(2) }}%
+                </span>
+              </div>
+              <div v-if="pick.reason" class="pick-reason">{{ pick.reason }}</div>
+              <div class="pick-actions">
+                <button class="pick-btn" @click="emit('add-watchlist', pick)">＋ 自选</button>
+                <button class="pick-btn pick-btn-primary" @click="emit('view-stock', pick)">查看详情</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </template>
@@ -483,6 +513,106 @@ defineExpose({ scrollToBottom });
 
 .typing-indicator span:nth-child(3) {
   animation-delay: 0.4s;
+}
+
+/* ── 选股/推荐结果卡片 ── */
+.picks-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.pick-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: var(--card-bg);
+  transition: box-shadow 0.15s;
+}
+.pick-card:hover {
+  box-shadow: var(--shadow-card);
+}
+
+.pick-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pick-code {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pick-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pick-price {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.pick-chg {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pick-chg.up { color: var(--red); }
+.pick-chg.down { color: var(--green); }
+
+.pick-reason {
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pick-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pick-btn {
+  padding: 4px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pick-btn:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--apricot-wash);
+}
+.pick-btn-primary {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+.pick-btn-primary:hover {
+  border-color: var(--ink);
+  background: #2a2d31;
+  color: #fff;
 }
 
 @keyframes fadeIn {

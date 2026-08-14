@@ -104,6 +104,9 @@ const showGlobalAiModal = ref(false);
 function openGlobalAiModal() { showGlobalAiModal.value = true; }
 function closeGlobalAiModal() { showGlobalAiModal.value = false; }
 
+// 问财窗口"AI 分析这批股票"注入请求（{ question, total, columns, rows }）
+const screeningRequest = ref(null);
+
 // ---- 问财选股（独立窗口 ?iwencai=1）----
 
 /** 问财窗口选中股票 → 主窗口联动选中并加载全部数据 */
@@ -266,6 +269,29 @@ function addStockFromSearch(result) {
   selectStock(stock);
 }
 
+// ---- AI 选股卡片操作（render_stock_picks）----
+
+/** 卡片「加入自选」：清洗代码（去后缀）→ 加入自选 → 刷新行情 */
+function handleAiAddWatchlist(pick) {
+  const code = String(pick?.code || "").replace(/\.(SH|SZ|BJ)$/i, "");
+  if (!code || isInWatchlist(code)) return;
+  const market = /^\d{5}$/.test(code)
+    ? "HK"
+    : (/^(43|82|83|87|88|92)/.test(code) ? "BJ" : (code.startsWith("6") ? "SH" : "SZ"));
+  addToWatchlist({
+    code,
+    market,
+    name: pick.name || code,
+    price: 0, change: 0, changePct: 0,
+  });
+  refreshAllQuotes();
+}
+
+/** 卡片「查看详情」：复用问财联动逻辑（清洗代码 + 市场推断 + 全量加载选中） */
+function handleAiViewStock(pick) {
+  selectIwencaiStock({ code: pick?.code, name: pick?.name, market: pick?.market });
+}
+
 // 手动全部刷新
 const refreshing = ref(false);
 async function handleManualRefresh() {
@@ -329,6 +355,7 @@ function rescheduleTimers() {
 let unlistenMiniSelect = null;
 let unlistenIwencaiSelect = null;
 let unlistenIwencaiAdd = null;
+let unlistenIwencaiAiAnalyze = null;
 
 onMounted(() => {
   if (isMiniMode || isIwencaiMode) return; // 子窗口不执行主窗口逻辑（自带独立刷新）
@@ -364,6 +391,13 @@ onMounted(() => {
       refreshAllQuotes();
     }
   }).then((fn) => { unlistenIwencaiAdd = fn; });
+  // 问财窗口「AI 分析这批股票」→ 打开全局 AI 并注入选股结果解读
+  listen("iwencai-ai-analyze", (e) => {
+    if (e.payload?.question && e.payload?.rows?.length) {
+      screeningRequest.value = e.payload;
+      openGlobalAiModal();
+    }
+  }).then((fn) => { unlistenIwencaiAiAnalyze = fn; });
   // 拉取港元兑人民币汇率
   invoke("get_fx_rate").then((rate) => setFxRate(rate)).catch(() => {});
   // 加载用户画像
@@ -441,6 +475,7 @@ onUnmounted(() => {
   if (unlistenMiniSelect) unlistenMiniSelect();
   if (unlistenIwencaiSelect) unlistenIwencaiSelect();
   if (unlistenIwencaiAdd) unlistenIwencaiAdd();
+  if (unlistenIwencaiAiAnalyze) unlistenIwencaiAiAnalyze();
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -541,6 +576,8 @@ onUnmounted(() => {
       :indices="indices"
       :positions="positions"
       @close="closeAiModal"
+      @add-watchlist="handleAiAddWatchlist"
+      @view-stock="handleAiViewStock"
     />
 
     <!-- 全局 AI 助手弹窗 -->
@@ -548,7 +585,11 @@ onUnmounted(() => {
       :show="showGlobalAiModal"
       :indices="indices"
       :positions="positions"
+      :screening-request="screeningRequest"
       @close="closeGlobalAiModal"
+      @screening-consumed="screeningRequest = null"
+      @add-watchlist="handleAiAddWatchlist"
+      @view-stock="handleAiViewStock"
     />
 
     <!-- 筹码峰弹窗 -->

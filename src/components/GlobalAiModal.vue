@@ -11,9 +11,11 @@ const props = defineProps({
   show: { type: Boolean, default: false },
   indices: { type: Array, default: null },
   positions: { type: Array, default: () => [] },
+  /** 问财窗口"AI 分析这批股票"注入请求 { question, total, columns, rows } */
+  screeningRequest: { type: Object, default: null },
 });
 
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "screening-consumed", "add-watchlist", "view-stock"]);
 
 const {
   messages,
@@ -22,6 +24,7 @@ const {
   apiKey,
   setApiKey,
   sendGlobalMessage,
+  injectContextMessage,
   clearHistory,
   switchGlobal,
 } = useAiAnalysis(true);
@@ -247,6 +250,94 @@ function handleClear() {
   clearHistory();
 }
 
+// ============ 问财选股结果 AI 解读 ============
+
+/** 列选择白名单：只保留代码/名称/现价及条件相关列，控制注入 token */
+function pickScreeningColumns(columns) {
+  const ALWAYS = ["股票代码", "股票简称", "代码", "名称", "现价", "最新价"];
+  const KEYWORDS = [
+    "市值", "市盈率", "市净率", "净资产收益率", "roe", "净利润", "营收",
+    "涨幅", "涨跌幅", "换手", "量比", "股息", "负债", "毛利", "自由流通", "成交",
+  ];
+  const picked = [];
+  for (const col of columns || []) {
+    if (picked.length >= 6) break;
+    const n = String(col.name || col.key || "").toLowerCase();
+    if (ALWAYS.some((a) => n.includes(a.toLowerCase())) || KEYWORDS.some((k) => n.includes(k))) {
+      picked.push(col);
+    }
+  }
+  if (!picked.some((c) => /代码/.test(String(c.name || "")))) {
+    const codeCol = (columns || []).find((c) => /代码/.test(String(c.name || "")));
+    if (codeCol) picked.unshift(codeCol);
+  }
+  if (!picked.some((c) => /简称|名称/.test(String(c.name || "")))) {
+    const nameCol = (columns || []).find((c) => /简称|名称/.test(String(c.name || "")));
+    if (nameCol) picked.unshift(nameCol);
+  }
+  return picked;
+}
+
+/** 把问财结果表渲染成 markdown 表格（整个列表，≤50 行） */
+function buildScreeningPrompt(req) {
+  const cols = pickScreeningColumns(req.columns);
+  const rows = (req.rows || []).slice(0, 50);
+  const header = cols.map((c) => c.name).join(" | ");
+  const sep = cols.map(() => "---").join(" | ");
+  const lines = rows.map((row) =>
+    cols.map((c) => String(row[c.key] ?? row[c.name] ?? "--")).join(" | ")
+  );
+  const table = [header, sep, ...lines].join("\n");
+  const total = req.total ?? rows.length;
+  const countNote = total > rows.length ? `以下为前 ${rows.length} 条：` : `以下为全部 ${rows.length} 条：`;
+  return (
+    `[选股结果注入] 用户在问财中筛选「${req.question}」，共 ${total} 条，${countNote}\n` +
+    table +
+    `\n\n请基于以上真实数据解读：` +
+    `1. 筛选逻辑是否合理、结果整体有什么特征（估值/行业/风险分布）；` +
+    `2. 哪些股票值得关注（可对候选调用 get_stock_quote / get_stock_money_flow 验证）；` +
+    `3. 有哪些风险点。` +
+    `4. **超短线买入建议**：结合主力资金流向、换手率、量比、涨跌幅、量能与题材热度，` +
+    `从列表中筛出**超短线值得买入**的股票（建议 3-10 只，按确定性从高到低排序），` +
+    `每只说明买入逻辑与风险；必要时调用 get_stock_quote / get_stock_money_flow / get_stock_intraday 验证，` +
+    `并用 render_stock_picks 把超短买入清单渲染成卡片。` +
+    `5. 列表中没有符合超短买入条件的股票时，明确告知「当前列表无超短买入标的」，不要硬凑或编造。` +
+    `若用户需要调整条件，也可用 stock_screener 工具重新筛选。`
+  );
+}
+
+/** 触发选股结果 AI 解读（成功后才消费请求，失败保留以便 API Key 配置后重试） */
+async function analyzeScreening(req) {
+  try {
+    await injectContextMessage(buildScreeningPrompt(req), {
+      indices: props.indices,
+      positions: props.positions,
+    });
+    emit("screening-consumed");
+  } catch (e) {
+    if (e.message === "NO_API_KEY") {
+      showApiKeyInput.value = true;
+    } else {
+      error.value = `选股结果分析失败: ${e.message || e}`;
+    }
+  }
+}
+
+// 打开弹窗或收到新的选股结果注入请求时触发分析
+watch(
+  () => [props.show, props.screeningRequest],
+  ([show, req]) => {
+    if (show && req) analyzeScreening(req);
+  }
+);
+
+// API Key 配置完成后，若有未消费的选股结果请求则自动重试
+watch(showApiKeyInput, (v) => {
+  if (!v && props.show && props.screeningRequest) {
+    analyzeScreening(props.screeningRequest);
+  }
+});
+
 function doSuggestion(text) {
   if (loading.value) return;
   inputText.value = text;
@@ -324,6 +415,8 @@ function removeQuickStock() {
             :selected-stock="null"
             :global-mode="true"
             @suggestion="doSuggestion"
+            @add-watchlist="emit('add-watchlist', $event)"
+            @view-stock="emit('view-stock', $event)"
           />
         </div>
 

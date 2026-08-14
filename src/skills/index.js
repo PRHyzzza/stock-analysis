@@ -14,7 +14,8 @@ import Intraday from "./Intraday.js";
 import MarketOverview from "./MarketOverview.js";
 import StockSearch from "./StockSearch.js";
 import UserContext from "./UserContext.js";
-import TradeRules from "./TradeRules.js";
+import IwencaiSelect from "./IwencaiSelect.js";
+import StockPicks from "./StockPicks.js";
 
 /** 所有技能列表 */
 export const SKILLS = [
@@ -28,7 +29,8 @@ export const SKILLS = [
   MarketOverview,
   StockSearch,
   UserContext,
-  TradeRules,
+  IwencaiSelect,
+  StockPicks,
 ];
 
 /** 合并所有工具的 tool_definitions（发给 LLM 用） */
