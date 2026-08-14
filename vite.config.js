@@ -32,7 +32,16 @@ export default defineConfig(async () => ({
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      ignored: [
+        "**/src-tauri/**",
+        // 编辑器/工具原子写入产生的临时文件（如 .StockDetail.vue.<pid>.<uuid>.tmpdir/StockDetail.vue.tmp）：
+        // Windows 上替换写入瞬间文件短暂锁定，chokidar watch 到锁定文件会抛 EBUSY 并崩溃整个 dev server。
+        // 用函数形式精确匹配（chokidar ignored 支持函数），glob 对点开头目录的匹配不可靠
+        (path) =>
+          path.includes(".tmpdir") ||
+          path.endsWith(".tmp") ||
+          path.endsWith("~"),
+      ],
     },
   },
 
