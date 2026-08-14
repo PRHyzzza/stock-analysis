@@ -55,7 +55,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useUserProfile` | 画像读写（后台更新 10min 节流） | `read/save_user_profile` |
 | `useIwencaiRobot` | 问财选股窗口（响应式状态 + 竞态保护） | `get_iwencai_robot` |
 | `iwencaiClient` | 问财凭证/查询共享模块（chameleon.js 生成 Cookie v、403 换 v 重试、会话级查询缓存 LRU 50；窗口与 AI 工具 `stock_screener` 共用） | `get_iwencai_robot` |
-| `useStockSentiment` | 社区情绪（股吧帖子 5min 缓存 + 看多看空关键词分类 + 情绪档位/热度推导；分类函数 `classifyTitle`/`deriveSentiment` 供 AI 工具复用） | `get_stock_guba_posts` |
+| `useStockSentiment` | 社区情绪（股吧帖子 5min 缓存 + **短语优先/否定反转/问句识别**分类 + 回复/阅读**热度加权** + **计数明确度修正**的情绪档位；分类函数 `classifyTitle`/`deriveSentiment` 供 AI 工具复用） | `get_stock_guba_posts` |
 
 **纯计算**
 
@@ -126,7 +126,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **AI 双入口**: 个股 AI 注入行情/K线/资金/行业/筹码/持仓 + 预计算指标；全局 AI 注入指数/持仓，`@代码` 快捷引用（发送后清除），热榜选股（`hotStocks` 注入）；两处均开放 `stock_screener`（问财选股）工具
 - **AI 选股**: 问财结果窗口「AI 分析这批股票」按钮 → `iwencai-ai-analyze` 事件 → 主窗口打开全局 AI 并 `injectContextMessage` 注入结果表（带 `_injected` 标记不持久化，跳过画像更新）；解读提示词含**超短线买入建议**（资金流/换手/量比/涨速筛选 3-10 只 + render_stock_picks 卡片，无标的不硬凑）；API Key 未配置时请求保留，配置后自动重试
 - **选股卡片**: `render_stock_picks` 工具把 AI 选股结论渲染成聊天卡片（代码/名称/现价/涨跌幅/理由 + 「＋ 自选」「查看详情」按钮；两按钮事件经 GlobalAiModal/AiAnalysisModal 透传到 App.vue：加自选/复用 selectIwencaiStock 全量加载选中）
-- **社区情绪**: 详情页「社区情绪」按钮 → SentimentModal（股吧帖子：情绪档位/看多占比条/热度/热帖列表，标题点击 opener 打开原文）；「AI 解读情绪」→ 全局 AI 注入（`sentimentRequest` 管道，复用 injectContextMessage）；AI 工具 `get_stock_sentiment` 对话内随时查；港股返回空
+- **社区情绪**: 详情页「社区情绪」按钮 → SentimentModal（股吧帖子：情绪档位/看多占比条/热度/热帖列表，标题点击 opener 打开原文）；「AI 解读情绪」→ 全局 AI 注入（`sentimentRequest` 管道，复用 injectContextMessage）；AI 工具 `get_stock_sentiment` 对话内随时查（提示词要求 AI 逐条语义审阅标题、识别反话/水军，与统计交叉验证）；港股返回空。**档位算法**：方向=回复/阅读加权看多占比（爆款帖权重更高），明确度=计数口径明确帖占比（中性/问句多→档位收敛中性，避免热帖权重误判极端情绪）；明确帖 <8 时极端档降一级（样本保护）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`，开启时 `buildSearchPolicy()` 注入一行指针，关闭时剔除该 skill
 - **快捷键/单例/托盘**: Ctrl+K 搜索、Ctrl+N 全局 AI；single-instance 聚焦已有窗口；关窗隐藏托盘
 - **时段感知轮询**: App.vue 四个定时器（指数/行情/K线/分时）回调经 `sessionTick` 守卫——A 股或港股任一在交易时段才发请求，盘外（收盘/午休/周末）零请求空转，开盘瞬间自动恢复并立即刷新；手动刷新不受限
