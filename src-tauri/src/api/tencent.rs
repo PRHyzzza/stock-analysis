@@ -462,6 +462,30 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
     let mut cum_vol = 0.0; // ∑(volume per-minute) for VWAP
     let mut prev_vol = 0.0; // 上一分钟的累计量，用于差分
     let mut prev_turnover = 0.0; // 上一分钟的累计额，用于差分
+
+    // 交易时段判断（按市场）：接口会在收盘后附带零星的盘后成交分钟
+    // （如 15:06-15:30 量 0-20 的僵尸数据），必须剔除——
+    // 否则"尾盘 15 分钟"检测窗口会被盘后数据占据，尾盘信号/指标全部失效
+    let is_session_minute = |time: &str| -> bool {
+        let hhmm: Vec<&str> = time.split(':').collect();
+        if hhmm.len() != 2 {
+            return false;
+        }
+        let h: i32 = hhmm[0].parse().unwrap_or(-1);
+        let m: i32 = hhmm[1].parse().unwrap_or(-1);
+        if h < 0 || m < 0 {
+            return false;
+        }
+        let t = h * 60 + m;
+        if crate::helpers::is_hk_stock(code) {
+            // 港股：9:30-12:00 / 13:00-16:00
+            (570..=720).contains(&t) || (780..=960).contains(&t)
+        } else {
+            // A 股：9:30-11:30 / 13:00-15:00
+            (570..=690).contains(&t) || (780..=900).contains(&t)
+        }
+    };
+
     for point in points {
         let s = point.as_str().unwrap_or("");
         if s.is_empty() {
@@ -476,6 +500,15 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
             } else {
                 raw_time.to_string()
             };
+            // 剔除交易时段外的分钟（含盘后零星成交）
+            if !is_session_minute(&time) {
+                // 注意：被剔除分钟同样要推进累计量/额基准，否则差分会算错
+                if let Ok(cv) = parts[2].parse::<f64>() {
+                    prev_vol = cv;
+                    prev_turnover = parts.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                }
+                continue;
+            }
             let price: f64 = parts[1].parse().unwrap_or(0.0);
             let cum_volume: f64 = parts[2].parse().unwrap_or(0.0); // API 返回的是累计量（手）
             let cum_turnover: f64 = parts.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0); // 累计成交额（元）

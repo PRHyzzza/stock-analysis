@@ -86,9 +86,23 @@ export function calcTrapSignals(intradayData) {
     return b > 0 ? m / b : 1;
   };
 
+  /** [from, to] 区间内最大连续 win 分钟均量（捕捉"最后几分钟突然放量"的脉冲形态；
+   *  全区间平均会被上升途中的普通量稀释，导致真实放量冲高被漏检） */
+  const maxWinMean = (from, to, win) => {
+    let best = 0;
+    const w = Math.min(win, to - from + 1);
+    if (w <= 0) return 0;
+    for (let s = from; s <= to - w + 1; s++) {
+      const m = mean(volumes.slice(s, s + w));
+      if (m > best) best = m;
+    }
+    return best;
+  };
+
   // 局部极值（带最小波动幅度约束）：窗口 ±W，突出度（相对窗口内最值）≥0.5% 才算有效摆动点。
   // 纯严格比较在"平台期"（连续同价）会失效——平坦段既非峰也非谷，摆动起点会丢失；
-  // 突出度约束天然跳过盘整平台，只保留真实摆动
+  // 突出度约束天然跳过盘整平台，只保留真实摆动。
+  // 开盘不整体跳过：09:31 起的开盘放量急拉是全天最重要的信号（09:30 集合竞价分钟由 add 剔除）
   const W = 5;
   const MIN_MOVE = 0.005;
   const peaks = [];
@@ -141,14 +155,15 @@ export function calcTrapSignals(intradayData) {
 
   // ═══ A. 放量冲高回落（诱多）═══
   for (const p of peaks) {
-    if (p < 12 || p > N - 8) continue; // 跳过开盘噪声与未完成的摆动
+    if (p < 6 || p > N - 8) continue; // 只跳过 09:30 集合竞价附近的未完成摆动（开盘放量急拉是重要信号，不得整体跳过开盘段）
     const pv = nearestBefore(valleys, p);
     const nv = nearestAfter(valleys, p);
     if (pv == null || nv == null || p - pv > 40 || nv - p > 40) continue;
     const rise = pct(prices[pv], prices[p]);
     const drop = pct(prices[p], prices[nv]);
     if (rise < 1.2 || drop > -0.15) continue; // 有像样的拉升，且已回落
-    const volRise = vRatio(p, p - pv + 1);
+    // 放量强度 = 上升区间内最大连续 5 分钟均量 / 基准（脉冲放量不被区间平均稀释）
+    const volRise = maxWinMean(pv, p, 5) / baseAt(p);
     if (volRise < 1.5) continue; // 拉升必须放量
     if (-drop < 0.5 * rise) continue; // 回落不足拉升一半，不构成陷阱
     const backPct = pct(prices[pv], prices[nv]);
@@ -168,14 +183,15 @@ export function calcTrapSignals(intradayData) {
 
   // ═══ B. 放量急跌后收复（诱空）═══
   for (const v of valleys) {
-    if (v < 12 || v > N - 8) continue;
+    if (v < 6 || v > N - 8) continue; // 只跳过 09:30 集合竞价附近的未完成摆动
     const pp = nearestBefore(peaks, v);
     const np = nearestAfter(peaks, v);
     if (pp == null || np == null || v - pp > 40 || np - v > 40) continue;
     const fall = pct(prices[pp], prices[v]);
     const riseBack = pct(prices[v], prices[np]);
     if (fall > -1.2 || riseBack < 0.15) continue;
-    const volFall = vRatio(v, v - pp + 1);
+    // 放量强度 = 下跌区间内最大连续 5 分钟均量 / 基准
+    const volFall = maxWinMean(pp, v, 5) / baseAt(v);
     if (volFall < 1.5) continue;
     if (riseBack < 0.5 * -fall) continue;
     const backPct = pct(prices[pp], prices[np]);
