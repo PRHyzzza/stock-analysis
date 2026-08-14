@@ -8,29 +8,33 @@
 use crate::types::GubaPost;
 use serde::Deserialize;
 
-/// article_list 原始结构（re 为帖子数组）
+/// article_list 原始结构（re 为帖子数组；re 缺失时容错为空）
 #[derive(Deserialize)]
 struct GubaRaw {
+    #[serde(default)]
     re: Vec<PostRaw>,
 }
 
-/// 帖子原始字段（serde 映射内嵌 JSON 的 snake_case 字段）
+/// 帖子原始字段（serde 映射内嵌 JSON 的 snake_case 字段）。
+/// 全部为 Option：页面偶尔混入缺字段的异常条目（如缺 stockbar_code 的广告/系统帖），
+/// 若按必填字段反序列化，单条异常会让整批帖子解析失败
+/// （实测报错 "missing field `stockbar_code`"，由 filter/map 阶段兜底跳过）。
 #[derive(Deserialize)]
 struct PostRaw {
     #[serde(rename = "post_id")]
-    post_id: i64,
+    post_id: Option<i64>,
     #[serde(rename = "post_title")]
-    post_title: String,
+    post_title: Option<String>,
     #[serde(rename = "stockbar_code")]
-    stockbar_code: String,
+    stockbar_code: Option<String>,
     #[serde(rename = "user_nickname")]
-    user_nickname: String,
+    user_nickname: Option<String>,
     #[serde(rename = "post_click_count")]
-    post_click_count: u64,
+    post_click_count: Option<u64>,
     #[serde(rename = "post_comment_count")]
-    post_comment_count: u64,
+    post_comment_count: Option<u64>,
     #[serde(rename = "post_publish_time")]
-    post_publish_time: String,
+    post_publish_time: Option<String>,
 }
 
 /// 从股吧 HTML 中提取 `var article_list=` 后的完整 JSON 对象字符串。
@@ -106,15 +110,16 @@ pub async fn fetch_stock_guba_posts(code: &str, limit: usize) -> Result<Vec<Guba
     let posts: Vec<GubaPost> = raw
         .re
         .into_iter()
-        .filter(|p| p.stockbar_code == code) // 过滤关联吧混入的帖子
+        // 过滤关联吧混入的帖子；跳过 id 缺失（无法定位）的异常条目
+        .filter(|p| p.stockbar_code.as_deref() == Some(code) && p.post_id.is_some())
         .take(limit)
         .map(|p| GubaPost {
-            id: p.post_id,
-            title: p.post_title,
-            author: p.user_nickname,
-            click_count: p.post_click_count,
-            comment_count: p.post_comment_count,
-            publish_time: p.post_publish_time,
+            id: p.post_id.unwrap_or(0),
+            title: p.post_title.unwrap_or_default(),
+            author: p.user_nickname.unwrap_or_default(),
+            click_count: p.post_click_count.unwrap_or(0),
+            comment_count: p.post_comment_count.unwrap_or(0),
+            publish_time: p.post_publish_time.unwrap_or_default(),
         })
         .collect();
 

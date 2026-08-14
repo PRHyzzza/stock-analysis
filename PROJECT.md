@@ -171,7 +171,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `llm.rs` | UTF-8 | V4 需回传 `reasoning_content`；SSE 按事件边界（`\n\n`/`\r\n\r\n`）切分 + 流末 flush 尾块；`data:` 兼容有/无空格；LLM client 240s 读超时 |
 | `web.rs` | UTF-8（无 charset 头时探测 GBK） | sort=default 相关性排序；中文无空格查询按子串剥泛词、维度词截断提实体；四级正文提取；反爬站过滤（8 个）；**SSRF 防护**（私网/回环拒绝、禁跨主机重定向、≤50MB） |
 | `iwencai.rs` | UTF-8 | 路径 `data.answer[0].txt[0].content.components[0].data`；**同 v 连续 4-6 次 → 403（换 v 恢复）；带 condition 必 403**；风控错误带 `[RATE_LIMITED]` 标记 |
-| `guba.rs` | UTF-8 | HTML 页面末尾内嵌 `var article_list={"re":[...]}`（括号深度扫描提取，忽略字符串内 `{}`）；`gbapi.eastmoney.com` JSON 接口 403 不可用；页面混入关联吧帖子，须按 `stockbar_code` 过滤 |
+| `guba.rs` | UTF-8 | HTML 页面末尾内嵌 `var article_list={"re":[...]}`（括号深度扫描提取，忽略字符串内 `{}`）；`gbapi.eastmoney.com` JSON 接口 403 不可用；页面混入关联吧帖子，须按 `stockbar_code` 过滤；**字段全部 Option 容错**（页面偶发缺字段异常条目，如缺 stockbar_code，必填反序列化会让整批解析失败） |
 
 ### 4.3 代码转换 (helpers.rs)
 
