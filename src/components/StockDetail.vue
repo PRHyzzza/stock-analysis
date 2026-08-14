@@ -221,7 +221,7 @@ const sinceAddedPct = computed(() => {
           :class="t.trapType === 'bull' ? 'trap-bull' : 'trap-bear'"
           :title="`${t.desc}｜操作：${t.action}｜确认：${t.confirm || '—'}`"
         >
-          {{ t.trapType === 'bull' ? '⚠ 诱多' : '⚠ 诱空' }} {{ t.name }} · {{ t.time }} · {{ t.severity }}
+          {{ t.trapType === 'bull' ? '? 疑似诱多' : '? 疑似诱空' }} {{ t.name }} · {{ t.time }} · {{ t.severity }}
         </span>
       </div>
 

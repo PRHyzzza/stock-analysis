@@ -331,11 +331,12 @@ export function useT0Signals() {
       })
     }
 
-    // 5. 分时量价陷阱（诱多/诱空）：标记并入分时图，信号并入列表
+    // 5. 分时量价陷阱（诱多/诱空嫌疑）：标记并入分时图，信号并入列表
     const trapRes = calcTrapSignals(intradayData)
     for (const t of trapRes.traps) {
       signalList.push({
-        name: `${t.type === 'bull' ? '诱多' : '诱空'}·${t.name}`,
+        // "疑似"前缀：诱多/诱空为未确认定性，需 confirm 字段的后续走势验证
+        name: `${t.type === 'bull' ? '疑似诱多' : '疑似诱空'}·${t.name}`,
         desc: t.desc,
         action: t.action,
         trap: true,
@@ -433,7 +434,7 @@ export function useT0Signals() {
     // 量价信号标记（放量/天量/缩量/突破/背离），同分钟陷阱优先（陷阱更严重，先占位）
     for (const m of volRes.markers) {
       const hasTrapAtTime = markers.some(
-        (x) => x.time === m.time && (x.text === '诱多⚠' || x.text === '诱空⚠')
+        (x) => x.time === m.time && (x.text === '诱多?' || x.text === '诱空?')
       )
       if (hasTrapAtTime) continue
       if (!markers.some((x) => x.time === m.time && x.text === m.text)) {

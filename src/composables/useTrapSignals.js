@@ -6,8 +6,12 @@
  * 强度分级与确认条件，输出为"嫌疑 + 确认信号"，不输出确定性结论。
  *
  * 检测规则：
- *   诱多（bull trap，红↓）：放量冲高回落 / 高位放量滞涨 / 尾盘无量急拉 / 高开冲高破均价
- *   诱空（bear trap，绿↑）：放量急跌后收复 / 低位放量反转 / 尾盘放量急砸（低位）
+ *   诱多嫌疑（bull，红↓）：放量冲高回落 / 高位放量滞涨 / 尾盘无量急拉 / 高开冲高破均价
+ *   诱空嫌疑（bear，绿↑）：放量急跌后收复 / 低位放量反转 / 尾盘放量急砸（低位）
+ *
+ * ⚠️ 定性说明（反后视镜）：跌破/收复关键位只证明"形态破坏"这一观测事实；
+ * "诱多/诱空"是**疑似定性**，成立与否需后续走势验证（见每个信号的 confirm 字段）。
+ * 标记文本用"诱多?"/"诱空?"表达未确认的怀疑，不输出确定结论。
  *
  * 输入：intradayData = { items: [{ time, price, avgPrice, volume, turnover, vwap }], preClose, date }
  * 输出：{ traps: [{ type, name, time, price, severity, desc, action, confirm }], markers: [...] }
@@ -138,12 +142,14 @@ export function calcTrapSignals(intradayData) {
     if (lastTrapMinute[t.name] != null && m - lastTrapMinute[t.name] < 15) return;
     lastTrapMinute[t.name] = m;
     traps.push(t);
+    // 标记文本用"诱多?"而非"诱多⚠"：跌破/收复关键位只证明形态破坏，
+    // "诱多/诱空"的定性需后续走势验证（见 confirm 字段）——用问号表达未确认的怀疑
     markers.push({
       time: t.time,
       position: t.type === "bull" ? "aboveBar" : "belowBar",
       color: t.type === "bull" ? "#e74c3c" : "#27ae60",
       shape: t.type === "bull" ? "arrowDown" : "arrowUp",
-      text: t.type === "bull" ? "诱多⚠" : "诱空⚠",
+      text: t.type === "bull" ? "诱多?" : "诱空?",
       size: t.severity === "强" ? 2 : 1,
     });
   };
