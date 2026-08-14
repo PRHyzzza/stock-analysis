@@ -91,6 +91,7 @@ pub fn run() {
             commands::get_market_indices,
             commands::search_stocks,
             commands::get_stock_money_flow,
+            commands::get_stock_money_flow_history,
             commands::get_hot_list,
             commands::call_llm,
             commands::call_llm_stream,
@@ -102,7 +103,6 @@ pub fn run() {
             commands::get_iwencai_robot,
             commands::get_app_version,
             commands::check_for_update,
-            commands::get_market_treemap,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

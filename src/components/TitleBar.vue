@@ -6,7 +6,7 @@ function windowMinimize() { appWindow.minimize(); }
 function windowToggleMax() { appWindow.toggleMaximize(); }
 function windowClose() { appWindow.close(); }
 
-const emit = defineEmits(["open-mini", "open-treemap"]);
+const emit = defineEmits(["open-mini"]);
 </script>
 
 <template>
@@ -17,14 +17,6 @@ const emit = defineEmits(["open-mini", "open-treemap"]);
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <rect x="1.5" y="1.5" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1"/>
           <rect x="3.8" y="6.2" width="4.4" height="4.4" fill="currentColor" opacity="0.55"/>
-        </svg>
-      </button>
-      <button class="win-btn win-treemap" @click="emit('open-treemap')" title="大盘云图 (A股热力图)">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <rect x="1.5" y="1.5" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1"/>
-          <rect x="3" y="3" width="3" height="3" fill="currentColor" opacity="0.9"/>
-          <rect x="7.2" y="3" width="1.8" height="6" fill="currentColor" opacity="0.55"/>
-          <rect x="3" y="7.2" width="3" height="1.8" fill="currentColor" opacity="0.55"/>
         </svg>
       </button>
       <button class="win-btn win-min" @click="windowMinimize" title="最小化">

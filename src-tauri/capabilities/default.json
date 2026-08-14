@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for main, mini, iwencai and treemap windows",
-  "windows": ["main", "mini", "iwencai", "treemap"],
+  "description": "Capability for main, mini and iwencai windows",
+  "windows": ["main", "mini", "iwencai"],
   "permissions": [
     "core:default",
     "opener:default",

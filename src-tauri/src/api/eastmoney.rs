@@ -1,6 +1,6 @@
 /// 东方财富数据源
 use crate::helpers::to_tencent_code;
-use crate::types::{IndustryData, MarketPerformance, MoneyFlow, RevenueRanking};
+use crate::types::{IndustryData, MarketPerformance, MoneyFlow, MoneyFlowHistoryItem, RevenueRanking};
 
 /// 获取个股行业分析数据（来自东方财富 HSF10）
 pub async fn fetch_industry_analysis(em_code: &str) -> Result<serde_json::Value, String> {
@@ -231,4 +231,69 @@ pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
         small_net: pf(2) / 10000.0,
         small_pct: pf(7),
     })
+}
+
+/// 获取个股资金流向历史（近 N 个交易日的主力/各档净流入，单位：万元）
+/// 数据源：push2his daykline 接口（lmt=limit，klines **按日期升序**返回，直接映射即可，
+/// 勿反转——前端 lightweight-charts 要求时间升序，实测反转会导致 "data must be asc ordered" 断言失败）
+/// 字段映射：f51 日期, f52 主力, f53 小单, f54 中单, f55 大单, f56 超大单（元 → 万元）, f62 收盘价
+pub async fn fetch_money_flow_history(
+    code: &str,
+    limit: u32,
+) -> Result<Vec<MoneyFlowHistoryItem>, String> {
+    let secid = crate::helpers::to_em_secid(code);
+    let client = super::build_http_client()?;
+
+    let url = format!(
+        "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?secid={}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65&klt=101&lmt={}&ut=b2884a393a59ad64002292a3e90d46a5&cb=jQuery",
+        secid, limit
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Referer", "https://data.eastmoney.com/")
+        .header("Accept", "*/*")
+        .send()
+        .await
+        .map_err(|e| format!("请求东方财富资金流向历史失败: {}", e))?;
+
+    let text = resp.text().await.map_err(|e| format!("读取响应失败: {}", e))?;
+
+    // 解析 JSONP（需要整个 klines 数组，而非第一条）
+    let json_str = text
+        .strip_prefix("jQuery(")
+        .and_then(|s| s.strip_suffix(");"))
+        .ok_or_else(|| "JSONP 解析失败: 格式异常".to_string())?;
+    let json: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| format!("JSON 解析失败: {}", e))?;
+    let rc = json.get("rc").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if rc != 0 {
+        return Err(format!("东方财富 API 返回异常: rc={}", rc));
+    }
+    let klines = json
+        .pointer("/data/klines")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "未找到资金流向历史数据".to_string())?;
+
+    let mut items = Vec::with_capacity(klines.len());
+    for line in klines {
+        let line = line.as_str().unwrap_or("");
+        let fields: Vec<&str> = line.split(',').collect();
+        if fields.len() < 12 {
+            continue;
+        }
+        let pf = |idx: usize| -> f64 {
+            fields.get(idx).unwrap_or(&"0").trim().parse::<f64>().unwrap_or(0.0)
+        };
+        items.push(MoneyFlowHistoryItem {
+            date: fields[0].to_string(),
+            main_net_inflow: pf(1) / 10000.0,
+            small_net: pf(2) / 10000.0,
+            medium_net: pf(3) / 10000.0,
+            large_net: pf(4) / 10000.0,
+            super_large_net: pf(5) / 10000.0,
+            close: pf(11),
+        });
+    }
+    Ok(items)
 }

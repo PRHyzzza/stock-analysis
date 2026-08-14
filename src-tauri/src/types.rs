@@ -124,6 +124,19 @@ pub struct MoneyFlow {
     pub small_pct: f64,           // 小单净占比 (%)
 }
 
+/// 单日资金流向历史条目（东方财富 daykline，单位：万元）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MoneyFlowHistoryItem {
+    pub date: String,             // 交易日 YYYY-MM-DD
+    pub main_net_inflow: f64,     // 主力净流入（万元）
+    pub super_large_net: f64,     // 超大单净流入（万元）
+    pub large_net: f64,           // 大单净流入（万元）
+    pub medium_net: f64,          // 中单净流入（万元）
+    pub small_net: f64,           // 小单净流入（万元）
+    pub close: f64,               // 收盘价
+}
+
 /// 热榜股票条目
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HotStockItem {
@@ -142,45 +155,5 @@ pub struct HotStockItem {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HotListData {
     pub stock_list: Vec<HotStockItem>,
-}
-
-/// 大盘云图 — 个股节点(面积=流通市值, 颜色=涨跌幅)
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TreemapStock {
-    pub code: String,
-    pub name: String,
-    pub value: f64,   // 流通市值(百万元)
-    pub price: f64,   // 现价
-    pub chg: f64,     // 涨跌幅 %
-}
-
-/// 大盘云图 — 细分行业节点
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TreemapSector {
-    pub code: String,
-    pub name: String,
-    pub value: f64,   // 市值合计(百万元)
-    pub chg: f64,     // 加权涨跌幅 %
-    pub stocks: Vec<TreemapStock>,
-}
-
-/// 大盘云图 — 一级行业节点
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TreemapIndustry {
-    pub code: String,
-    pub name: String,
-    pub value: f64,   // 市值合计(百万元)
-    pub chg: f64,     // 加权涨跌幅 %
-    pub sectors: Vec<TreemapSector>,
-}
-
-/// 大盘云图完整数据
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MarketTreemap {
-    pub time: String,   // 行情时间 "2026-08-13 16:40"
-    pub up: u32,        // 上涨家数
-    pub flat: u32,      // 平盘家数
-    pub down: u32,      // 下跌家数
-    pub industries: Vec<TreemapIndustry>,
 }
 

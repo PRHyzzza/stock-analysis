@@ -1,11 +1,7 @@
 import { ref, watch } from "vue";
-import { invoke } from "@tauri-apps/api/core";
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from "@tauri-apps/plugin-notification";
-import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
+import { getToday, isTradingHours, pruneHistory } from "../utils/marketTime.js";
+import { sendAlertNotification } from "../utils/notify.js";
+import { fetchDayKlineCached, clearKlineCache } from "../utils/klineCache.js";
 
 /**
  * 个股均线提醒系统
@@ -14,7 +10,7 @@ import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
  * - 每只股票独立配置监控周期（5/10/20/30/60 日）与触发方向（上穿/下穿/双向）
  * - 股价穿越均线时发送 Windows 原生通知（仅交易时段）
  * - 每股票每周期每日只通知一次（按本地日期去重）
- * - 日 K 线 5 分钟内存缓存，避免 30s 行情刷新触发高频 K 线请求
+ * - 日 K 线走共享 5 分钟缓存（utils/klineCache），避免 30s 行情刷新触发高频 K 线请求
  *
  * 配置存储：localStorage "stock-analysis-ma-alerts"
  *   { "300750": { periods: [5, 10], direction: "both" } }
@@ -22,32 +18,9 @@ import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 
 const STORAGE_KEY = "stock-analysis-ma-alerts";
 const HISTORY_KEY = "stock-analysis-ma-notif-history";
-const KLINE_CACHE_TTL = 5 * 60 * 1000; // 日 K 缓存 5 分钟
-
-const appWindow = getCurrentWindow();
 
 /** 可监控的均线周期 */
 export const MA_PERIODS = [5, 10, 20, 30, 60];
-
-/** 今日日期字符串 YYYY-MM-DD（本地时区，避免 UTC 导致跨日重复通知） */
-function getToday() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/** 交易时段判断（与 useWatchlistNotifications 同规则；5 位代码 = 港股） */
-function isTradingHours(code) {
-  const now = new Date();
-  const day = now.getDay(); // 0=周日, 6=周六
-  if (day === 0 || day === 6) return false;
-  const t = now.getHours() * 60 + now.getMinutes();
-  if (/^\d{5}$/.test(code || "")) {
-    // 港股：9:30-12:00 或 13:00-16:00
-    return (t >= 570 && t <= 720) || (t >= 780 && t <= 960);
-  }
-  // A 股：9:30-11:30 或 13:00-15:00
-  return (t >= 570 && t <= 690) || (t >= 780 && t <= 900);
-}
 
 /** 加载均线提醒配置 { code: { periods, direction } } */
 function loadConfig() {
@@ -63,21 +36,11 @@ function loadConfig() {
 function loadHistory() {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return {};
-    const data = JSON.parse(raw);
-    const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-    const cleaned = {};
-    for (const [date, stocks] of Object.entries(data)) {
-      if (date >= cutoff) cleaned[date] = stocks;
-    }
-    return cleaned;
+    return raw ? pruneHistory(JSON.parse(raw)) : {};
   } catch {
     return {};
   }
 }
-
-// K 线缓存（模块级，跨实例共享）：{ code: { data, fetchedAt } }
-const klineCache = new Map();
 
 export function useMaAlerts() {
   /** 配置 { code: { periods: [5,10], direction: "both"|"cross_up"|"cross_down" } } */
@@ -124,7 +87,7 @@ export function useMaAlerts() {
     const { [code]: _removed, ...rest } = configs.value;
     configs.value = rest;
     delete lastPrices.value[code];
-    klineCache.delete(code);
+    clearKlineCache(code);
   }
 
   /** 写入配置（无周期时视为删除） */
@@ -134,29 +97,6 @@ export function useMaAlerts() {
     } else {
       configs.value = { ...configs.value, [code]: cfg };
     }
-  }
-
-  /** 获取日 K 线（5 分钟缓存，命中时零请求；缓存超 100 只时淘汰最旧，防无界增长） */
-  async function fetchDayKline(code) {
-    const cached = klineCache.get(code);
-    if (cached && Date.now() - cached.fetchedAt < KLINE_CACHE_TTL) {
-      return cached.data;
-    }
-    try {
-      const data = await invoke("get_stock_kline", { code, period: "day" });
-      if (Array.isArray(data) && data.length > 0) {
-        // 简易 LRU 上限：超过 100 只时删除最早插入的条目
-        if (klineCache.size >= 100) {
-          const oldest = klineCache.keys().next().value;
-          if (oldest != null) klineCache.delete(oldest);
-        }
-        klineCache.set(code, { data, fetchedAt: Date.now() });
-        return data;
-      }
-    } catch (e) {
-      console.error("均线提醒: 获取日K失败", code, e);
-    }
-    return null;
   }
 
   /** 指定股票+周期+方向今日是否已通知过 */
@@ -170,28 +110,14 @@ export function useMaAlerts() {
     const todayData = history.value[t] || {};
     const triggers = todayData[code] || [];
     if (!triggers.includes(type)) {
-      history.value = {
+      history.value = pruneHistory({
         ...history.value,
         [t]: { ...todayData, [code]: [...triggers, type] },
-      };
-      // 裁剪过期记录（与 loadHistory 的 7 天规则一致）
-      const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-      for (const [date] of Object.entries(history.value)) {
-        if (date < cutoff) delete history.value[date];
-      }
+      });
       try {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value));
       } catch { /* ignore */ }
     }
-  }
-
-  /** 确保通知权限已授予 */
-  async function ensurePermission() {
-    let permitted = await isPermissionGranted();
-    if (!permitted) {
-      permitted = (await requestPermission()) === "granted";
-    }
-    return permitted;
   }
 
   /**
@@ -218,7 +144,7 @@ export function useMaAlerts() {
     // 非交易时段不通知
     if (!isTradingHours(quote.code)) return;
 
-    const kline = await fetchDayKline(quote.code);
+    const kline = await fetchDayKlineCached(quote.code);
     if (!kline || kline.length < 5) return;
     const closes = kline.map((k) => k.close);
 
@@ -248,18 +174,16 @@ export function useMaAlerts() {
     );
     if (fresh.length === 0) return;
 
-    // ── 确保权限并发送通知（await 每条，防止 Windows Toast 排队延迟）──
-    const permitted = await ensurePermission();
-    if (!permitted) return;
-    await appWindow.requestUserAttention(UserAttentionType.Critical);
-
+    // ── 发送通知（await 每条，防止 Windows Toast 排队延迟）──
     for (const t of fresh) {
       const dirLabel = t.dir === "up" ? "上穿" : "下穿";
       const emoji = t.dir === "up" ? "📈" : "📉";
-      await sendNotification({
-        title: `${emoji} ${dirLabel} MA${t.period}: ${name} (${code})`,
-        body: `现价 ${price.toFixed(2)} 已${dirLabel} MA${t.period}(${t.ma.toFixed(2)})`,
-      });
+      const sent = await sendAlertNotification(
+        `${emoji} ${dirLabel} MA${t.period}: ${name} (${code})`,
+        `现价 ${price.toFixed(2)} 已${dirLabel} MA${t.period}(${t.ma.toFixed(2)})`
+      );
+      // 权限被拒时中止后续发送
+      if (!sent) return;
       markTriggeredToday(code, `ma${t.period}_${t.dir}`);
       // 多条通知之间间隔 300ms，避免 Windows 通知系统节流合并
       if (fresh.length > 1) {

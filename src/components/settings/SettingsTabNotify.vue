@@ -34,5 +34,12 @@ const { state } = useSettings();
         </div>
       </label>
     </div>
+    <div class="setting-group" :class="{ disabled: !state.notifyEnabled }">
+      <p class="setting-group-title">价格提醒</p>
+      <label class="setting-row sub">
+        <span>自定义价格/条件提醒<small class="setting-desc">个股详情页「价格提醒」设置的突破/跌破、放量提醒</small></span>
+        <input type="checkbox" v-model="state.priceAlertsEnabled" class="toggle" :disabled="!state.notifyEnabled" />
+      </label>
+    </div>
   </div>
 </template>

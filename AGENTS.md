@@ -13,7 +13,7 @@
 - **GBK 编码**：腾讯 API 返回 GBK，必须 `encoding_rs::GBK.decode()`（`tencent.rs`）
 - **竞态保护**：切换股票的异步请求必须带请求序号（`requestSeq`）或代际守卫（`streamGeneration`），旧响应一律丢弃
 - **XSS**：所有 `marked.parse` 输出必须经 `DOMPurify.sanitize` 后才能 `v-html`；外部数据插入 HTML 前先转义
-- **股票代码**：A 股 6 位 / 港股 5 位 / 北交所 43|82|83|87|88|92 开头；外部来源（问财/云图）代码必须剥离 `.SH/.SZ/.BJ` 后缀
+- **股票代码**：A 股 6 位 / 港股 5 位 / 北交所 43|82|83|87|88|92 开头；外部来源（问财）代码必须剥离 `.SH/.SZ/.BJ` 后缀
 - **AI 数据真实性**：提示词禁止模型编造数值——所有行情/资金/财务数字必须来自工具返回
 - **TLS 不降级**：reqwest 禁止 `danger_accept_invalid_certs`
 
@@ -30,5 +30,5 @@
 | 前端入口 | `src/App.vue`（窗口/定时器/联动）+ `src/components/` |
 | 数据加载 | `src/composables/useXxx.js` → Rust 命令 |
 | Rust 命令 | `src-tauri/src/commands.rs`（20 个命令）→ `src-tauri/src/api/*.rs` |
-| 窗口权限 | `src-tauri/capabilities/default.json`（main/mini/iwencai/**treemap** 四个窗口） |
+| 窗口权限 | `src-tauri/capabilities/default.json`（main/mini/iwencai 三个窗口） |
 | AI 提示词 | `src/prompts/system-prompt.md` + `src/composables/aiContext.js` + `src/skills/` |

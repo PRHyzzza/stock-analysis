@@ -21,6 +21,7 @@ const DEFAULTS = {
   notifyFastRise: true,
   notifyFastFall: true,
   notifyFastThreshold: 2,     // 快速变动阈值 (%)
+  priceAlertsEnabled: true,   // 自定义价格/条件提醒
 
   // ── K 线图表 ──
   klineMaPeriods: [5, 10, 20, 30],

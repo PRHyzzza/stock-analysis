@@ -1,12 +1,12 @@
 use crate::api::{
     call_llm as call_llm_api, fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
-    fetch_industry_name, fetch_intraday_data, fetch_kline_data, fetch_market_treemap,
-    fetch_money_flow, fetch_money_flow_eastmoney, fetch_search_results, fetch_stock_quote,
-    fetch_stock_quotes_batch, parse_industry_analysis,
+    fetch_industry_name, fetch_intraday_data, fetch_kline_data, fetch_money_flow,
+    fetch_money_flow_eastmoney, fetch_money_flow_history, fetch_search_results,
+    fetch_stock_quote, fetch_stock_quotes_batch, parse_industry_analysis,
 };
 use crate::types::{
-    HotListData, IndustryData, IntradayData, KlineItem, MarketIndex, MarketTreemap,
-    MoneyFlow, SearchResult, StockQuote, UpdateInfo,
+    HotListData, IndustryData, IntradayData, KlineItem, MarketIndex, MoneyFlow,
+    MoneyFlowHistoryItem, SearchResult, StockQuote, UpdateInfo,
 };
 use std::fs;
 use tauri::Manager;
@@ -200,6 +200,15 @@ pub async fn get_stock_money_flow(code: String) -> Result<MoneyFlow, String> {
     }
 }
 
+/// 获取个股资金流向历史（近 N 个交易日主力/各档净流入，单位：万元）
+#[tauri::command]
+pub async fn get_stock_money_flow_history(
+    code: String,
+    limit: Option<u32>,
+) -> Result<Vec<MoneyFlowHistoryItem>, String> {
+    fetch_money_flow_history(&code, limit.unwrap_or(30)).await
+}
+
 /// 获取热榜数据
 #[tauri::command]
 pub async fn get_hot_list() -> Result<HotListData, String> {
@@ -300,16 +309,6 @@ pub async fn web_fetch(url: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_fx_rate() -> Result<f64, String> {
     crate::api::tencent::fetch_fx_rate().await
-}
-
-// ──────────────────────────────────────────
-// 大盘云图（A股热力图）
-// ──────────────────────────────────────────
-
-/// 获取大盘云图数据（行业树 + 实时行情，数据源参考 52etf.site）
-#[tauri::command]
-pub async fn get_market_treemap() -> Result<MarketTreemap, String> {
-    fetch_market_treemap().await
 }
 
 // ──────────────────────────────────────────

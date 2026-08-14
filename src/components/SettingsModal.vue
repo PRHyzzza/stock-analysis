@@ -123,6 +123,15 @@ function closeModal() { emit("close"); }
 .setting-row:last-child { border-bottom: none; }
 .setting-row.sub { padding-left: 16px; }
 
+/* 设置项下的补充说明 */
+.setting-desc {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 /* ── Toggle Switch ── */
 .toggle {
   appearance: none;

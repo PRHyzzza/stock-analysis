@@ -1,7 +1,6 @@
 <script setup>
 /**
- * MaAlertModal.vue — 个股均线提醒配置弹窗
- *
+ * MaAlertConfig.vue — 均线提醒配置主体（AlertsModal「均线提醒」Tab）
  * 每只股票独立配置监控的均线周期（5/10/20/30/60 日）与触发方向（上穿/下穿/双向）。
  * 股价穿越均线时发送 Windows 原生通知（仅交易时段，每周期每日一次）。
  */
@@ -9,13 +8,10 @@ import { computed } from "vue";
 import { useMaAlerts, MA_PERIODS } from "../composables/useMaAlerts.js";
 
 const props = defineProps({
-  show: { type: Boolean, default: false },
   stock: { type: Object, default: null },
   klineData: { type: Array, default: null },
   klinePeriod: { type: String, default: "day" },
 });
-
-const emit = defineEmits(["close"]);
 
 const { getConfig, togglePeriod, setDirection } = useMaAlerts();
 
@@ -25,10 +21,6 @@ const direction = computed(() => cfg.value?.direction || "both");
 
 function isActive(p) {
   return activePeriods.value.includes(p);
-}
-
-function closeModal() {
-  emit("close");
 }
 
 /** 基于日 K 计算各周期当前均线值（仅日K数据时有效，供参考） */
@@ -64,126 +56,75 @@ const directionLabel = computed(
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="show" class="modal-overlay" @click.self="closeModal">
-      <div class="modal-container">
-        <!-- 头部 -->
-        <div class="modal-header">
-          <div class="modal-title-row">
-            <span class="bell-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                <path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M10 20a2 2 0 0 0 4 0" stroke-linecap="round"/>
-              </svg>
-            </span>
-            <span class="modal-title">均线提醒</span>
-            <span class="modal-badge" v-if="stock">{{ stock.name }} ({{ stock.code }})</span>
-          </div>
-          <button class="btn-close" @click="closeModal">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path d="M4 4L14 14M14 4L4 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-            </svg>
-          </button>
-        </div>
+  <div class="ma-body">
+    <p class="ma-tip">股价穿越所选均线时发送 Windows 通知，仅交易时段生效，每只股票每个均线每日通知一次。</p>
 
-        <!-- 配置区 -->
-        <div class="modal-body ma-body">
-          <p class="ma-tip">股价穿越所选均线时发送 Windows 通知，仅交易时段生效，每只股票每个均线每日通知一次。</p>
+    <div class="ma-section">
+      <p class="setting-group-title">监控周期</p>
+      <div class="ma-chips">
+        <label
+          v-for="p in MA_PERIODS"
+          :key="p"
+          class="ma-chip"
+          :class="{ active: isActive(p) }"
+        >
+          <input
+            type="checkbox"
+            :checked="isActive(p)"
+            @change="stock && togglePeriod(stock.code, p)"
+            class="hidden-check"
+          />
+          <span>MA{{ p }}</span>
+          <span v-if="maValues[p]" class="ma-chip-val" :class="posCls(maValues[p])">
+            {{ maValues[p].toFixed(2) }}
+          </span>
+        </label>
+      </div>
+      <p v-if="klinePeriod !== 'day'" class="ma-hint">当前图表非日K，均线参考值以日K为准（切换日K后显示）。</p>
+    </div>
 
-          <div class="ma-section">
-            <p class="setting-group-title">监控周期</p>
-            <div class="ma-chips">
-              <label
-                v-for="p in MA_PERIODS"
-                :key="p"
-                class="ma-chip"
-                :class="{ active: isActive(p) }"
-              >
-                <input
-                  type="checkbox"
-                  :checked="isActive(p)"
-                  @change="stock && togglePeriod(stock.code, p)"
-                  class="hidden-check"
-                />
-                <span>MA{{ p }}</span>
-                <span v-if="maValues[p]" class="ma-chip-val" :class="posCls(maValues[p])">
-                  {{ maValues[p].toFixed(2) }}
-                </span>
-              </label>
-            </div>
-            <p v-if="klinePeriod !== 'day'" class="ma-hint">当前图表非日K，均线参考值以日K为准（切换日K后显示）。</p>
-          </div>
-
-          <div class="ma-section">
-            <p class="setting-group-title">触发方向</p>
-            <div class="ma-dirs">
-              <button
-                v-for="opt in DIR_OPTIONS"
-                :key="opt.key"
-                class="ma-dir-btn"
-                :class="{ active: direction === opt.key }"
-                :disabled="!cfg"
-                @click="stock && setDirection(stock.code, opt.key)"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- 状态 -->
-          <div class="ma-status" :class="{ muted: !cfg }">
-            <span class="ma-status-dot"></span>
-            <template v-if="cfg">
-              <span>已启用：{{ activePeriods.map((p) => "MA" + p).join(" / ") }} · {{ directionLabel }}</span>
-            </template>
-            <template v-else>
-              <span>未启用 — 点击上方均线周期即可开启</span>
-            </template>
-          </div>
-        </div>
+    <div class="ma-section">
+      <p class="setting-group-title">触发方向</p>
+      <div class="ma-dirs">
+        <button
+          v-for="opt in DIR_OPTIONS"
+          :key="opt.key"
+          class="ma-dir-btn"
+          :class="{ active: direction === opt.key }"
+          :disabled="!cfg"
+          @click="stock && setDirection(stock.code, opt.key)"
+        >
+          {{ opt.label }}
+        </button>
       </div>
     </div>
-  </Teleport>
+
+    <!-- 状态 -->
+    <div class="ma-status" :class="{ muted: !cfg }">
+      <span class="ma-status-dot"></span>
+      <template v-if="cfg">
+        <span>已启用：{{ activePeriods.map((p) => "MA" + p).join(" / ") }} · {{ directionLabel }}</span>
+      </template>
+      <template v-else>
+        <span>未启用 — 点击上方均线周期即可开启</span>
+      </template>
+    </div>
+  </div>
 </template>
 
-<style>
-@import "../assets/modal.css";
-</style>
-
 <style scoped>
-.modal-container {
-  width: 460px;
-}
-
-.modal-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.bell-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: var(--apricot-wash);
-  color: var(--rust);
-}
-
-.modal-badge {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--fog);
-  padding: 2px 10px;
-  border-radius: var(--radius-full);
-}
-
 .ma-body {
   padding: 20px;
   overflow-y: auto;
+}
+
+.setting-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 10px;
 }
 
 .ma-tip {

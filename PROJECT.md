@@ -16,29 +16,29 @@ stock-analysis/
 │   ├── App.vue / main.js      入口；App.vue 管窗口/定时器/跨窗口联动
 │   ├── assets/                main.css（设计 token）+ modal.css（弹窗样式）
 │   ├── components/            布局/列表/详情/弹窗/迷你窗 + settings/(5) + ai/(4)
-│   ├── composables/           24 个（§3.1）
+│   ├── composables/           26 个（§3.1）
 │   ├── skills/                11 skill / 13 工具（§3.2）
 │   ├── prompts/               system-prompt.md（AI 提示词模板，§3.4）
-│   └── utils/                 format.js / limit.js（涨跌停按板块）
+│   └── utils/                 format.js / limit.js（涨跌停按板块）/ marketTime.js / notify.js / klineCache.js
 ├── src-tauri/                 Rust 后端
 │   ├── .cargo/config.toml     USTC sparse 镜像（勿删）
-│   ├── capabilities/          default.json 窗口权限：main/mini/iwencai/treemap
+│   ├── capabilities/          default.json 窗口权限：main/mini/iwencai
 │   └── src/
 │       ├── commands.rs        20 个命令（§4.1）
 │       ├── types.rs / helpers.rs（代码转换 §4.3）
-│       └── api/               tencent / eastmoney / hotlist / llm / web / iwencai / treemap
+│       └── api/               tencent / eastmoney / hotlist / llm / web / iwencai
 └── public/
 ```
 
 ## 2. 数据流
 
-App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 腾讯 GBK / eastmoney 东财 / hotlist 同花顺 / llm DeepSeek SSE / web 搜索+抓取 / iwencai 问财 / treemap 云图）
+App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 腾讯 GBK / eastmoney 东财 / hotlist 同花顺 / llm DeepSeek SSE / web 搜索+抓取 / iwencai 问财）
 
 模式：每个 composable 返回 `{ data, loading, load(), ... }`，App.vue 统一调用、props 下发。
 
 ## 3. 前端模块
 
-### 3.1 Composables（24 个）
+### 3.1 Composables（26 个）
 
 **数据加载（invoke 后端）**
 
@@ -47,14 +47,13 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useQuoteLoader` | 批量行情 | `get_stock_quote` / `get_stock_quotes_batch` |
 | `useStockSearch` | 搜索（防抖 + 序号竞态） | `search_stocks` |
 | `useKlineData` / `useIntradayData` | K线周期切换 / 分时（序号竞态） | `get_stock_kline` / `get_stock_intraday` |
-| `useMoneyFlow` | 资金流向（选中态竞态） | `get_stock_money_flow` |
+| `useMoneyFlow` | 资金流向（选中态竞态）+ 近 30 日历史（2min 节流） | `get_stock_money_flow` / `get_stock_money_flow_history` |
 | `useIndustryData` | 行业分析（序号竞态） | `get_stock_industry` |
 | `useMarketIndices` | 大盘指数 | `get_market_indices` |
 | `useAiAnalysis` | AI 对话：Agent 循环 10 轮上限、流式切股代际守卫、@代码/热榜选股、注入预计算指标 | `call_llm` + `call_llm_stream` |
 | `usePositions` | 持仓 + 盈亏（港股汇率换算） | `get_fx_rate` |
 | `useUserProfile` | 画像读写（后台更新 10min 节流） | `read/save_user_profile` |
 | `useIwencaiRobot` | 问财选股（chameleon.js 生成 Cookie v，403 换 v 重试） | `get_iwencai_robot` |
-| `useMarketTreemap` | 云图数据（8s 轮询防重入） | `get_market_treemap` |
 
 **纯计算**
 
@@ -74,9 +73,17 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useSettings` | 全局设置单例 |
 | `useWatchlistNotifications` | 原生通知（跨日重置快照） |
 | `useMaAlerts` | 均线提醒（MA5-60，日K 5min 缓存 LRU 100，跨日重置基准） |
+| `usePriceAlerts` | 自定义价格/条件提醒（突破/跌破目标价 + 可选放量 N×5日均量；一次性/每日两种模式；穿越检测基于价格快照，跨日重置基准） |
 | `aiMessageStore` | AI 消息按股票隔离持久化 |
 | `llmClient` | SSE 流式客户端（streamId 过滤 + 120s 超时） |
 | `fetcher` | `createDataFetcher()` 工厂（内置序号竞态） |
+
+**窗口与系统**
+
+| 文件 | 用途 |
+|------|------|
+| `useChildWindows` | 子窗口管理（迷你/问财，打开或聚焦已存在窗口） |
+| `useGlobalShortcuts` | 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI；子窗口不注册，回调经 handlers 注入） |
 
 ### 3.2 Skills（11 skill / 13 工具）
 
@@ -96,19 +103,22 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `UserContext` | `read/save_user_profile` / `get_fx_rate` |
 | `TradeRules` | 无工具：A 股十大祖训决策规则（风控 > 交易），约束操作建议 |
 
-> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`、`get_stock_quotes_batch`、`get_iwencai_robot`、`get_market_treemap`、`get_app_version`、`check_for_update`。
+> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`、`get_stock_quotes_batch`、`get_stock_money_flow_history`、`get_iwencai_robot`、`get_app_version`、`check_for_update`。
 
 ### 3.3 核心子系统（一行一系统）
 
 - **持仓**: 30s 刷新盈亏，AI 对话自动注入；港股（5 位代码）按汇率换算汇总
 - **画像**: md 存 `app_data_dir`；AI 后台增量更新（10min 节流 + ≤10 字消息跳过，写串行化防覆盖）
 - **自选通知**: 涨停/跌停/±7%/±5%/快速涨跌(30s≥2%)，每股票每类型每日一次；**跨日重置价格快照**防隔夜跳空误报；港股无涨跌停但 ±5%/±7% 生效
-- **均线提醒**: MA5/10/20/30/60 + 上穿/下穿/双向，每日每周期一次、仅交易时段；**跨日重置基准**防隔夜跳空误判穿越；删自选连带清配置
+- **均线提醒**: MA5/10/20/30/60 + 上穿/下穿/双向，每日每周期一次、仅交易时段；**跨日重置基准**防隔夜跳空误判穿越；删自选连带清配置。与价格提醒共用详情页"提醒"按钮 → `AlertsModal`（双 Tab：均线/价格，主体为 `MaAlertConfig`/`PriceAlertConfig`）
+- **价格提醒**: 任意股票（不限自选）突破/跌破目标价，可选放量条件（当日量 ≥ N×5日均量，日K 5min 缓存）；一次性（触发自动暂停）或每日（每交易日一次）模式；穿越检测基于价格快照、跨日重置防跳空误报。入口为合并的"提醒"弹窗（见上）
+- **通知基础设施**: 三套通知共用 `utils/marketTime.js`（getToday/isTradingHours/pruneHistory）+ `utils/notify.js`（权限确保/sendAlertNotification）+ `utils/klineCache.js`（日K 5min 共享缓存，LRU 100）——自选通知/均线提醒/价格提醒均复用，改动通知逻辑先看这三处
+- **资金流向可视化**: 详情页"资金流向"按钮 → `MoneyFlowModal`（复用 `MoneyFlowSection`：当日 5 档分档快照 + 近 30 日主力净流入柱状图（lightweight-charts，净流入红/净流出绿 + 紫色 MA5 均线 + 今日/5/10/20 日累计摘要）+ T+0 信号徽标）；数据源东财 push2his daykline（单位万元），前端 2min 节流防高频
 - **全局设置**: 5 标签页（通知/刷新/图表/AI/关于），实时生效
 - **AI 双入口**: 个股 AI 注入行情/K线/资金/行业/筹码/持仓 + 预计算指标；全局 AI 注入指数/持仓，`@代码` 快捷引用（发送后清除），热榜选股（`hotStocks` 注入）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`，开启时 `buildSearchPolicy()` 注入一行指针，关闭时剔除该 skill
 - **快捷键/单例/托盘**: Ctrl+K 搜索、Ctrl+N 全局 AI；single-instance 聚焦已有窗口；关窗隐藏托盘
-- **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页零请求）、云图 `?treemap=1`（squarify 三层布局、8s 轮询、双击联动剥 `.SH/.SZ` 后缀）
+- **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页零请求）
 
 ### 3.4 AI 提示词体系（改提示词必读）
 
@@ -126,6 +136,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `get_stock_quote` / `get_stock_quotes_batch` | Tencent | 实时行情 / 批量（A 股 50 只/批，港股逐只） |
 | `get_stock_kline` / `get_stock_intraday` | Tencent | K 线（日/周/月）/ 分时 |
 | `get_stock_money_flow` | Tencent → 东财备选 | 资金流向 5 档（双数据源见 §7.5） |
+| `get_stock_money_flow_history` | East Money push2his | 近 N 日资金流向历史（默认 30，单位万元，klines 按日期升序直接映射，勿反转） |
 | `get_stock_industry` | East Money HSF10 | 行业分析（港股返回空） |
 | `get_market_indices` | Tencent（并行） | 七大指数（失败兜底用真实名称） |
 | `search_stocks` / `get_hot_list` | Tencent / 同花顺 | 搜索 / 实时热榜 |
@@ -134,7 +145,6 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `web_search` / `web_fetch` | 东财 / 目标 URL | 新闻搜索（相关性排序）/ 正文抓取（四级降级 + SSRF 防护，见 §4.2） |
 | `get_fx_rate` | Frankfurter | 港元兑人民币 |
 | `get_iwencai_robot` | 问财 | 自然语言选股（Cookie v + 浏览器头；page 被忽略，perpage ≤100） |
-| `get_market_treemap` | 52etf + jrj | 云图数据（WAF 头 + 缓存见 §4.2） |
 | `get_app_version` / `check_for_update` | 本地 / GitHub | 版本 / 更新检查（直连失败回退系统代理） |
 
 ### 4.2 数据源特征（quirk 唯一真源）
@@ -147,7 +157,6 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `llm.rs` | UTF-8 | V4 需回传 `reasoning_content`；SSE 按事件边界（`\n\n`/`\r\n\r\n`）切分 + 流末 flush 尾块；`data:` 兼容有/无空格；LLM client 240s 读超时 |
 | `web.rs` | UTF-8（无 charset 头时探测 GBK） | sort=default 相关性排序；中文无空格查询按子串剥泛词、维度词截断提实体；四级正文提取；反爬站过滤（8 个）；**SSRF 防护**（私网/回环拒绝、禁跨主机重定向、≤50MB） |
 | `iwencai.rs` | UTF-8 | 路径 `data.answer[0].txt[0].content.components[0].data`；**同 v 连续 4-6 次 → 403（换 v 恢复）；带 condition 必 403**；风控错误带 `[RATE_LIMITED]` 标记 |
-| `treemap.rs` | UTF-8 | 52etf **WAF 双重校验**（Origin 必须 `https://52etf.site` + 头 `x-52etf-site-request: 1`，缺一 403）；市值单位百万元（前端 /10000 得亿）；缓存树 1h / 行情 3s + single-flight；行情失败降级返回树 |
 
 ### 4.3 代码转换 (helpers.rs)
 

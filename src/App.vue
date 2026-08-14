@@ -2,9 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
-import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import TitleBar from "./components/TitleBar.vue";
 import MarketHeader from "./components/MarketHeader.vue";
 import StockList from "./components/StockList.vue";
@@ -19,7 +17,6 @@ import PositionModal from "./components/PositionModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import IwencaiWindow from "./components/IwencaiWindow.vue";
-import TreemapWindow from "./components/TreemapWindow.vue";
 import { useWatchlist } from "./composables/useWatchlist";
 import { usePositions } from "./composables/usePositions";
 import { useQuoteLoader } from "./composables/useQuoteLoader";
@@ -32,6 +29,9 @@ import { deleteStockMessages } from "./composables/aiMessageStore";
 import { useUserProfileSingleton } from "./composables/useUserProfile";
 import { useWatchlistNotifications } from "./composables/useWatchlistNotifications";
 import { useMaAlerts } from "./composables/useMaAlerts";
+import { usePriceAlerts } from "./composables/usePriceAlerts";
+import { useChildWindows } from "./composables/useChildWindows";
+import { useGlobalShortcuts } from "./composables/useGlobalShortcuts";
 import { useSettings } from "./composables/useSettings";
 
 // ---- 侧边栏视图切换 ----
@@ -42,91 +42,19 @@ const sidebarView = ref("watchlist");
 const isMiniMode = new URLSearchParams(window.location.search).has("mini");
 // 问财选股窗口以 ?iwencai=1 参数加载同一前端，渲染独立选股界面
 const isIwencaiMode = new URLSearchParams(window.location.search).has("iwencai");
-// 大盘云图窗口以 ?treemap=1 参数加载同一前端，渲染 A 股热力图
-const isTreemapMode = new URLSearchParams(window.location.search).has("treemap");
 const appWindow = getCurrentWindow();
 
-/** 打开/聚焦迷你盯盘小窗 */
-async function openMiniWindow() {
-  // getByLabel 是 async 方法，必须 await（否则拿到的是 Promise）
-  const existing = await WebviewWindow.getByLabel("mini");
-  if (existing) {
-    existing.setFocus();
-    return;
-  }
-  await new WebviewWindow("mini", {
-    url: `${window.location.origin}${window.location.pathname}?mini=1`,
-    title: "盯盘小窗",
-    width: 280,
-    height: 300,
-    decorations: false,
-    alwaysOnTop: true,
-    resizable: true,
-  });
-}
-
-/** 打开/聚焦问财选股窗口 */
-async function openIwencaiWindow() {
-  const existing = await WebviewWindow.getByLabel("iwencai");
-  if (existing) {
-    existing.setFocus();
-    return;
-  }
-  await new WebviewWindow("iwencai", {
-    url: `${window.location.origin}${window.location.pathname}?iwencai=1`,
-    title: "问财选股",
-    width: 960,
-    height: 720,
-    minWidth: 640,
-    minHeight: 480,
-    resizable: true,
-  });
-}
-
-/** 打开/聚焦大盘云图窗口 */
-async function openTreemapWindow() {
-  const existing = await WebviewWindow.getByLabel("treemap");
-  if (existing) {
-    existing.setFocus();
-    return;
-  }
-  await new WebviewWindow("treemap", {
-    url: `${window.location.origin}${window.location.pathname}?treemap=1`,
-    title: "大盘云图",
-    width: 1280,
-    height: 800,
-    minWidth: 720,
-    minHeight: 480,
-    resizable: true,
-  });
-}
+// ---- 子窗口管理（迷你/问财，复用已存在窗口）----
+const { openMiniWindow, openIwencaiWindow } = useChildWindows();
 
 // 自选列表组件引用（Ctrl+K 聚焦搜索框用）
 const stockListRef = ref(null);
 
-/** 注册全局快捷键：Ctrl+K 搜索 / Ctrl+N 打开全局 AI */
-async function setupGlobalShortcuts() {
-  if (isMiniMode || isIwencaiMode || isTreemapMode) return; // 子窗口不注册
-  try {
-    await register("CommandOrControl+K", () => {
-      stockListRef.value?.focusSearch();
-    });
-    await register("CommandOrControl+N", () => {
-      openGlobalAiModal();
-    });
-  } catch {
-    /* 快捷键被占用或平台不支持时静默降级 */
-  }
-}
-
-async function teardownGlobalShortcuts() {
-  try {
-    await unregister("CommandOrControl+K");
-    await unregister("CommandOrControl+N");
-  } catch {
-    /* ignore */
-  }
-}
+// ---- 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI）----
+const { setupShortcuts, teardownShortcuts } = useGlobalShortcuts({
+  onSearch: () => stockListRef.value?.focusSearch(),
+  onGlobalAi: () => openGlobalAiModal(),
+});
 
 // ---- Composable state & actions ----
 const {
@@ -178,9 +106,9 @@ function closeGlobalAiModal() { showGlobalAiModal.value = false; }
 
 // ---- 问财选股（独立窗口 ?iwencai=1）----
 
-/** 问财/云图窗口选中股票 → 主窗口联动选中并加载全部数据 */
+/** 问财窗口选中股票 → 主窗口联动选中并加载全部数据 */
 function selectIwencaiStock(stock) {
-  // 清洗代码：问财/云图返回的代码可能带市场后缀（如 "600519.SH"），
+  // 清洗代码：问财返回的代码可能带市场后缀（如 "600519.SH"），
   // 必须剥离为纯数字，否则 Rust 端 to_tencent_code 会拼出 "sh600519.SH" 导致全部接口失败
   const code = String(stock.code || "").replace(/\.(SH|SZ|BJ)$/i, "");
   if (!code) return;
@@ -240,10 +168,14 @@ function openSettingsModal() { showSettingsModal.value = true; }
 function closeSettingsModal() { showSettingsModal.value = false; }
 
 const { indices, loadIndices } = useMarketIndices();
-const { moneyFlow, moneyFlowLoading, loadMoneyFlow } = useMoneyFlow(selectedStock);
+const {
+  moneyFlow, moneyFlowLoading, loadMoneyFlow,
+  moneyFlowHistory, moneyFlowHistoryLoading, loadMoneyFlowHistory,
+} = useMoneyFlow(selectedStock);
 const { intradayData, intradayLoading, loadIntradayData } = useIntradayData();
 const { checkAndNotify, prevPrices } = useWatchlistNotifications();
 const { configs: maAlerts, checkMaAlerts, removeConfig } = useMaAlerts();
+const { alerts: priceAlerts, checkPriceAlerts } = usePriceAlerts();
 const { state: settings } = useSettings();
 
 // 计算当前选中股票的"加入自选"标记
@@ -275,6 +207,8 @@ function selectStock(stock) {
   loadKlineData(stock);
   loadIntradayData(stock);
   loadMoneyFlow(stock);
+  // 资金流向历史（切股时强制刷新，覆盖 2 分钟节流）
+  loadMoneyFlowHistory(stock, { force: true });
 }
 
 function changeKlinePeriod(period) {
@@ -343,6 +277,7 @@ async function handleManualRefresh() {
     selectedStock.value ? loadIndustryData(selectedStock.value) : Promise.resolve(),
     selectedStock.value ? loadIntradayData(selectedStock.value) : Promise.resolve(),
     selectedStock.value ? loadMoneyFlow(selectedStock.value) : Promise.resolve(),
+    selectedStock.value ? loadMoneyFlowHistory(selectedStock.value, { force: true }) : Promise.resolve(),
   ]);
   refreshing.value = false;
 }
@@ -367,7 +302,7 @@ let intradayTimer;
 
 /** 重新设置所有定时器（设置变更时调用） */
 function rescheduleTimers() {
-  if (isMiniMode || isIwencaiMode || isTreemapMode) return; // 子窗口自带独立刷新逻辑
+  if (isMiniMode || isIwencaiMode) return; // 子窗口自带独立刷新逻辑
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -394,14 +329,13 @@ function rescheduleTimers() {
 let unlistenMiniSelect = null;
 let unlistenIwencaiSelect = null;
 let unlistenIwencaiAdd = null;
-let unlistenTreemapSelect = null;
 
 onMounted(() => {
-  if (isMiniMode || isIwencaiMode || isTreemapMode) return; // 子窗口不执行主窗口逻辑（自带独立刷新）
+  if (isMiniMode || isIwencaiMode) return; // 子窗口不执行主窗口逻辑（自带独立刷新）
 
   document.addEventListener("keydown", onKeydown);
   // 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI）
-  setupGlobalShortcuts();
+  setupShortcuts();
   // 迷你窗口选中股票 → 主窗口联动
   listen("mini-select-stock", (e) => {
     const stock = watchlist.value.find((s) => s.code === e.payload?.code);
@@ -430,13 +364,6 @@ onMounted(() => {
       refreshAllQuotes();
     }
   }).then((fn) => { unlistenIwencaiAdd = fn; });
-  // 大盘云图窗口双击色块 → 主窗口联动选中（股票可能不在自选列表，走问财同款全量加载）
-  listen("treemap-select-stock", (e) => {
-    if (e.payload?.code) {
-      selectIwencaiStock(e.payload);
-      appWindow.setFocus();
-    }
-  }).then((fn) => { unlistenTreemapSelect = fn; });
   // 拉取港元兑人民币汇率
   invoke("get_fx_rate").then((rate) => setFxRate(rate)).catch(() => {});
   // 加载用户画像
@@ -463,9 +390,12 @@ watch(
 );
 
 async function refreshAllQuotes() {
-  // 自选股 + 已配置均线提醒的股票（可能不在自选列表）批量刷新（A 股一次请求，大幅减少 HTTP 请求数）
+  // 自选股 + 已配置均线提醒/价格提醒的股票（可能不在自选列表）批量刷新（A 股一次请求，大幅减少 HTTP 请求数）
   const maCodes = Object.keys(maAlerts.value);
-  const codes = [...new Set([...watchlist.value.map((s) => s.code), ...maCodes])];
+  const priceAlertCodes = [
+    ...new Set(priceAlerts.value.filter((a) => a.enabled).map((a) => a.code)),
+  ];
+  const codes = [...new Set([...watchlist.value.map((s) => s.code), ...maCodes, ...priceAlertCodes])];
   if (codes.length > 0) {
     const quotes = await loadQuotesBatch(codes);
     if (quotes) {
@@ -478,10 +408,13 @@ async function refreshAllQuotes() {
           checkAndNotify(quote, settings).catch(() => {});
         }
       });
-      // 均线提醒检查（每只配置过的股票只检查一次；K 线内部 5 分钟缓存，不会高频请求）
+      // 均线提醒/价格提醒检查（每只配置过的股票只检查一次；K 线内部 5 分钟缓存，不会高频请求）
       quotes.forEach((quote) => {
         if (maCodes.includes(quote.code)) {
           checkMaAlerts(quote, settings).catch(() => {});
+        }
+        if (priceAlertCodes.includes(quote.code)) {
+          checkPriceAlerts(quote, settings).catch(() => {});
         }
       });
     }
@@ -494,20 +427,20 @@ async function refreshAllQuotes() {
       quotes.forEach((quote) => updatePositionQuote(quote.code, quote));
     }
   }
-  // 同时刷新当前选中股票的资金流向
+  // 同时刷新当前选中股票的资金流向（历史数据走内部 2 分钟节流，避免高频请求）
   if (selectedStock.value) {
     loadMoneyFlow(selectedStock.value);
+    loadMoneyFlowHistory(selectedStock.value);
   }
 }
 
 onUnmounted(() => {
-  if (isMiniMode || isIwencaiMode || isTreemapMode) return;
+  if (isMiniMode || isIwencaiMode) return;
   document.removeEventListener("keydown", onKeydown);
-  teardownGlobalShortcuts();
+  teardownShortcuts();
   if (unlistenMiniSelect) unlistenMiniSelect();
   if (unlistenIwencaiSelect) unlistenIwencaiSelect();
   if (unlistenIwencaiAdd) unlistenIwencaiAdd();
-  if (unlistenTreemapSelect) unlistenTreemapSelect();
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
@@ -522,12 +455,9 @@ onUnmounted(() => {
   <!-- 问财选股窗口（?iwencai=1 参数加载） -->
   <IwencaiWindow v-else-if="isIwencaiMode" />
 
-  <!-- 大盘云图窗口（?treemap=1 参数加载） -->
-  <TreemapWindow v-else-if="isTreemapMode" />
-
   <div v-else class="app">
     <!-- 自定义标题栏 -->
-    <TitleBar @open-mini="openMiniWindow" @open-treemap="openTreemapWindow" />
+    <TitleBar @open-mini="openMiniWindow" />
 
     <!-- 指数栏 -->
     <MarketHeader
@@ -569,6 +499,8 @@ onUnmounted(() => {
         :intraday-loading="intradayLoading"
         :money-flow="moneyFlow"
         :money-flow-loading="moneyFlowLoading"
+        :money-flow-history="moneyFlowHistory"
+        :money-flow-history-loading="moneyFlowHistoryLoading"
         :watchlist-markers="watchlistMarkers"
         @toggle-watchlist="handleToggleWatchlist"
         @change-kline-period="changeKlinePeriod"
