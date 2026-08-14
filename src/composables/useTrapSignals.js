@@ -143,12 +143,13 @@ export function calcTrapSignals(intradayData) {
     lastTrapMinute[t.name] = m;
     traps.push(t);
     // 标记文本用"诱多?"而非"诱多⚠"：跌破/收复关键位只证明形态破坏，
-    // "诱多/诱空"的定性需后续走势验证（见 confirm 字段）——用问号表达未确认的怀疑
+    // "诱多/诱空"的定性需后续走势验证（见 confirm 字段）——用问号表达未确认的怀疑。
+    // 形状用 square（警报确认级），与 arrow（突破/偏离等方向事件）区分
     markers.push({
       time: t.time,
       position: t.type === "bull" ? "aboveBar" : "belowBar",
       color: t.type === "bull" ? "#e74c3c" : "#27ae60",
-      shape: t.type === "bull" ? "arrowDown" : "arrowUp",
+      shape: "square",
       text: t.type === "bull" ? "诱多?" : "诱空?",
       size: t.severity === "强" ? 2 : 1,
     });

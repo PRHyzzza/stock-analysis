@@ -33,15 +33,20 @@ function pct(a, b) {
   return a > 0 ? ((b - a) / a) * 100 : 0;
 }
 
-/** 标记外观：紫=前瞻预警，红=涨/偏多，绿=跌/偏空，橙红=顶背离，青=底背离 */
+/**
+ * 标记外观（形状分层 + 色系语义化）：
+ *   橙 circle = 前瞻预警（警示色；不用紫色，避免与图上紫色均价线混淆）
+ *   深红/深绿 arrow = 方向事件（突破/破位；深色与亮色的陷阱方块区分）
+ *   墨蓝/深青 square = 动能衰竭（背离；冷色系，与暖色警报区分）
+ */
 const MARKER_STYLE = {
-  "放量急拉⚠": { color: "#8e44ad", shape: "circle", position: "aboveBar" },
-  "放量急跌⚠": { color: "#8e44ad", shape: "circle", position: "belowBar" },
-  "无量拉升⚠": { color: "#8e44ad", shape: "circle", position: "aboveBar" },
-  "突破↑": { color: "#e74c3c", shape: "arrowUp", position: "aboveBar" },
-  "破位↓": { color: "#27ae60", shape: "arrowDown", position: "belowBar" },
-  "顶背离": { color: "#e67e22", shape: "square", position: "aboveBar" },
-  "底背离": { color: "#1abc9c", shape: "square", position: "belowBar" },
+  "放量急拉⚠": { color: "#f39c12", shape: "circle", position: "aboveBar" },
+  "放量急跌⚠": { color: "#f39c12", shape: "circle", position: "belowBar" },
+  "无量拉升⚠": { color: "#f39c12", shape: "circle", position: "aboveBar" },
+  "突破↑": { color: "#c0392b", shape: "arrowUp", position: "aboveBar" },
+  "破位↓": { color: "#1e8449", shape: "arrowDown", position: "belowBar" },
+  "顶背离": { color: "#2c3e50", shape: "square", position: "aboveBar" },
+  "底背离": { color: "#16a085", shape: "square", position: "belowBar" },
 };
 
 export function calcVolumeSignals(intradayData) {

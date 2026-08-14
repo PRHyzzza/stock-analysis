@@ -15,11 +15,6 @@ const props = defineProps({
 
 const chartContainer = ref(null);
 
-/** 图例信号标记提示 */
-function markerLegendTooltip() {
-  return '🔴 ▼ = 偏离均价 >3%，高抛信号\n🟢 ▲ = 偏离均价 <-3%，低吸信号';
-}
-
 let chart = null;
 let areaSeries = null;
 let priceLineSeries = null;
@@ -547,15 +542,23 @@ onUnmounted(() => {
         </span>
         <template v-if="signalMarkers.length > 0">
           <span class="legend-sep">|</span>
-          <span class="legend-item signal-legend" :title="markerLegendTooltip()">
-            <span class="legend-dot" style="background: #e74c3c"></span>
-            ▼
+          <!-- 前瞻预警（橙点） -->
+          <span class="legend-item signal-legend" title="前瞻预警：放量急拉/急跌/无量拉升（当下可判，追高/杀跌前先看量能）">
+            <span class="legend-dot" style="background: #f39c12"></span>
+            预警
           </span>
-          <span class="legend-item signal-legend" :title="markerLegendTooltip()">
-            <span class="legend-dot" style="background: #27ae60"></span>
-            ▲
+          <!-- 陷阱确认（红/绿方块） -->
+          <span class="legend-item signal-legend" title="疑似诱多?/疑似诱空?：跌破/收复关键位的警报确认（需 confirm 走势验证）">
+            <span class="legend-square" style="background: #e74c3c"></span>
+            <span class="legend-square" style="background: #27ae60"></span>
+            陷阱
           </span>
-          <span class="legend-label">T+0 信号</span>
+          <!-- 方向事件（深色箭头：突破/破位） -->
+          <span class="legend-item signal-legend" title="突破↑/破位↓：放量越过 30 分钟前高/前低；偏离>3% 等 T+0 信号见红绿箭头">
+            <span class="legend-dot" style="background: #c0392b"></span>
+            <span class="legend-dot" style="background: #1e8449"></span>
+            突破/破位
+          </span>
         </template>
       </div>
     </div>
@@ -636,6 +639,15 @@ onUnmounted(() => {
   border-radius: 1px;
 }
 
+/* 信号图例方块（陷阱/背离类标记示意） */
+.legend-square {
+  width: 8px;
+  height: 8px;
+  display: inline-block;
+  border-radius: 2px;
+  margin-right: 2px;
+}
+
 .intraday-chart-wrap {
   flex: 1;
   min-height: 0;
@@ -689,12 +701,5 @@ onUnmounted(() => {
   font-size: 12px;
   margin: 0 2px;
   user-select: none;
-}
-
-.legend-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 500;
-  margin-left: 2px;
 }
 </style>
