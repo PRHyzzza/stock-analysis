@@ -13,11 +13,9 @@ const props = defineProps({
   positions: { type: Array, default: () => [] },
   /** 问财窗口"AI 分析这批股票"注入请求 { question, total, columns, rows } */
   screeningRequest: { type: Object, default: null },
-  /** 社区情绪"AI 解读情绪"注入请求 { code, name, stats, posts } */
-  sentimentRequest: { type: Object, default: null },
 });
 
-const emit = defineEmits(["close", "screening-consumed", "sentiment-consumed", "add-watchlist", "view-stock"]);
+const emit = defineEmits(["close", "screening-consumed", "add-watchlist", "view-stock"]);
 
 const {
   messages,
@@ -333,57 +331,11 @@ watch(
   }
 );
 
-// API Key 配置完成后，若有未消费的注入请求（选股结果/社区情绪）则自动重试
+// API Key 配置完成后，若有未消费的选股结果注入请求则自动重试
 watch(showApiKeyInput, (v) => {
   if (!v || !props.show) return;
   if (props.screeningRequest) analyzeScreening(props.screeningRequest);
-  else if (props.sentimentRequest) analyzeSentiment(props.sentimentRequest);
 });
-
-// ============ 社区情绪 AI 解读 ============
-
-/** 把情绪统计 + 热帖列表渲染成注入文本 */
-function buildSentimentPrompt(req) {
-  const s = req.stats || {};
-  const ratioText = s.ratio != null ? Math.round(s.ratio * 100) + "%" : "--";
-  const lines = (req.posts || [])
-    .map((p) => `- ${p.title}（${p.author} · 阅读 ${p.clickCount} · 回复 ${p.commentCount} · ${p.publishTime}）`)
-    .join("\n");
-  return (
-    `[社区情绪注入] 股票 ${req.name}(${req.code}) 的东方财富股吧近况：\n` +
-    `情绪统计：帖子 ${s.total ?? 0} 条（看多 ${s.bull ?? 0} / 中性 ${s.neutral ?? 0} / 看空 ${s.bear ?? 0}），` +
-    `看多占比 ${ratioText}，情绪档位「${s.level ?? "--"}」，热度 ${s.heat ?? 0}/100，总阅读 ${s.totalClicks ?? 0}。\n\n` +
-    `最新热帖：\n${lines}\n\n` +
-    `请解读：1) 社区整体是看多还是看空、情绪档位是否极端；2) 大家在讨论什么焦点（利好/利空/争议）；` +
-    `3) 情绪与行情/基本面是否背离；4) 风险提示（股吧存在水军、反话、玩梗，情绪可能失真）。` +
-    `情绪仅供参考，不构成投资建议。`
-  );
-}
-
-/** 触发社区情绪 AI 解读（成功后才消费请求） */
-async function analyzeSentiment(req) {
-  try {
-    await injectContextMessage(buildSentimentPrompt(req), {
-      indices: props.indices,
-      positions: props.positions,
-    });
-    emit("sentiment-consumed");
-  } catch (e) {
-    if (e.message === "NO_API_KEY") {
-      showApiKeyInput.value = true;
-    } else {
-      error.value = `社区情绪解读失败: ${e.message || e}`;
-    }
-  }
-}
-
-// 打开弹窗或收到新的情绪注入请求时触发分析
-watch(
-  () => [props.show, props.sentimentRequest],
-  ([show, req]) => {
-    if (show && req) analyzeSentiment(req);
-  }
-);
 
 function doSuggestion(text) {
   if (loading.value) return;

@@ -126,7 +126,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **AI 双入口**: 个股 AI 注入行情/K线/资金/行业/筹码/持仓 + 预计算指标；全局 AI 注入指数/持仓，`@代码` 快捷引用（发送后清除），热榜选股（`hotStocks` 注入）；两处均开放 `stock_screener`（问财选股）工具
 - **AI 选股**: 问财结果窗口「AI 分析这批股票」按钮 → `iwencai-ai-analyze` 事件 → 主窗口打开全局 AI 并 `injectContextMessage` 注入结果表（带 `_injected` 标记不持久化，跳过画像更新）；解读提示词含**超短线买入建议**（资金流/换手/量比/涨速筛选 3-10 只 + render_stock_picks 卡片，无标的不硬凑）；API Key 未配置时请求保留，配置后自动重试
 - **选股卡片**: `render_stock_picks` 工具把 AI 选股结论渲染成聊天卡片（代码/名称/现价/涨跌幅/理由 + 「＋ 自选」「查看详情」按钮；两按钮事件经 GlobalAiModal/AiAnalysisModal 透传到 App.vue：加自选/复用 selectIwencaiStock 全量加载选中）
-- **社区情绪**: 详情页「社区情绪」按钮 → SentimentModal（股吧帖子：情绪档位/看多占比条/热度/热帖列表，标题点击 opener 打开原文）；「AI 解读情绪」→ 全局 AI 注入（`sentimentRequest` 管道，复用 injectContextMessage）；AI 工具 `get_stock_sentiment` 对话内随时查（提示词要求 AI 逐条语义审阅标题、识别反话/水军，与统计交叉验证）；港股返回空。**档位算法**：方向=回复/阅读加权看多占比（爆款帖权重更高），明确度=计数口径明确帖占比（中性/问句多→档位收敛中性，避免热帖权重误判极端情绪）；明确帖 <8 时极端档降一级（样本保护）
+- **社区情绪**: 详情页「社区情绪」按钮 → SentimentModal（股吧帖子：情绪档位/看多占比条/热度/热帖列表，标题点击 opener 打开原文）；**AI 解读自动触发**——帖子加载完成后弹窗内直接流式生成解读（`callLlmStream` 直调，无按钮、不跳全局 AI；同股票只分析一次，切股重置；解读 prompt 见 §3.4）；AI 工具 `get_stock_sentiment` 对话内随时查（提示词要求 AI 逐条语义审阅标题、识别反话/水军，与统计交叉验证）；港股返回空。**档位算法**：方向=回复/阅读加权看多占比（爆款帖权重更高），明确度=计数口径明确帖占比（中性/问句多→档位收敛中性，避免热帖权重误判极端情绪）；明确帖 <8 时极端档降一级（样本保护）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`，开启时 `buildSearchPolicy()` 注入一行指针，关闭时剔除该 skill
 - **快捷键/单例/托盘**: Ctrl+K 搜索、Ctrl+N 全局 AI；single-instance 聚焦已有窗口；关窗隐藏托盘
 - **时段感知轮询**: App.vue 四个定时器（指数/行情/K线/分时）回调经 `sessionTick` 守卫——A 股或港股任一在交易时段才发请求，盘外（收盘/午休/周末）零请求空转，开盘瞬间自动恢复并立即刷新；手动刷新不受限
@@ -136,7 +136,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 - **模板**: `prompts/system-prompt.md`，占位符 `{{BEIJING_TIME}}` / `{{SEARCH_POLICY}}` / `{{PRELOAD_SECTION}}` / `{{SKILL_PROMPTS}}` / `{{USER_PROFILE}}` / `{{MARKET_RULES}}` / `{{STOCK_CONTEXT}}`（无 `{{TOOLS}}`，工具走 API 参数）
 - **填充**: `aiContext.js` `buildSystemPrompt`（个股）+ `useAiAnalysis.js` `buildGlobalSystemPrompt`（全局）；公共常量 `MARKET_RULES` / `buildSearchPolicy` 在 `aiContext.js`；替换后校验占位符残留
-- **独立提示词（不在三处主管道内）**: 问财窗口「AI 优化」改写查询的 prompt 内嵌在 `IwencaiWindow.vue optimizeQuery()`（`call_llm` 直调，要求输出 `{"query": ...}` JSON + 注入画像）；改动时同步本行
+- **独立提示词（不在三处主管道内）**: ① 问财窗口「AI 优化」改写查询的 prompt 内嵌在 `IwencaiWindow.vue optimizeQuery()`（`call_llm` 直调，要求输出 `{"query": ...}` JSON + 注入画像）；② 社区情绪弹窗的 AI 解读 prompt（`SENTIMENT_SYSTEM_PROMPT` + 请求构造）内嵌在 `SentimentModal.vue`（`callLlmStream` 直调，语义优先交叉验证统计）；改动时同步本行
 - **注入**: `serializeContext` → K线 30 根 + MA 最新值 + 预计算技术指标 + 资金/行业/指数/热榜/持仓/筹码
 - **硬约束**: 数值必须来自工具返回，失败明示「数据获取失败」，禁编造
 

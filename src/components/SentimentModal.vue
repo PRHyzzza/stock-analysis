@@ -2,22 +2,26 @@
 /**
  * SentimentModal.vue — 个股社区情绪弹窗（东方财富股吧）
  *
- * 展示：情绪档位 + 看多/看空/中性占比 + 热度（阅读/回复）+ 最新热帖列表。
- * 帖子标题点击 → 系统浏览器打开原文；「AI 解读情绪」→ 注入全局 AI 解读。
+ * 展示：情绪档位 + 看多/看空/中性占比 + 热度（阅读/回复）+ 最新热帖列表 + AI 情绪解读。
+ * 帖子标题点击 → 系统浏览器打开原文。
+ * AI 解读：帖子加载完成后**自动**流式生成，结果直接渲染在本弹窗内（无需按钮/跳转全局 AI）。
  */
 import { ref, computed, watch } from "vue";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import {
   useStockSentiment,
   deriveSentiment,
 } from "../composables/useStockSentiment.js";
+import { callLlmStream } from "../composables/llmClient.js";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
   stock: { type: Object, default: null },
 });
 
-const emit = defineEmits(["close", "ai-analyze"]);
+const emit = defineEmits(["close"]);
 
 const { posts, loading, error, load } = useStockSentiment();
 
@@ -27,6 +31,125 @@ watch(
   () => [props.show, props.stock?.code],
   ([v]) => {
     if (v && props.stock) load(props.stock.code);
+  }
+);
+
+// ─────────── AI 情绪解读（自动）───────────
+
+/** localStorage 安全读取（与 useAiAnalysis 相同的 key） */
+function safeGetItem(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+const AI_API_KEY_KEY = "stock-analysis-ai-api-key";
+const AI_MODEL_KEY = "stock-analysis-ai-model";
+const AI_THINKING_KEY = "stock-analysis-ai-thinking";
+const AI_EFFORT_KEY = "stock-analysis-ai-effort";
+
+const aiText = ref("");
+const aiLoading = ref(false);
+const aiError = ref("");
+let aiSeq = 0;          // 代际：股票切换时使在途流失效
+let analyzedCode = "";  // 已分析完成的股票（同一股票不重复分析）
+
+const sanitizedAiText = computed(() =>
+  aiText.value ? DOMPurify.sanitize(marked.parse(aiText.value)) : ""
+);
+
+/** 构造解读请求（统计 + 最新 15 条帖子标题） */
+function buildSentimentPrompt() {
+  const s = stats.value;
+  const ratioText = s.ratio != null ? Math.round(s.ratio * 100) + "%" : "--";
+  const lines = posts.value
+    .slice(0, 15)
+    .map((p) => `- ${p.title}（${p.author} · 阅读 ${p.clickCount} · 回复 ${p.commentCount} · ${p.publishTime}）`)
+    .join("\n");
+  return (
+    `股票 ${props.stock.name}(${props.stock.code}) 的东方财富股吧近况：\n` +
+    `情绪统计：帖子 ${s.total ?? 0} 条（看多 ${s.bull ?? 0} / 中性 ${s.neutral ?? 0} / 看空 ${s.bear ?? 0} / 问句观望 ${s.questioning ?? 0}），` +
+    `加权看多占比 ${ratioText}，情绪明确度 ${s.judgedRatio ?? "--"}，情绪档位「${s.level ?? "--"}」，热度 ${s.heat ?? 0}/100，总阅读 ${s.totalClicks ?? 0}。\n\n` +
+    `最新热帖（前 ${Math.min(posts.value.length, 15)} 条）：\n${lines}\n\n` +
+    `请解读：1) 社区整体是看多还是看空，情绪档位是否极端；2) 大家在讨论什么焦点（利好/利空/争议）；` +
+    `3) 情绪与行情/基本面是否背离；4) 风险提示（股吧存在水军、反话、玩梗，情绪可能失真）。` +
+    `情绪仅供参考，不构成投资建议。`
+  );
+}
+
+const SENTIMENT_SYSTEM_PROMPT = `你是 A 股社区情绪分析助手，基于给定的股吧帖子统计与标题列表解读散户情绪。必须遵守：
+- 统计是本地关键词启发式（短语表 + 否定词反转 + 问句识别 + 热度加权），可能误判反话、玩梗、隐喻、水军刷帖——请逐条审阅标题做语义判断，与统计交叉验证；两者冲突时以你的语义判断为准，并引用具体标题说明依据
+- 情绪明确度（judgedRatio）低说明多数帖子无明确情绪（中性/问句多）→ 是观望/分歧氛围，不要按看多占比夸大情绪强度
+- 问句帖多说明散户犹豫、分歧大
+- 热帖（阅读量大）比普通帖更能代表主流情绪，解读时倾斜参考
+- 输出 4 点结论即可，简洁（300 字内），不编造帖子内容`;
+
+/** 自动触发 AI 解读（帖子加载完成后调用；同一股票只分析一次） */
+async function autoAnalyze() {
+  if (!props.stock || !posts.value.length || aiLoading.value) return;
+  const code = props.stock.code;
+  if (analyzedCode === code && aiText.value) return; // 已分析过同一股票，保留结果
+  const seq = ++aiSeq;
+  aiLoading.value = true;
+  aiError.value = "";
+  aiText.value = "";
+
+  const apiKey = safeGetItem(AI_API_KEY_KEY);
+  if (!apiKey) {
+    aiLoading.value = false;
+    aiError.value = "未配置 API Key：请先在「AI 分析」弹窗或设置中配置后重新打开本弹窗";
+    return;
+  }
+  const model = safeGetItem(AI_MODEL_KEY) || "deepseek-v4-flash";
+  const thinkingEnabled = safeGetItem(AI_THINKING_KEY) !== "false";
+  const reasoningEffort = safeGetItem(AI_EFFORT_KEY) || "high";
+
+  try {
+    await callLlmStream({
+      apiKey,
+      model,
+      thinkingEnabled,
+      reasoningEffort,
+      messages: [
+        { role: "system", content: SENTIMENT_SYSTEM_PROMPT },
+        { role: "user", content: buildSentimentPrompt() },
+      ],
+      tools: [],
+      onDelta: (content) => {
+        if (seq !== aiSeq) return; // 已切换股票：丢弃旧流
+        aiText.value = content;
+      },
+    });
+    if (seq !== aiSeq) return;
+    analyzedCode = code;
+  } catch (e) {
+    if (seq !== aiSeq) return;
+    aiError.value = `AI 解读失败: ${e.message || e}`;
+  } finally {
+    if (seq === aiSeq) aiLoading.value = false;
+  }
+}
+
+// 帖子加载完成（含 5 分钟缓存命中）→ 自动分析
+watch(
+  () => [loading.value, posts.value],
+  ([l, p]) => {
+    if (!l && p && p.length) autoAnalyze();
+  }
+);
+
+// 切换股票 → 清空旧解读，若弹窗开着且有数据则重新分析
+watch(
+  () => props.stock?.code,
+  () => {
+    aiSeq++;
+    analyzedCode = "";
+    aiText.value = "";
+    aiError.value = "";
+    aiLoading.value = false;
+    if (props.show && posts.value.length) autoAnalyze();
   }
 );
 
@@ -57,16 +180,6 @@ function openPost(post) {
   const url = `https://guba.eastmoney.com/news,${props.stock?.code ?? ""},${post.id}.html`;
   openUrl(url).catch(() => {
     /* 打开失败静默 */
-  });
-}
-
-function onAiAnalyze() {
-  if (!props.stock || !posts.value.length) return;
-  emit("ai-analyze", {
-    code: props.stock.code,
-    name: props.stock.name || props.stock.code,
-    stats: stats.value,
-    posts: posts.value.slice(0, 15),
   });
 }
 
@@ -152,13 +265,21 @@ function closeModal() {
                   <span class="se-metric-label">平均回复</span>
                 </div>
               </div>
+            </div>
 
-              <button class="se-ai-btn" :disabled="!posts.length" @click="onAiAnalyze">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" stroke="currentColor" stroke-width="0.5"/>
-                </svg>
-                AI 解读情绪
-              </button>
+            <!-- AI 情绪解读（帖子加载后自动生成，无需按钮） -->
+            <div class="se-ai-section">
+              <p class="setting-group-title">AI 情绪解读</p>
+              <div v-if="aiLoading" class="se-ai-loading">
+                <span class="se-spinner"></span>
+                <span>AI 正在解读社区情绪…</span>
+              </div>
+              <div v-else-if="aiError" class="se-ai-error">
+                <span>⚠️ {{ aiError }}</span>
+                <button class="se-retry" @click="autoAnalyze">重试</button>
+              </div>
+              <div v-else-if="aiText" class="se-ai-content" v-html="sanitizedAiText"></div>
+              <div v-else class="se-ai-empty">暂无解读</div>
             </div>
 
             <!-- 热帖列表 -->
@@ -361,30 +482,64 @@ function closeModal() {
   color: var(--text-muted);
 }
 
-/* AI 解读按钮 */
-.se-ai-btn {
-  display: inline-flex;
+/* AI 解读区块 */
+.se-ai-section {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+}
+.se-ai-section .setting-group-title {
+  margin-bottom: 8px;
+}
+.se-ai-loading {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 14px;
-  padding: 8px 20px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--rust);
-  background: var(--apricot-wash);
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 0;
+}
+.se-ai-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
   color: var(--rust);
+  padding: 6px 0;
+}
+.se-ai-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 0;
+}
+.se-ai-content {
   font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
+  line-height: 1.7;
+  color: var(--text-primary);
+  word-break: break-word;
 }
-.se-ai-btn:hover:not(:disabled) {
-  background: var(--rust);
-  color: #fff;
+.se-ai-content :deep(p) {
+  margin: 6px 0;
 }
-.se-ai-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.se-ai-content :deep(ul),
+.se-ai-content :deep(ol) {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.se-ai-content :deep(li) {
+  margin: 3px 0;
+}
+.se-ai-content :deep(strong) {
+  font-weight: 700;
+}
+.se-ai-content :deep(h1),
+.se-ai-content :deep(h2),
+.se-ai-content :deep(h3) {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 10px 0 4px;
 }
 
 /* ── 热帖列表 ── */

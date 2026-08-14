@@ -34,7 +34,6 @@ const emit = defineEmits([
   "open-ai-modal",
   "open-chip-modal",
   "load-intraday",
-  "sentiment-ai-analyze",
 ]);
 
 const chartMode = ref("intraday"); // "kline" | "intraday"
@@ -278,12 +277,11 @@ const sinceAddedPct = computed(() => {
       @close="showAlertsModal = false"
     />
 
-    <!-- 社区情绪弹窗（股吧看多看空统计 + 热帖） -->
+    <!-- 社区情绪弹窗（股吧看多看空统计 + 热帖 + 自动 AI 解读） -->
     <SentimentModal
       :show="showSentimentModal"
       :stock="selectedStock"
       @close="showSentimentModal = false"
-      @ai-analyze="emit('sentiment-ai-analyze', $event)"
     />
   </main>
 </template>

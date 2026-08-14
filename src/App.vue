@@ -107,8 +107,6 @@ function closeGlobalAiModal() { showGlobalAiModal.value = false; }
 
 // 问财窗口"AI 分析这批股票"注入请求（{ question, total, columns, rows }）
 const screeningRequest = ref(null);
-// 社区情绪"AI 解读情绪"注入请求（{ code, name, stats, posts }）
-const sentimentRequest = ref(null);
 
 // ---- 问财选股（独立窗口 ?iwencai=1）----
 
@@ -293,13 +291,6 @@ function handleAiAddWatchlist(pick) {
 /** 卡片「查看详情」：复用问财联动逻辑（清洗代码 + 市场推断 + 全量加载选中） */
 function handleAiViewStock(pick) {
   selectIwencaiStock({ code: pick?.code, name: pick?.name, market: pick?.market });
-}
-
-/** 社区情绪「AI 解读情绪」：把情绪数据注入全局 AI 解读 */
-function handleSentimentAiAnalyze(payload) {
-  if (!payload?.code || !payload?.posts?.length) return;
-  sentimentRequest.value = payload;
-  openGlobalAiModal();
 }
 
 // 手动全部刷新
@@ -581,7 +572,6 @@ onUnmounted(() => {
         @open-ai-modal="openAiModal"
         @open-chip-modal="openChipModal"
         @load-intraday="loadIntradayData(selectedStock)"
-        @sentiment-ai-analyze="handleSentimentAiAnalyze"
       />
     </div>
 
@@ -624,10 +614,8 @@ onUnmounted(() => {
       :indices="indices"
       :positions="positions"
       :screening-request="screeningRequest"
-      :sentiment-request="sentimentRequest"
       @close="closeGlobalAiModal"
       @screening-consumed="screeningRequest = null"
-      @sentiment-consumed="sentimentRequest = null"
       @add-watchlist="handleAiAddWatchlist"
       @view-stock="handleAiViewStock"
     />
