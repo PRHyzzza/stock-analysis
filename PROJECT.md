@@ -96,7 +96,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | Skill | 工具 |
 |-------|------|
 | `StockQuote` | `get_stock_quote` / `get_stock_quotes_batch`（≤50 只批量对比，省工具轮次） |
-| `KlineAnalysis` | `get_stock_kline`（含指标计算公式；上下文已有预计算值时直接引用） |
+| `KlineAnalysis` | `get_stock_kline`（day/week/month + **m5/m15/m30/m60 分钟级**；分钟级 date 为 `yyyyMMddHHmm`、无复权、港股不支持；含指标计算公式；上下文已有预计算值时直接引用） |
 | `MoneyFlow` | `get_stock_money_flow` / `get_stock_money_flow_history`（近 N 日主力净流入趋势，默认 30 天） |
 | `Industry` | `get_stock_industry` |
 | `MarketIndices` | `get_market_indices` |
