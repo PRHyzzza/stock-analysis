@@ -182,7 +182,7 @@ A 股:  600xxx/900xxx(沪B) → SH / sh | 其他 → SZ / sz
 
 ## 5. 设计系统
 
-调色板 Rust `#5d2a1a` / Apricot `#fbe1d1` / Sky `#d3e3fc` / Ink `#17191c`；圆角 cards 24 / inputs 16 / images 12 / pills 9999px；字体 Signifier(标题) + Sohne(正文) 已本地化；**禁止**饱和蓝/绿/红框架色、边框 >1px、渐变背景；弹窗统一 `modal.css`；分时图参考线 = 昨收灰虚线 + 涨跌停红/绿虚线（按板块阈值，港股不画）。
+调色板 Rust `#5d2a1a` / Apricot `#fbe1d1` / Sky `#d3e3fc` / Ink `#17191c`；圆角 cards 24 / inputs 16 / images 12 / pills 9999px；字体 Signifier(标题) + Sohne(正文) 已本地化；**禁止**饱和蓝/绿/红框架色、边框 >1px、渐变背景；弹窗统一 `modal.css`；分时图参考线 = 昨收灰大虚线 + 今开蓝大虚线 + 最高红点线 + 最低绿点线（与涨跌停红/绿虚线区分；今开/最高/最低与分时数据同源计算，港股同样适用）+ 涨跌停红/绿虚线（按板块阈值基于昨收计算，港股不画）。
 
 ## 6. 开发命令
 

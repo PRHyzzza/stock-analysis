@@ -225,25 +225,8 @@ const sinceAddedPct = computed(() => {
         </span>
       </div>
 
+      <!-- 今开/最高/昨收/最低 已作为参考线叠加在分时图中（IntradayChart），此处只保留量额类指标 -->
       <div class="meta-grid">
-        <div class="meta-item">
-          <span class="meta-label">今开</span>
-          <span class="meta-value" :class="selectedStock.open >= selectedStock.prevClose ? 'up' : 'down'">
-            {{ selectedStock.open?.toFixed(2) ?? '--' }}
-          </span>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">最高</span>
-          <span class="meta-value up">{{ selectedStock.high?.toFixed(2) ?? '--' }}</span>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">昨收</span>
-          <span class="meta-value">{{ selectedStock.prevClose?.toFixed(2) ?? '--' }}</span>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">最低</span>
-          <span class="meta-value down">{{ selectedStock.low?.toFixed(2) ?? '--' }}</span>
-        </div>
         <div class="meta-item">
           <span class="meta-label">成交量</span>
           <span class="meta-value">{{ selectedStock.volume != null ? (selectedStock.volume / 10000).toFixed(2) + ' 万手' : '--' }}</span>

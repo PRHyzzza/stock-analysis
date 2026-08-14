@@ -29,6 +29,10 @@ let volumeSeries = null;
 let baseLine = null;
 let limitUpLine = null;
 let limitDownLine = null;
+/** 今开/日内最高/日内最低参考线（开盘高低收参考，随分时数据同源计算） */
+let openLine = null;
+let highLine = null;
+let lowLine = null;
 let signalMarkersPlugin = null;
 /** 缓存的 timestamp 映射 (timeStr → unixTs)，供信号标记使用 */
 let _timeMap = new Map();
@@ -199,6 +203,33 @@ function initChart() {
     title: "昨收",
   });
 
+  // 今开/最高/最低参考线（今开=首分钟价，最高/最低=分时数据极值，与图上价格同源）
+  // 点线/点划线样式，与涨跌停的虚线（lineStyle 2）区分
+  openLine = priceLineSeries.createPriceLine({
+    price: 0,
+    color: "rgba(52, 152, 219, 0.6)",
+    lineWidth: 1,
+    lineStyle: 3,
+    axisLabelVisible: true,
+    title: "今开",
+  });
+  highLine = priceLineSeries.createPriceLine({
+    price: 0,
+    color: "rgba(231, 76, 60, 0.6)",
+    lineWidth: 1,
+    lineStyle: 1,
+    axisLabelVisible: true,
+    title: "最高",
+  });
+  lowLine = priceLineSeries.createPriceLine({
+    price: 0,
+    color: "rgba(39, 174, 96, 0.6)",
+    lineWidth: 1,
+    lineStyle: 1,
+    axisLabelVisible: true,
+    title: "最低",
+  });
+
   // 涨跌停参考线（initChart 后由 updateLimitLines 动态创建/移除）
   limitUpLine = null;
   limitDownLine = null;
@@ -297,6 +328,17 @@ function updateChartData(intradayData) {
 
   // 更新昨收基准线
   baseLine.applyOptions({ price: preClose });
+
+  // 今开/最高/最低参考线：与图上价格同源（首分钟价 = 今开，数据极值 = 日内高低）
+  let high = -Infinity;
+  let low = Infinity;
+  for (const it of items) {
+    if (it.price > high) high = it.price;
+    if (it.price < low) low = it.price;
+  }
+  if (openLine) openLine.applyOptions({ price: items[0]?.price ?? preClose });
+  if (highLine) highLine.applyOptions({ price: high === -Infinity ? preClose : high });
+  if (lowLine) lowLine.applyOptions({ price: low === Infinity ? preClose : low });
 
   // 更新涨跌停参考线（港股无涨跌停，自动隐藏）
   updateLimitLines(preClose);
@@ -411,13 +453,16 @@ watch(
       if (avgPriceSeries) avgPriceSeries.setData([]);
       if (vwapSeries) vwapSeries.setData([]);
       if (volumeSeries) volumeSeries.setData([]);
-      [baseLine, limitUpLine, limitDownLine, costLine].forEach((l) => {
+      [baseLine, limitUpLine, limitDownLine, costLine, openLine, highLine, lowLine].forEach((l) => {
         if (l) { try { priceLineSeries.removePriceLine(l); } catch (e) {} }
       });
       baseLine = null;
       limitUpLine = null;
       limitDownLine = null;
       costLine = null;
+      openLine = null;
+      highLine = null;
+      lowLine = null;
       signalMarkersPlugin?.setMarkers([]);
       _timeMap = new Map();
       _lastPriceData = [];
@@ -459,6 +504,9 @@ onUnmounted(() => {
     baseLine = null;
     limitUpLine = null;
     limitDownLine = null;
+    openLine = null;
+    highLine = null;
+    lowLine = null;
     signalMarkersPlugin = null;
     costLine = null;
     _timeMap = new Map();
@@ -483,6 +531,19 @@ onUnmounted(() => {
         <span class="legend-item vwap-legend">
           <span class="legend-dot" style="background: #2196F3"></span>
           VWAP
+        </span>
+        <span class="legend-sep">|</span>
+        <span class="legend-item ref-legend">
+          <span class="legend-line" style="background: rgba(52, 152, 219, 0.7)"></span>
+          今开
+        </span>
+        <span class="legend-item ref-legend">
+          <span class="legend-line" style="background: rgba(231, 76, 60, 0.7)"></span>
+          最高
+        </span>
+        <span class="legend-item ref-legend">
+          <span class="legend-line" style="background: rgba(39, 174, 96, 0.7)"></span>
+          最低
         </span>
         <template v-if="signalMarkers.length > 0">
           <span class="legend-sep">|</span>
@@ -565,6 +626,14 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+}
+
+/* 参考线图例（今开/最高/最低的水平线示意） */
+.legend-line {
+  width: 14px;
+  height: 2px;
+  display: inline-block;
+  border-radius: 1px;
 }
 
 .intraday-chart-wrap {
