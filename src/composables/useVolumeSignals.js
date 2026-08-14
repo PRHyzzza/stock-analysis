@@ -5,12 +5,13 @@
  * 覆盖"放量上涨"这类常规量价信号（区别于 useTrapSignals 的诱多/诱空陷阱识别）。
  *
  * 信号类型（含方向语义）：
- *   偏多：放量↑ / 缩量回踩（均价上方缩量回调）/ 突破↑ / 底背离（新低无量）
- *   偏空：放量↓ / 缩量反抽（均价下方缩量反弹）/ 破位↓ / 顶背离（新高无量）
- *   警示：天量↑ / 天量↓（单分钟量 ≥4× 基准）
+ *   偏多：缩量回踩（均价上方缩量回调）/ 突破↑ / 底背离（新低无量）
+ *   偏空：缩量反抽（均价下方缩量反弹）/ 破位↓ / 顶背离（新高无量）
+ *   警示：天量↑ / 天量↓（单分钟量 ≥6× 基准）
+ *   （普通放量↑↓已移除：信息量低且与突破/破位语义重叠）
  *
- * 防标记爆炸：同一分钟只保留一个标记（按优先级：天量 > 放量 > 突破/破位 > 背离 > 缩量），
- * 同类型信号 10 分钟内只标首个；开盘前 15 分钟跳过（集合竞价/开盘噪声）。
+ * 防标记爆炸：同一分钟只保留一个标记（按优先级：天量 > 突破/破位 > 背离 > 缩量），
+ * 同类型信号 10 分钟内只标首个；开盘前仅剔除 09:30 集合竞价分钟。
  *
  * 输入：intradayData = { items: [{ time, price, avgPrice, volume, turnover, vwap }], preClose, date }
  * 输出：{ signals: [{ time, name, type, desc }], markers: [{ time, position, color, shape, text, size }] }
@@ -33,8 +34,6 @@ function pct(a, b) {
 
 /** 标记外观：方向语义（红=涨/偏多，绿=跌/偏空，橙=天量，蓝=回踩，灰=反抽，橙红=顶背离，青=底背离） */
 const MARKER_STYLE = {
-  "放量↑": { color: "#e74c3c", shape: "circle", position: "aboveBar" },
-  "放量↓": { color: "#27ae60", shape: "circle", position: "belowBar" },
   "天量↑": { color: "#f39c12", shape: "circle", position: "aboveBar" },
   "天量↓": { color: "#f39c12", shape: "circle", position: "belowBar" },
   "天量": { color: "#f39c12", shape: "circle", position: "aboveBar" },
@@ -124,15 +123,9 @@ export function calcVolumeSignals(intradayData) {
       if (add(i, name, "neutral", `${items[i].time} 单分钟量达基准 ${v.toFixed(1)} 倍${chg5 >= 0.5 ? "，价格上行" : chg5 <= -0.5 ? "，价格下行" : "，价格横盘"}，异动需警惕`)) continue;
     }
 
-    // 2. 放量上涨 / 放量下跌
-    if (v >= 2) {
-      if (chg5 >= 0.5) {
-        if (add(i, "放量↑", "bull", `${items[i].time} 起 5 分钟上涨 ${chg5.toFixed(1)}%，量达基准 ${v.toFixed(1)} 倍，量价齐升`)) continue;
-      }
-      if (chg5 <= -0.5) {
-        if (add(i, "放量↓", "bear", `${items[i].time} 起 5 分钟下跌 ${(-chg5).toFixed(1)}%，量达基准 ${v.toFixed(1)} 倍，放量杀跌`)) continue;
-      }
-    }
+    // 2. 普通放量（放量↑/放量↓）已移除：4-6× 量 + 0.5% 动能每天出现太多次，信息量低，
+    //    且与"突破↑/破位↓"（越过关键位的放量）语义重叠。只保留极端（天量）与
+    //    关键位突破/缩量/背离等有决策含义的信号
 
     // 3. 放量突破 / 破位（30 分钟前高/前低）
     // 要求"明显越过"（>0.2%）而非刚好穿越——随机游走中价格必然反复穿过前高，
