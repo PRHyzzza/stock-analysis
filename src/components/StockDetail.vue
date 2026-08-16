@@ -9,6 +9,7 @@ import { signChar } from "../utils/format";
 import { useT0Signals } from "../composables/useT0Signals.js";
 import { useMaAlerts } from "../composables/useMaAlerts.js";
 import { usePriceAlerts } from "../composables/usePriceAlerts.js";
+import { useIntradayPrediction } from "../composables/useIntradayPrediction.js";
 import { ref, computed, watch } from "vue";
 
 const props = defineProps({
@@ -39,6 +40,30 @@ const emit = defineEmits([
 const chartMode = ref("intraday"); // "kline" | "intraday"
 const showSR = ref(false);
 const klineChartRef = ref(null);
+
+/** AI 分时预测 */
+const {
+  prediction,
+  predictionLoading,
+  predictionError,
+  loadPrediction,
+  clearPrediction,
+} = useIntradayPrediction();
+
+/** 轻提示（message） */
+const message = ref("");
+const messageType = ref("info");
+let messageTimer = null;
+function showMessage(text, type = "info") {
+  message.value = text;
+  messageType.value = type;
+  clearTimeout(messageTimer);
+  messageTimer = setTimeout(() => {
+    message.value = "";
+  }, 3000);
+}
+
+
 
 /** 均线提醒配置（合并弹窗「均线提醒」Tab 用） */
 const { getConfig: getMaConfig } = useMaAlerts();
@@ -94,6 +119,24 @@ watch(
   { immediate: true, deep: false }
 );
 
+// 切换股票时清除上一只股票的 AI 预测
+watch(
+  () => props.selectedStock?.code,
+  () => {
+    clearPrediction();
+  }
+);
+
+// 分时日期变化（如隔日）时清除旧预测
+watch(
+  () => props.intradayData?.date,
+  () => {
+    clearPrediction();
+  }
+);
+
+
+
 function handleToggleSR() {
   showSR.value = !showSR.value;
   klineChartRef.value?.toggleSR();
@@ -102,10 +145,31 @@ function handleToggleSR() {
 function switchChartMode(mode) {
   if (mode === chartMode.value) return;
   chartMode.value = mode;
+
+
+
+
   if (mode === "intraday") {
     emit("load-intraday");
   }
 }
+
+async function handlePredictIntraday() {
+  if (predictionLoading.value) return;
+  if (!props.selectedStock || !props.intradayData?.items?.length) return;
+  const result = await loadPrediction(props.selectedStock, props.intradayData, props.klineData);
+  if (result) {
+    showMessage("AI 预测已生成", "success");
+  } else if (predictionError.value) {
+    showMessage(predictionError.value, "error");
+  }
+}
+
+function handleClearPrediction() {
+  clearPrediction();
+  showMessage("已清除 AI 预测", "info");
+}
+
 
 function isInWatchlist(code) {
   return props.watchlist.some((s) => s.code === code);
@@ -179,7 +243,32 @@ const sinceAddedPct = computed(() => {
           :class="{ active: chartMode === 'intraday' }"
           @click="switchChartMode('intraday')"
         >分时</button>
+          <button
+            v-if="false"
+            class="chart-tab ai-predict-btn"
+            :class="{ active: prediction }"
+            :disabled="predictionLoading || !intradayData?.items?.length"
+            @click="prediction ? handleClearPrediction() : handlePredictIntraday()"
+          >
+            {{ predictionLoading ? '预测中...' : (prediction ? '清除 AI 预测' : 'AI 预测分时') }}
+          </button>
       </div>
+
+      <!-- AI 预测操作（独立于 K线/分时切换） -->
+      <div v-if="chartMode === 'intraday'" class="ai-predict-bar">
+        <button
+          class="ai-predict-btn"
+          :class="{ active: prediction }"
+          :disabled="predictionLoading || !intradayData?.items?.length"
+          @click="prediction ? handleClearPrediction() : handlePredictIntraday()"
+        >
+          {{ predictionLoading ? '预测中...' : (prediction ? '清除 AI 预测' : 'AI 预测分时') }}
+        </button>
+      </div>
+
+
+      
+
 
       <!-- K 线图 -->
       <div v-show="chartMode === 'kline'" class="kline-flex-wrap">
@@ -202,10 +291,14 @@ const sinceAddedPct = computed(() => {
           :loading="intradayLoading"
           :signal-markers="signalMarkers"
           :code="selectedStock?.code ?? ''"
+            :prediction="prediction"
+            :prediction-loading="predictionLoading"
         />
       </div>
 
       <!-- 今开/最高/昨收/最低 已作为参考线叠加在分时图中（IntradayChart），此处只保留量额类指标 -->
+            
+            
       <div class="meta-grid">
         <div class="meta-item">
           <span class="meta-label">成交量</span>
@@ -284,6 +377,16 @@ const sinceAddedPct = computed(() => {
       @close="showSentimentModal = false"
     />
   </main>
+
+  <!-- AI 预测轻提示 -->
+  <Teleport to="body">
+    <Transition name="message-fade">
+      <div v-if="message" class="ai-message" :class="`ai-message-${messageType}`">
+        {{ message }}
+      </div>
+    </Transition>
+  </Teleport>
+
 </template>
 
 <style scoped>
@@ -538,6 +641,85 @@ const sinceAddedPct = computed(() => {
 .chart-tab:hover:not(.active) {
   color: var(--text-secondary);
 }
+
+
+.ai-predict-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin: -6px 0 12px;
+}
+.ai-predict-btn {
+  padding: 6px 16px;
+  border: 1px solid rgba(230, 126, 34, 0.35);
+  border-radius: var(--radius-full);
+  background: #fff;
+  color: #e67e22;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ai-predict-btn:hover:not(:disabled) {
+  background: rgba(230, 126, 34, 0.08);
+}
+
+.ai-predict-btn.active {
+  color: #e67e22;
+}
+.ai-predict-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.ai-predict-error {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--red);
+}
+
+.ai-message {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  max-width: 80vw;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-message-info {
+  background: #fff;
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+}
+.ai-message-success {
+  background: #e8f8f0;
+  color: #1e8449;
+  border: 1px solid rgba(30, 132, 73, 0.25);
+}
+.ai-message-error {
+  background: #fdecea;
+  color: #c0392b;
+  border: 1px solid rgba(192, 57, 43, 0.25);
+}
+.message-fade-enter-active,
+.message-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.message-fade-enter-from,
+.message-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
+}
+
+
 
 /* ===== K 线弹性填充 ===== */
 .kline-flex-wrap {

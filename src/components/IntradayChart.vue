@@ -11,6 +11,8 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   signalMarkers: { type: Array, default: () => [] },
   code: { type: String, default: "" }, // 股票代码，用于按板块计算涨跌停参考线
+    prediction: { type: Object, default: null },
+    predictionLoading: { type: Boolean, default: false },
 });
 
 const chartContainer = ref(null);
@@ -20,6 +22,9 @@ let areaSeries = null;
 let priceLineSeries = null;
 let avgPriceSeries = null;
 let vwapSeries = null;
+let aiSeries = null;
+let aiUpperSeries = null;
+let aiLowerSeries = null;
 let volumeSeries = null;
 let baseLine = null;
 let limitUpLine = null;
@@ -29,6 +34,8 @@ let openLine = null;
 let highLine = null;
 let lowLine = null;
 let signalMarkersPlugin = null;
+/** 是否已经为当前预测线 fitContent 过（避免每次分时刷新都重置用户缩放） */
+let _predictionFitted = false;
 /** 缓存的 timestamp 映射 (timeStr → unixTs)，供信号标记使用 */
 let _timeMap = new Map();
 
@@ -175,6 +182,35 @@ function initChart() {
     crosshairMarkerRadius: 3,
     crosshairMarkerBorderColor: "#2196F3",
     crosshairMarkerBackgroundColor: "#ffffff",
+  });
+
+  // AI 预测线（橙色虚线 + 上下区间辅助线）
+  aiSeries = chart.addSeries(LineSeries, {
+    color: "#e67e22",
+    lineWidth: 2,
+    lineStyle: 2,
+    priceLineVisible: false,
+    lastValueVisible: true,
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+    crosshairMarkerVisible: false,
+  });
+  aiUpperSeries = chart.addSeries(LineSeries, {
+    color: "rgba(230, 126, 34, 0.35)",
+    lineWidth: 1,
+    lineStyle: 2,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+    crosshairMarkerVisible: false,
+  });
+  aiLowerSeries = chart.addSeries(LineSeries, {
+    color: "rgba(230, 126, 34, 0.35)",
+    lineWidth: 1,
+    lineStyle: 2,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+    crosshairMarkerVisible: false,
   });
 
   // 成交量
@@ -357,6 +393,80 @@ function updateChartData(intradayData) {
   }
 }
 
+/** 渲染 AI 预测线：只保留晚于最后一根实际分时的点，避免和实际线重叠 */
+function updatePrediction(predictionData) {
+  if (!aiSeries || !props.data?.items?.length) return;
+
+  const items = props.data.items;
+  const lastItem = items[items.length - 1];
+  const lastTime = lastItem?.time || "";
+  const points = predictionData?.points || [];
+
+  if (!points.length) {
+    _predictionFitted = false;
+    aiSeries.setData([]);
+    if (aiUpperSeries) aiUpperSeries.setData([]);
+    if (aiLowerSeries) aiLowerSeries.setData([]);
+    return;
+  }
+
+  const date = props.data.date;
+  if (!date || date.length !== 8) {
+    _predictionFitted = false;
+    aiSeries.setData([]);
+    if (aiUpperSeries) aiUpperSeries.setData([]);
+    if (aiLowerSeries) aiLowerSeries.setData([]);
+    return;
+  }
+
+  const year = parseInt(date.slice(0, 4));
+  const month = parseInt(date.slice(4, 6)) - 1;
+  const day = parseInt(date.slice(6, 8));
+
+  const main = [];
+  const upper = [];
+  const lower = [];
+
+  for (const p of points) {
+    const time = p?.time;
+    if (!time || time <= lastTime) continue;
+    const [h, m] = time.split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) continue;
+    const timestamp = Math.floor(Date.UTC(year, month, day, h, m) / 1000);
+    const price = Number(p.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    main.push({ time: timestamp, value: price });
+    if (Number.isFinite(Number(p.upper)) && Number(p.upper) > 0) {
+      upper.push({ time: timestamp, value: Number(p.upper) });
+    }
+    if (Number.isFinite(Number(p.lower)) && Number(p.lower) > 0) {
+      lower.push({ time: timestamp, value: Number(p.lower) });
+    }
+  }
+
+  // 用当前实际价作为锚点，让预测线从最新价平滑延伸
+  if (main.length > 0 && lastTime) {
+    const [lh, lm] = lastTime.split(":").map(Number);
+    if (Number.isFinite(lh) && Number.isFinite(lm)) {
+      const lastTs = Math.floor(Date.UTC(year, month, day, lh, lm) / 1000);
+      main.unshift({ time: lastTs, value: lastItem.price });
+    }
+  }
+
+
+  aiSeries.setData(main);
+  if (aiUpperSeries) aiUpperSeries.setData(upper);
+  if (aiLowerSeries) aiLowerSeries.setData(lower);
+
+  // 预测线首次出现时让图表缩放到包含未来区域
+  if (main.length > 0 && !_predictionFitted) {
+      _predictionFitted = true;
+    chart.timeScale().fitContent();
+  }
+}
+
+
 /**
  * 涨跌停参考线：按板块阈值（主板±10% / 创业科创±20% / 北交所±30%）基于昨收计算，
  * 港股无涨跌停限制（getLimitPct 返回 0）时移除参考线。
@@ -440,6 +550,7 @@ watch(
       nextTick(() => {
         ensureChart();
         updateChartData(newData);
+          updatePrediction(props.prediction);
       });
     } else if (priceLineSeries) {
       // 切换到无数据股票：清空旧图表，避免残留上一只股票的内容
@@ -448,6 +559,10 @@ watch(
       if (avgPriceSeries) avgPriceSeries.setData([]);
       if (vwapSeries) vwapSeries.setData([]);
       if (volumeSeries) volumeSeries.setData([]);
+        if (aiSeries) aiSeries.setData([]);
+        if (aiUpperSeries) aiUpperSeries.setData([]);
+        if (aiLowerSeries) aiLowerSeries.setData([]);
+        _predictionFitted = false;
       [baseLine, limitUpLine, limitDownLine, costLine, openLine, highLine, lowLine].forEach((l) => {
         if (l) { try { priceLineSeries.removePriceLine(l); } catch (e) {} }
       });
@@ -477,11 +592,24 @@ watch(
   { deep: true }
 );
 
+// AI 预测线独立更新
+watch(
+  () => props.prediction,
+  () => {
+    if (aiSeries) {
+      updatePrediction(props.prediction);
+    }
+  },
+  { deep: true }
+);
+
+
 onMounted(() => {
   nextTick(() => {
     if (props.data && props.data.items && props.data.items.length > 0) {
       initChart();
       updateChartData(props.data);
+        updatePrediction(props.prediction);
     }
   });
 });
@@ -496,6 +624,9 @@ onUnmounted(() => {
     avgPriceSeries = null;
     vwapSeries = null;
     volumeSeries = null;
+      aiSeries = null;
+      aiUpperSeries = null;
+      aiLowerSeries = null;
     baseLine = null;
     limitUpLine = null;
     limitDownLine = null;
@@ -527,6 +658,10 @@ onUnmounted(() => {
           <span class="legend-dot" style="background: #2196F3"></span>
           VWAP
         </span>
+          <span v-if="prediction || predictionLoading" class="legend-item ai-legend">
+            <span class="legend-dot" style="background: #e67e22"></span>
+            AI 预测
+          </span>
         <span class="legend-sep">|</span>
         <span class="legend-item ref-legend">
           <span class="legend-line" style="background: rgba(52, 152, 219, 0.7)"></span>
@@ -572,6 +707,10 @@ onUnmounted(() => {
         <span class="intraday-empty-icon">—</span>
         <p class="intraday-empty-text">暂无分时数据（非交易时段）</p>
       </div>
+        <div v-if="predictionLoading && !loading" class="intraday-loading ai-prediction-loading">
+          <span class="intraday-loading-icon">⟳</span>
+          <span>AI 预测生成中...</span>
+        </div>
 
 
     </div>

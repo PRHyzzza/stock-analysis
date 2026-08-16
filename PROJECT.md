@@ -35,7 +35,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 ## 3. 前端模块
 
-### 3.1 Composables（29 个）
+### 3.1 Composables（30 个）
 
 **数据加载**（`useKlineData`/`useIntradayData`/`useStockSearch`/`useIndustryData` 用请求序号防竞态；`useMoneyFlow` 用选中态比对）：
 
@@ -47,6 +47,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useMoneyFlow` | 资金流向 + 近 30 日历史（2min 节流） | `get_stock_money_flow(_history)` |
 | `useIndustryData` / `useMarketIndices` | 行业 / 指数 | `get_stock_industry` / `get_market_indices` |
 | `useAiAnalysis` | AI 对话：Agent 循环 10 轮上限、流式切股代际守卫、@代码/热榜选股、注入预计算指标 | `call_llm(_stream)` |
+| `useIntradayPrediction` | AI 分时预测：调用 DeepSeek 生成未来 30 分钟预测线，叠加到分时图 | `call_llm` |
 | `usePositions` / `useUserProfile` | 持仓+盈亏（港股汇率换算）/ 画像读写 | `get_fx_rate` / `read_save_user_profile` |
 | `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
 | `useStockSentiment` | 社区情绪：短语/否定/问句分类 + 热度加权 + 明确度修正档位（§3.3） | `get_stock_guba_posts` |
@@ -84,6 +85,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；细节见文件注释
 - **全局设置**: 5 标签页实时生效
 - **AI 双入口**: 个股 AI（注入行情/K线/资金/行业/筹码/持仓 + 预计算指标）；全局 AI（注入指数/持仓，@代码 引用，热榜选股）
+- **AI 分时预测线**: `useIntradayPrediction` 调 DeepSeek 生成未来 30 分钟预测（JSON points），`IntradayChart` 以橙色虚线叠加展示，支持上下区间辅助线；切股自动清除，手动触发/清除
 - **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）
 - **社区情绪**: `SentimentModal` — 情绪档位/占比/热度/热帖 + **AI 解读自动触发**（帖子加载完弹窗内流式生成，同股票只分析一次）；AI 工具 `get_stock_sentiment` 随时查；港股返回空。档位 = 加权看多占比（方向）+ 计数明确度（中性/问句多→收敛中性，明确帖 <8 极端档降级）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`
