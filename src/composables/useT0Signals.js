@@ -411,7 +411,7 @@ export function useT0Signals() {
     if (bottomDivergence && direction === '反T为主') risks.push('底背离+下降趋势，杀跌需谨慎')
     if (intraVolRatio > 2) risks.push('分时放量明显，警惕主力对倒出货')
     if (intraVolRatio < 0.3 && N > 30) risks.push('极度缩量，流动性可能影响 T+0 执行')
-    if (N < 30) risks.push('开盘数据量不足，信号可靠性低')
+    if (N < 15) risks.push('开盘数据量不足，信号可靠性低')
     if (nearLimitPct > 0 && changePct > limitPct - 1) risks.push(`已逼近涨停板（${limitPct.toFixed(0)}%），追涨挂单可能成交后回落`)
     if (nearLimitPct > 0 && changePct < -(limitPct - 1)) risks.push(`已逼近跌停板（${limitPct.toFixed(0)}%），明日可能继续低开`)
     // 量价陷阱风险（trapRes 在信号检测段计算，risks 声明在本段，故在此追加）

@@ -1,6 +1,7 @@
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettings } from "./useSettings.js";
+import { getLimitPct } from "../utils/limit";
 
 const API_KEY_KEY = "stock-analysis-ai-api-key";
 const MODEL_KEY = "stock-analysis-ai-model";
@@ -115,12 +116,16 @@ export function useIntradayPrediction() {
       const content = result?.choices?.[0]?.message?.content;
       const parsed = extractJson(content);
       const rawPoints = parsed?.points;
-                let points = normalizePoints(rawPoints, intradayData, stock.market === "HK" || /^\d{5}$/.test(stock.code || ""));
-        if (!points.length && Array.isArray(rawPoints) && rawPoints.length > 0) {
-          const lastTime = intradayData.items[intradayData.items.length - 1]?.time || "";
-          const isHK = stock.market === "HK" || /^\d{5}$/.test(stock.code || "");
-          points = shiftPointsToFuture(rawPoints, lastTime, isHK);
-        }
+      const isHK = stock.market === "HK" || /^\d{5}$/.test(stock.code || "");
+      const lastTime = intradayData.items[intradayData.items.length - 1]?.time || "";
+      const lastPrice = intradayData.items[intradayData.items.length - 1]?.price ?? 0;
+      let points = normalizePoints(rawPoints, intradayData, stock.code || "", isHK);
+      if (!points.length && Array.isArray(rawPoints) && rawPoints.length > 0) {
+        points = anchorAndClampPoints(
+          shiftPointsToFuture(rawPoints, lastTime, isHK),
+          lastTime, lastPrice, intradayData.preClose, stock.code || ""
+        );
+      }
 
       if (!points.length) {
           console.warn("[AI预测] 没有有效预测点", {
@@ -129,9 +134,8 @@ export function useIntradayPrediction() {
             firstRaw: Array.isArray(rawPoints) ? rawPoints[0] : null,
             normalizedCount: points.length,
           });
-        const lastTime = intradayData.items[intradayData.items.length - 1]?.time || "";
           const allInPast = Array.isArray(rawPoints) && rawPoints.length > 0 &&
-            rawPoints.every((p) => String(p?.time || "") <= lastTime);
+            rawPoints.every((p) => padTime(p?.time) <= lastTime);
           predictionError.value = allInPast
             ? `AI 返回的预测时间已过期（当前最新分时 ${lastTime}），请重试`
             : `AI 未能返回有效的预测点（原始点数 ${Array.isArray(rawPoints) ? rawPoints.length : 0}，最新分时 ${lastTime}），请重试`;
@@ -179,6 +183,7 @@ function buildPredictionMessages(stock, intradayData, klineData) {
   // 只取最近 60 根，避免 prompt 过长
   const recent = items.slice(-60);
   const lastTime = items[items.length - 1]?.time || "";
+  const lastPrice = items[items.length - 1]?.price ?? 0;
 
   const rows = recent.map((it) =>
     `${it.time},${it.price.toFixed(2)},${(it.avgPrice || 0).toFixed(2)},${(it.vwap || 0).toFixed(2)},${Math.round(it.volume || 0)}`
@@ -203,11 +208,12 @@ function buildPredictionMessages(stock, intradayData, klineData) {
 1. 只输出 JSON，不要输出任何解释、Markdown 或代码块。
 2. JSON 格式固定为：{"points":[{"time":"HH:mm","price":12.34,"lower":12.30,"upper":12.38}]}
 3. price/lower/upper 都保留 2 位小数。
-4. 【最重要】当前最新分时时间是 ${lastTime}。预测必须从 ${lastTime} 的下一分钟开始，连续输出未来 30 分钟；如果 ${lastTime} 是 09:30，第一个点才是 09:31；如果 ${lastTime} 是 14:30，第一个点必须是 14:31，绝不能从 09:31 开始。如果临近收盘，只输出到收盘前最后一分钟。
+4. 【最重要】当前最新分时时间是 ${lastTime}，最新价是 ${lastPrice}。预测必须从 ${lastTime} 的下一分钟开始，连续输出未来 30 分钟；第一个预测点的 price 必须落在 ${lastPrice} 的 ±0.3% 以内（预测线从最新价自然延伸），绝不能从 09:31 等过早时间开始。如果临近收盘，只输出到收盘前最后一分钟。
 5. A 股中午 11:30-13:00 休市，不要跨午休输出；港股 12:00-13:00 休市，也不要跨休市输出。
 6. 预测价格不能超过涨跌停价（如果有）。
 7. lower 必须小于等于 price，upper 必须大于等于 price。
-8. 如果数据不足或无法预测，返回 {"points":[]}。
+8. 走势判断必须客观平衡：未来 30 分钟可以上涨、下跌或横盘，绝不能无条件偏向单一方向（尤其禁止系统性看空）。短线应延续最近 10-15 分钟的趋势，同时结合最新价与均价/VWAP 的相对位置做适度均值回归，给出合理折中；所有预测点必须与 ${lastPrice} 保持同一数量级，不得整体大幅低于或高于最新价。
+9. 如果数据不足或无法预测，返回 {"points":[]}。
 
 当前股票：${stock.name}（${stock.code}）
 昨收：${intradayData.preClose}
@@ -247,6 +253,63 @@ function nextMinute(time) {
     nm = 0;
   }
   return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
+}
+
+/** 时间串规范化为 HH:mm（模型可能输出 9:31 而非 09:31，字符串比较会错乱） */
+function padTime(time) {
+  const s = String(time || "").trim();
+  const m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (!m) return s;
+  return `${String(Number(m[1])).padStart(2, "0")}:${String(Number(m[2])).padStart(2, "0")}`;
+}
+
+/** 保留 2 位小数 */
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * 预测点后处理（防"预测线永远向下"的关键）：
+ * 1. 锚定 — 模型输出的首点价若偏离最新实际价超过 0.3%，把整条预测线整体平移
+ *    （保留相对形态），使预测线从最新价自然延伸，消除 LLM 系统性看空或量纲
+ *    错乱导致的跳空下坠；
+ * 2. 约束 — 每个预测点钳制在 [涨跌停区间 ∩ 最新价 ±3%]（30 分钟窗口）内，
+ *    lower/upper 始终包住 price。
+ */
+function anchorAndClampPoints(points, lastTime, lastPrice, preClose, stockCode) {
+  if (!Array.isArray(points) || points.length === 0) return points;
+
+  const limitPct = getLimitPct(stockCode);
+  const hasLimit = limitPct > 0 && Number.isFinite(preClose) && preClose > 0;
+  const limitUp = hasLimit ? preClose * (1 + limitPct / 100) : Infinity;
+  const limitDown = hasLimit ? preClose * (1 - limitPct / 100) : -Infinity;
+
+  // 首点锚定：只平移未来点，锚点（lastTime, lastPrice）原样保留
+  const firstFuture = points.find((p) => p.time > lastTime);
+  let offset = 0;
+  if (firstFuture && Number.isFinite(lastPrice) && lastPrice > 0) {
+    const dev = lastPrice - Number(firstFuture.price);
+    if (Number.isFinite(dev) && Math.abs(dev) / lastPrice > 0.003) offset = dev;
+  }
+
+  const band = Number.isFinite(lastPrice) && lastPrice > 0 ? lastPrice * 0.03 : Infinity;
+  const loPrice = Number.isFinite(lastPrice) ? lastPrice - band : -Infinity;
+  const hiPrice = Number.isFinite(lastPrice) ? lastPrice + band : Infinity;
+  const out = [];
+  for (const p of points) {
+    if (p.time <= lastTime) {
+      out.push(p);
+      continue;
+    }
+    let price = Number(p.price) + offset;
+    price = Math.min(Math.max(price, Math.max(limitDown, loPrice)), Math.min(limitUp, hiPrice));
+    let lower = Number(p.lower) + offset;
+    let upper = Number(p.upper) + offset;
+    lower = Number.isFinite(lower) && lower > 0 ? Math.min(lower, price) : price;
+    upper = Number.isFinite(upper) && upper > 0 ? Math.max(upper, price) : price;
+    out.push({ time: p.time, price: round2(price), lower: round2(lower), upper: round2(upper) });
+  }
+  return out;
 }
 
 /**
@@ -289,7 +352,7 @@ function shiftPointsToFuture(rawPoints, lastTime, isHK) {
 
 
 /** 规范化/过滤预测点 */
-function normalizePoints(rawPoints, intradayData, isHK = false) {
+function normalizePoints(rawPoints, intradayData, stockCode = "", isHK = false) {
   if (!Array.isArray(rawPoints)) return [];
 
   const items = intradayData.items;
@@ -297,12 +360,12 @@ function normalizePoints(rawPoints, intradayData, isHK = false) {
   const lastPrice = items[items.length - 1]?.price;
 
   const seen = new Set();
-  const points = [];
+  let points = [];
 
   // 如果 LLM 返回的第一个点不是从下一分钟开始，则用当前实际价作为锚点拼接
   let needsAnchor = true;
   for (const raw of rawPoints) {
-    const time = String(raw?.time || "").trim();
+    const time = padTime(raw?.time);
     const price = Number(raw?.price);
     if (!time || !Number.isFinite(price) || price <= 0) continue;
     if (time <= lastTime) continue; // 只保留未来点，避免和实际线重叠
@@ -330,11 +393,12 @@ function normalizePoints(rawPoints, intradayData, isHK = false) {
   // 如果没有任何未来点，则不返回锚点
   if (needsAnchor) {
       // 模型可能没按当前时间输出，尝试把整段形态平移到当前时间之后
-      return shiftPointsToFuture(rawPoints, lastTime, isHK);
+      points = shiftPointsToFuture(rawPoints, lastTime, isHK);
     }
 
   // 按时间排序，防止 LLM 返回乱序
   points.sort((a, b) => a.time.localeCompare(b.time));
 
-  return points;
+  // 锚定 + 约束：保证预测线从最新实际价自然延伸，且不越出合理区间
+  return anchorAndClampPoints(points, lastTime, lastPrice, intradayData.preClose, stockCode);
 }

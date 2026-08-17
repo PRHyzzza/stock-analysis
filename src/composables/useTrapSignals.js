@@ -54,7 +54,10 @@ export function calcTrapSignals(intradayData) {
   const traps = [];
   const markers = [];
 
-  if (!intradayData?.items || intradayData.items.length < 30) {
+  // 数据门槛：≥10 根即可启动。摆动检测自带 ±W 窗口约束，早盘完成的第一波
+  // 冲高回落/急跌收复可实时标注，不必等满 30 分钟；尾盘 15 分钟形态
+  // （D 段）仍由内部 N>=30 门槛控制
+  if (!intradayData?.items || intradayData.items.length < 10) {
     return { traps, markers };
   }
   const items = intradayData.items;

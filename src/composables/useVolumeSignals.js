@@ -51,7 +51,10 @@ const MARKER_STYLE = {
 
 export function calcVolumeSignals(intradayData) {
   const signals = [];
-  if (!intradayData?.items || intradayData.items.length < 30) {
+  // 数据门槛：≥10 根即可启动。前瞻预警只需 5 分钟窗口 + 滚动量能基准（当下可判），
+  // 开盘放量急拉是全天最重要的信号，不能等满 30 分钟才出；
+  // 突破/破位（内部 i>=30）、顶底背离（内部 i>=15）由各自预热门槛自然控制
+  if (!intradayData?.items || intradayData.items.length < 10) {
     return { signals, markers: [] };
   }
   const items = intradayData.items;

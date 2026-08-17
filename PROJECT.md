@@ -82,10 +82,10 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **画像**: md 存 `app_data_dir`；AI 后台增量更新（10min 节流 + 短消息跳过，写串行化）
 - **三套通知**（自选/均线/价格，共用 `utils/marketTime.js` + `notify.js` + `klineCache.js`）: 每股票每日每类型一次、仅交易时段、**跨日重置快照防隔夜跳空误报**；价格提醒支持突破/跌破目标价 + 放量条件，一次性/每日模式
 - **资金流向可视化**: `MoneyFlowModal` — 当日 5 档快照 + 近 30 日主力净流入柱状图（东财 push2his，万元）
-- **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；细节见文件注释
+- **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **全局设置**: 5 标签页实时生效
 - **AI 双入口**: 个股 AI（注入行情/K线/资金/行业/筹码/持仓 + 预计算指标）；全局 AI（注入指数/持仓，@代码 引用，热榜选股）
-- **AI 分时预测线**: `useIntradayPrediction` 调 DeepSeek 生成未来 30 分钟预测（JSON points），`IntradayChart` 以橙色虚线叠加展示，支持上下区间辅助线；切股自动清除，手动触发/清除
+- **AI 分时预测线**: `useIntradayPrediction` 调 DeepSeek 生成未来 30 分钟预测（JSON points），`IntradayChart` 以橙色虚线叠加展示，支持上下区间辅助线；切股自动清除，手动触发/清除；提示词带最新价锚定 + 平衡性约束，代码侧整体平移锚定 + 涨跌停/±3% 钳制（`anchorAndClampPoints`），防系统性偏空/量纲错乱
 - **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）
 - **社区情绪**: `SentimentModal` — 情绪档位/占比/热度/热帖 + **AI 解读自动触发**（帖子加载完弹窗内流式生成，同股票只分析一次）；AI 工具 `get_stock_sentiment` 随时查；港股返回空。档位 = 加权看多占比（方向）+ 计数明确度（中性/问句多→收敛中性，明确帖 <8 极端档降级）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`
@@ -96,7 +96,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 - **模板**: `prompts/system-prompt.md`，占位符 `{{BEIJING_TIME}}`/`{{SEARCH_POLICY}}`/`{{PRELOAD_SECTION}}`/`{{SKILL_PROMPTS}}`/`{{USER_PROFILE}}`/`{{MARKET_RULES}}`/`{{STOCK_CONTEXT}}`（无 `{{TOOLS}}`，工具走 API 参数）
 - **填充**: `aiContext.js` `buildSystemPrompt`（个股）+ `useAiAnalysis.js` `buildGlobalSystemPrompt`（全局）；公共常量 `MARKET_RULES`/`buildSearchPolicy` 在 `aiContext.js`；占位符残留校验
-- **独立提示词**: ① `IwencaiWindow.vue optimizeQuery()`（AI 改写查询）；② `SentimentModal.vue`（AI 情绪解读，语义优先）；改动时同步本行
+- **独立提示词**: ① `IwencaiWindow.vue optimizeQuery()`（AI 改写查询）；② `SentimentModal.vue`（AI 情绪解读，语义优先）；③ `useIntradayPrediction.js buildPredictionMessages()`（分时预测：最新价锚定 + 平衡约束）；改动时同步本行
 - **注入**: `serializeContext` → K线 30 根 + MA 最新值 + 预计算指标 + 资金/行业/指数/热榜/持仓/筹码
 - **硬约束**: 数值必须来自工具返回，失败明示「数据获取失败」，禁编造
 
