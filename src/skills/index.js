@@ -16,7 +16,6 @@ import StockSearch from "./StockSearch.js";
 import UserContext from "./UserContext.js";
 import IwencaiSelect from "./IwencaiSelect.js";
 import StockPicks from "./StockPicks.js";
-import SentimentAnalysis from "./SentimentAnalysis.js";
 
 /** 所有技能列表 */
 const SKILLS = [
@@ -32,7 +31,6 @@ const SKILLS = [
   UserContext,
   IwencaiSelect,
   StockPicks,
-  SentimentAnalysis,
 ];
 
 /** 合并所有工具的 tool_definitions（发给 LLM 用） */
