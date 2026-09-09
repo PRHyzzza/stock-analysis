@@ -31,7 +31,7 @@ function safeSetItem(key, value) {
 
 /** 可用模型列表（value → label） */
 const AVAILABLE_MODELS = [
-  { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+  { value: "deepseek-v4.1-flash-expires-on-0910", label: "DeepSeek V4.1 Flash" },
   { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
 ];
 const DEFAULT_MODEL = "deepseek-v4-flash";
