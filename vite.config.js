@@ -59,6 +59,17 @@ export default defineConfig(async () => ({
     // 避免单入口 >500 kB 触发 chunk 警告（Tauri 本地加载，多 chunk 无网络开销）
     // 注意：rolldown 的 manualChunks 只支持函数形式（不支持 Rollup 的对象形式）
     rolldownOptions: {
+      checks: {
+        // 关闭 [PLUGIN_TIMINGS] 提示。实测该项目 vite:css 占比被严重高估：
+        // rolldown 从 JS 回调内部计时，vite:css 的 async 回调在等 resolve/读文件时与其他
+        // 回调重叠，跨度被重复计入。用「剥离全部 SFC <style>」的 A/B 对照实测，
+        // 整个 CSS 管线只占总构建时间约 10%（约 90 ms），而报告显示 46%。
+        // 真实热点（node --cpu-prof 采样）是 Vue SFC 编译：@babel/parser 解析模板表达式
+        // 与 <script setup> + @vue/compiler-core 代码生成 ≈ 28%，属框架固有成本，
+        // 无配置可调。已跑 A/B/C 变体（去掉 lightningcss transformer / 去掉 manualChunks）：
+        // 差异均在 ±7% 噪声内，故不再改动其余构建配置。
+        pluginTimings: false,
+      },
       output: {
         manualChunks(id) {
           // pnpm 路径形如 node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>/...

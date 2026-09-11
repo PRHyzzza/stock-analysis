@@ -12,19 +12,19 @@
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-global-shortcut": "^2.3.2",
-    "@tauri-apps/plugin-notification": "^2.3.3",
-    "@tauri-apps/plugin-opener": "^2.5.4",
-    "dompurify": "^3.4.13",
-    "lightweight-charts": "^5.2.0",
-    "marked": "^18.0.7",
-    "vue": "^3.5.40"
+    "@tauri-apps/plugin-notification": "^2.4.0",
+    "@tauri-apps/plugin-opener": "^2.5.5",
+    "dompurify": "^3.4.15",
+    "lightweight-charts": "^5.2.1",
+    "marked": "^18.0.12",
+    "vue": "^3.5.42"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
     "@vitejs/plugin-vue": "^6.0.8",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "lightningcss": "^1.33.0",
-    "sharp": "^0.35.3",
-    "vite": "^8.1.5"
+    "sharp": "^0.35.4",
+    "vite": "^8.3.0"
   }
 }
