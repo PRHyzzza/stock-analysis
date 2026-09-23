@@ -63,7 +63,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | Skill | 工具 |
 |-------|------|
 | `StockQuote` | `get_stock_quote` / `get_stock_quotes_batch` |
-| `KlineAnalysis` | `get_stock_kline`（day/week/month + m5/m15/m30/m60；分钟级 date=`yyyyMMddHHmm`、无复权、港股不支持） |
+| `KlineAnalysis` | `get_stock_kline`（day/week/month + m5/m15/m30/m60；分钟级 date=`yyyyMMddHHmm`、无复权、港股不支持；返回 `{close, ma:{MA5,MA10,MA20}, vsMA5Pct, bars}`——均线与 MA5 偏离度由系统算好，供「站上/贴近 5 日线」筛选直接引用） |
 | `MoneyFlow` | `get_stock_money_flow` / `get_stock_money_flow_history` |
 | `Industry` / `MarketIndices` / `Intraday` / `MarketOverview` / `StockSearch` | `get_stock_industry` / `get_market_indices` / `get_stock_intraday` / `get_hot_list` / `search_stocks` |
 | `WebSearch` | `web_search` / `web_fetch`（**四步搜索流程 + 关键词铁律唯一真源**） |
@@ -82,7 +82,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **全局设置**: 5 标签页实时生效
 - **AI 双入口**: 个股 AI（注入行情/K线/资金/行业/筹码/持仓 + 预计算指标）；全局 AI（注入指数/持仓，@代码 引用，热榜选股）
-- **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）
+- **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）；短线买入清单带**贴线硬性条件**（现价须在 MA5 之上且偏离 ≤3% 优先、>5% 剔除，用 `get_stock_kline` 的 `ma.MA5`/`vsMA5Pct` 核验）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`
 - **交易日历**: `useTradingCalendar` 拉取 `get_trading_calendar` → 注入 `marketTime.js` 模块级 Set；**仅 A 股**——港股仍按周一~周五，且仅当自选/持仓含 5 位港股代码时才纳入 `isMarketSession`（否则 A 股休市日完全零轮询）；接口窗口固定 `[今日-1年, 今日]`，只对拉取当日及之前有效 → 日缓存 + 跨日自动刷新；无 Key / 请求失败静默降级回周末判断
 - **快捷键/单例/托盘/时段感知**: Ctrl+K / Ctrl+N；single-instance；关窗隐藏托盘；四定时器经 `sessionTick` 守卫，盘外零请求
@@ -92,7 +92,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 - **模板**: `prompts/system-prompt.md`，占位符 `{{BEIJING_TIME}}`/`{{SEARCH_POLICY}}`/`{{PRELOAD_SECTION}}`/`{{SKILL_PROMPTS}}`/`{{USER_PROFILE}}`/`{{MARKET_RULES}}`/`{{STOCK_CONTEXT}}`（无 `{{TOOLS}}`，工具走 API 参数）
 - **填充**: `aiContext.js` `buildSystemPrompt`（个股）+ `useAiAnalysis.js` `buildGlobalSystemPrompt`（全局）；公共常量 `MARKET_RULES`/`buildSearchPolicy` 在 `aiContext.js`；占位符残留校验
-- **独立提示词**: ① `IwencaiWindow.vue optimizeQuery()`（AI 改写查询）；改动时同步本行
+- **独立提示词**: ① `IwencaiWindow.vue optimizeQuery()`（AI 改写查询）；② `GlobalAiModal.vue buildScreeningPrompt()`（问财结果注入 + 短线买入/贴线条件）；改动时同步本行
 - **注入**: `serializeContext` → K线 30 根 + MA 最新值 + 预计算指标 + 资金/行业/指数/热榜/持仓/筹码
 - **硬约束**: 数值必须来自工具返回，失败明示「数据获取失败」，禁编造
 

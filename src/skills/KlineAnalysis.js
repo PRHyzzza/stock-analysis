@@ -4,6 +4,13 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 
+/** 最近 n 根收盘价均值（数据不足返回 null） */
+function maOf(bars, n) {
+  if (!Array.isArray(bars) || bars.length < n) return null;
+  const sum = bars.slice(-n).reduce((s, b) => s + (Number(b?.close) || 0), 0);
+  return Math.round((sum / n) * 100) / 100;
+}
+
 export default {
   name: "kline-analysis",
   description: "获取 K 线数据做技术分析",
@@ -38,8 +45,18 @@ export default {
     async get_stock_kline({ code, period }) {
       try {
         const data = await invoke("get_stock_kline", { code, period });
-        const sliced = Array.isArray(data) ? data.slice(-60) : data;
-        return JSON.stringify(sliced, null, 2);
+        if (!Array.isArray(data) || data.length === 0) {
+          return `[空结果] ${code} ${period} 无 K 线数据`;
+        }
+        const bars = data.slice(-60);
+        const close = Number(bars[bars.length - 1]?.close);
+        // 均线由系统计算（模型手算均线易错），并给出对 MA5 的偏离度，
+        // 供「站上/贴近 5 日线」类筛选直接引用；bars 明细仍返回以支持形态/MACD 分析
+        const ma = { MA5: maOf(bars, 5), MA10: maOf(bars, 10), MA20: maOf(bars, 20) };
+        const vsMA5Pct = ma.MA5
+          ? Math.round(((close - ma.MA5) / ma.MA5) * 10000) / 100
+          : null;
+        return JSON.stringify({ code, period, close, ma, vsMA5Pct, bars });
       } catch (e) {
         return `[错误] 获取 K 线失败: ${e}`;
       }
@@ -51,6 +68,7 @@ export default {
 - **day/week/month**：前复权，近 120 根，date 为 \`yyyy-mm-dd\`
 - **m5/m15/m30/m60**：无复权概念，近 320 根，date 为 \`yyyyMMddHHmm\`（12 位，如 202608140930 = 2026-08-14 09:30）；**港股不支持分钟 K 线**
 - 均已截取最近 60 根返回
+- 返回结构 \`{ code, period, close, ma: { MA5, MA10, MA20 }, vsMA5Pct, bars }\`：\`ma\` 为系统算好的均线最新值，\`vsMA5Pct\` 为收盘价（现价）对 MA5 的偏离百分比（**正 = 在 MA5 上方，负 = 下方**）——判断「站上/贴近 5 日线」时**直接用 \`ma.MA5\` 与 \`vsMA5Pct\`，不要自己算**（MA30/MA60 等未返回的周期才按下方公式计算）；\`bars\` 为 OHLCV 明细（供形态/MACD/KDJ 等计算）
 
 分钟级 K 线适用场景：日内趋势与短线支撑/压力位判断、T+0 操作参考、盘中动能分析；与分时数据（\`get_stock_intraday\`）互补——分时是逐分钟均价视角，分钟 K 是固定周期 OHLC 视角。
 
