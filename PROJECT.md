@@ -13,29 +13,29 @@ stock-analysis/
 ├── src/                        Vue 前端
 │   ├── App.vue                 入口：窗口/定时器/跨窗口联动
 │   ├── components/             布局/列表/详情/弹窗/迷你窗 + settings/(5) + ai/(4)
-│   ├── composables/            28 个（§3.1）
+│   ├── composables/            29 个（§3.1）
 │   ├── skills/                 13 skill / 17 工具（§3.2）
 │   ├── prompts/                system-prompt.md（AI 提示词模板，§3.4）
-│   └── utils/                  format / limit（涨跌停按板块）/ marketTime / notify / klineCache
+│   └── utils/                  format / limit（涨跌停按板块）/ marketTime（交易日历+时段）/ notify / klineCache
 ├── src-tauri/                  Rust 后端
 │   ├── .cargo/config.toml      USTC sparse 镜像（勿删）
 │   ├── capabilities/           default.json 窗口权限：main/mini/iwencai
 │   └── src/
 │       ├── commands.rs         21 个命令（§4.1）
 │       ├── types.rs / helpers.rs（代码转换 §4.3）
-│       └── api/                tencent / eastmoney / hotlist / llm / web / iwencai
+│       └── api/                tencent / eastmoney / hotlist / calendar / llm / web / iwencai
 └── public/
 ```
 
 ## 2. 数据流
 
-App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 腾讯 GBK / eastmoney 东财 / hotlist 同花顺 / llm DeepSeek SSE / web 搜索+抓取 / iwencai 问财）
+App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 腾讯 GBK / eastmoney 东财 / hotlist 同花顺 / calendar 同花顺交易日历 / llm DeepSeek SSE / web 搜索+抓取 / iwencai 问财）
 
 模式：每个 composable 返回 `{ data, loading, load(), ... }`，App.vue 统一调用、props 下发。
 
 ## 3. 前端模块
 
-### 3.1 Composables（28 个）
+### 3.1 Composables（29 个）
 
 **数据加载**（`useKlineData`/`useIntradayData`/`useStockSearch`/`useIndustryData` 用请求序号防竞态；`useMoneyFlow` 用选中态比对）：
 
@@ -52,7 +52,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 **纯计算**：`useTechIndicators`（MACD/KDJ/RSI/WR，AI 预计算注入复用）、`useChipDistribution`（筹码）、`useSupportResistance`（支撑/阻力）、`useT0Signals` + `useTrapSignals` + `useVolumeSignals`（T+0 信号/量价陷阱/量价信号，细节见文件注释）、`aiContext`（提示词构建，§3.4）
 
-**状态与持久化**：`useWatchlist`（自选 CRUD）、`useSettings`（全局设置单例）、`useWatchlistNotifications` / `useMaAlerts` / `usePriceAlerts`（三套通知，跨日重置快照防隔夜跳空）、`aiMessageStore`（AI 消息隔离持久化）、`llmClient`（SSE 流式，streamId 过滤 + 120s 超时）
+**状态与持久化**：`useWatchlist`（自选 CRUD）、`useSettings`（全局设置单例）、`useTradingCalendar`（A 股交易日历，lazy 注入 `marketTime.js`）、`useWatchlistNotifications` / `useMaAlerts` / `usePriceAlerts`（三套通知，跨日重置快照防隔夜跳空）、`aiMessageStore`（AI 消息隔离持久化）、`llmClient`（SSE 流式，streamId 过滤 + 120s 超时）
 
 **窗口与系统**：`useChildWindows`（子窗口管理）、`useGlobalShortcuts`（Ctrl+K 搜索 / Ctrl+N 全局 AI）
 
@@ -71,7 +71,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `StockPicks` | `render_stock_picks`（选股结果卡片，`PICKS_MARKER` 前缀 → `msg.picks` 渲染） |
 | `UserContext` | `read/save_user_profile` / `get_fx_rate` |
 
-> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`（AI 自身管道）、`get_app_version` / `check_for_update`（应用级）。
+> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`（AI 自身管道）、`get_trading_calendar`（前端时段判断内部使用）、`get_app_version` / `check_for_update`（应用级）。
 
 ### 3.3 核心子系统（一行一系统）
 
@@ -84,6 +84,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **AI 双入口**: 个股 AI（注入行情/K线/资金/行业/筹码/持仓 + 预计算指标）；全局 AI（注入指数/持仓，@代码 引用，热榜选股）
 - **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`
+- **交易日历**: `useTradingCalendar` 拉取 `get_trading_calendar` → 注入 `marketTime.js` 模块级 Set；**仅 A 股**——港股仍按周一~周五，且仅当自选/持仓含 5 位港股代码时才纳入 `isMarketSession`（否则 A 股休市日完全零轮询）；接口窗口固定 `[今日-1年, 今日]`，只对拉取当日及之前有效 → 日缓存 + 跨日自动刷新；无 Key / 请求失败静默降级回周末判断
 - **快捷键/单例/托盘/时段感知**: Ctrl+K / Ctrl+N；single-instance；关窗隐藏托盘；四定时器经 `sessionTick` 守卫，盘外零请求
 - **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页；AI 优化查询）
 
@@ -97,7 +98,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 ## 4. Rust 后端
 
-### 4.1 Tauri 命令（20 个）
+### 4.1 Tauri 命令（21 个）
 
 | 命令 | 数据源 | 说明 |
 |------|--------|------|
@@ -105,6 +106,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `get_stock_money_flow(_history)` | Tencent → 东财备选 | 资金 5 档 / 近 N 日历史（默认 30，万元，升序勿反转；双数据源 §7.4） |
 | `get_stock_industry` / `get_market_indices` | 东财 / Tencent | 行业（港股空）/ 七大指数（失败兜底真实名称） |
 | `search_stocks` / `get_hot_list` | Tencent / 同花顺 | 搜索 / 热榜 |
+| `get_trading_calendar` | 同花顺 Fuyao | A 股交易日历（近一年，`yyyy-MM-dd` 升序；需 `X-api-key`，无 Key 报 `[NO_API_KEY]`） |
 | `call_llm` / `call_llm_stream` | DeepSeek | 非流式 / SSE 流式（§4.2） |
 | `read/save_user_profile` / `web_search` / `web_fetch` / `get_fx_rate` | 本地 / 东财 / URL / Frankfurter | 画像 / 新闻搜索 / 正文抓取（SSRF 防护 §4.2）/ 汇率 |
 | `get_iwencai_robot` | 问财 | 选股（Cookie v + 浏览器头；page 忽略，perpage ≤100） |
@@ -120,6 +122,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `web.rs` | UTF-8（无 charset 头探测 GBK） | sort=default 相关性排序；中文无空格按子串剥泛词；四级正文提取；反爬站过滤；**SSRF 防护**（私网拒绝、禁跨主机重定向、≤50MB） |
 | `iwencai.rs` | UTF-8 | 路径 `data.answer[0].txt[0].content.components[0].data`；**同 v 4-6 次 → 403（换 v 恢复）；带 condition 必 403**；风控带 `[RATE_LIMITED]` 标记 |
 | `hotlist.rs` | UTF-8 | JSON API |
+| `calendar.rs` | UTF-8 | 同花顺 Fuyao：需 `X-api-key`；**无参数**，固定返回 `[今日-1年, 今日]` 交易日（`yyyyMMdd` → 转 `yyyy-MM-dd` 升序去重）；**仅 A 股，无港股**；业务错误走 HTTP 200 + `code≠0`（2001 无 Key / 2003 无权限 / 4001 限流） |
 
 ### 4.3 代码转换 (helpers.rs)
 

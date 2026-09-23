@@ -33,6 +33,7 @@ import { usePriceAlerts } from "./composables/usePriceAlerts";
 import { useChildWindows } from "./composables/useChildWindows";
 import { useGlobalShortcuts } from "./composables/useGlobalShortcuts";
 import { useSettings } from "./composables/useSettings";
+import { useTradingCalendar } from "./composables/useTradingCalendar";
 import { isTradingHours } from "./utils/marketTime.js";
 
 // ---- 侧边栏视图切换 ----
@@ -181,6 +182,8 @@ const { checkAndNotify, prevPrices } = useWatchlistNotifications();
 const { configs: maAlerts, checkMaAlerts, removeConfig } = useMaAlerts();
 const { alerts: priceAlerts, checkPriceAlerts } = usePriceAlerts();
 const { state: settings } = useSettings();
+// 交易日历（A 股，识别法定节假日/调休；无 Key 时降级为周末判断）
+const { init: initTradingCalendar } = useTradingCalendar();
 
 // 计算当前选中股票的"加入自选"标记
 const watchlistMarkers = computed(() => {
@@ -328,15 +331,21 @@ let klineTimer;
 let intradayTimer;
 
 // ── 交易时段感知轮询 ──
-// 盘外（收盘/午休/周末）自动停请求，开盘自动恢复：
+// 盘外（收盘/午休/周末/节假日）自动停请求，开盘自动恢复：
 // 定时器回调经 sessionTick 守卫，盘外只做一次轻量时段判断（无 HTTP 请求），
 // 时段切换瞬间立即刷新一次并重建定时器（兜底设置变更）。手动刷新不受限。
 // 自选可能混合 A 股/港股，任一市场在交易时段即视为盘中。
 let inSession = false;
 
-/** A 股或港股任一在交易时段 */
+/** 自选/持仓是否含港股（港股休市日与 A 股不同，交易日历不覆盖，需单独判断） */
+const hasHkStock = computed(() =>
+  watchlist.value.some((s) => /^\d{5}$/.test(s.code)) ||
+  positions.value.some((p) => /^\d{5}$/.test(p.code))
+);
+
+/** A 股或港股任一在交易时段（无港股时不请求港股判断，A 股休市日可完全零轮询） */
 function isMarketSession() {
-  return isTradingHours() || isTradingHours("00700");
+  return isTradingHours() || (hasHkStock.value && isTradingHours("00700"));
 }
 
 /** 定时器回调守卫 */
@@ -430,6 +439,8 @@ onMounted(() => {
   invoke("get_fx_rate").then((rate) => setFxRate(rate)).catch(() => {});
   // 加载用户画像
   loadProfile();
+  // 初始化 A 股交易日历（无 Key / 请求失败时静默降级为周末判断）
+  initTradingCalendar();
   // 加载指数行情
   loadIndices();
   // 初始设置定时器

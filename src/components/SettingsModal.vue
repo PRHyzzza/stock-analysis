@@ -172,6 +172,58 @@ function closeModal() { emit("close"); }
 }
 .select:focus { border-color: var(--ink); }
 
+/* ── 文本输入（API Key 等） ── */
+.key-input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--fog);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+  width: 180px;
+  flex-shrink: 0;
+  /* 覆盖 .setting-row 的 user-select: none，保证输入框内可选中/粘贴 */
+  user-select: text;
+}
+.key-input:focus { border-color: var(--ink); }
+
+.key-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.key-status.is-ok { color: var(--green); }
+.key-status.is-error { color: var(--red); }
+
+.key-btns {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+.btn-key {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.btn-key:hover { opacity: 0.75; }
+.btn-key:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.key-hint { margin: 8px 0 0; }
+
 /* ── Slider ── */
 .slider-wrap {
   display: flex;

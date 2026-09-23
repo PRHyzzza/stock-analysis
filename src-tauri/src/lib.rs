@@ -93,6 +93,7 @@ pub fn run() {
             commands::get_stock_money_flow,
             commands::get_stock_money_flow_history,
             commands::get_hot_list,
+            commands::get_trading_calendar,
             commands::call_llm,
             commands::call_llm_stream,
             commands::read_user_profile,

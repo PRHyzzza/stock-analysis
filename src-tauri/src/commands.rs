@@ -2,7 +2,7 @@ use crate::api::{
     call_llm as call_llm_api, fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
     fetch_industry_name, fetch_intraday_data, fetch_kline_data, fetch_money_flow,
     fetch_money_flow_eastmoney, fetch_money_flow_history, fetch_search_results,
-    fetch_stock_quote, fetch_stock_quotes_batch, parse_industry_analysis,
+    fetch_stock_quote, fetch_stock_quotes_batch, fetch_trading_days, parse_industry_analysis,
 };
 use crate::types::{
     HotListData, IndustryData, IntradayData, KlineItem, MarketIndex, MoneyFlow,
@@ -213,6 +213,17 @@ pub async fn get_stock_money_flow_history(
 #[tauri::command]
 pub async fn get_hot_list() -> Result<HotListData, String> {
     fetch_hot_list().await
+}
+
+/// 获取 A 股交易日历（同花顺 Fuyao，近一年，yyyy-MM-dd 升序）
+/// 用于替代前端的"周一~周五"硬编码，识别法定节假日与调休
+#[tauri::command]
+pub async fn get_trading_calendar(api_key: String) -> Result<Vec<String>, String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("[NO_API_KEY] 未配置同花顺 API Key".to_string());
+    }
+    fetch_trading_days(key).await
 }
 
 /// 调用 LLM（兼容 DeepSeek / OpenAI）
