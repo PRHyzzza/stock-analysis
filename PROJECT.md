@@ -178,6 +178,8 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 
 > `src-tauri/.cargo/config.toml` 内置 USTC sparse 镜像（覆盖用户全局失效镜像，勿删）。前端 vendor 分包（charts/markdown/vue 三 chunk）。PowerShell `2>&1` 下构建误报 exit 1 属正常，以 `✓ built`/`Finished` 为准。
 >
+> **本机 cargo DNS 受限**：libcurl 线程解析器报 `getaddrinfo() thread failed to start`（同期 curl/python 正常），表现为 `cargo build` 拉依赖时 `failed to query replaced source registry crates-io`。缓解办法：Rust 依赖已全量灌入 `~/.cargo/registry` 里 **USTC 源身份**的索引缓存与 `cache/*.crate`（约 543 个包），因此 `cargo check` / `cargo build` / `pnpm tauri build` 均可在无网络下跑完。**仅新增或升级依赖**时才重新需要网络，届时用本地 Python 稀疏索引代理、把 `config.toml` 临时指向 `sparse+http://127.0.0.1:<端口>/`，跑完必须改回 USTC（代理源身份不同会再触发一轮全量重编 `target/`）。
+>
 > **构建配置现状**（`vite.config.js`，已实测调优，勿随意改动）：`target: esnext` + `cssMinify/transformer: lightningcss` + `reportCompressedSize: false` + `checks.pluginTimings: false`（关闭 rolldown 的 `[PLUGIN_TIMINGS]` 提示——该统计按 hook 跨度计，`vite:css` 的 async 回调在等 resolve/读文件期间与其他回调重叠、跨度被重复计入，实测剥离全部 SFC `<style>` 后整条 CSS 管线仅占约 10% 构建耗时，而报告显示 46%）。真实热点是 Vue SFC 编译（`@babel/parser` 解析模板表达式/`<script setup>` + `@vue/compiler-core` 代码生成 ≈ 28%，框架固有、无配置可调）；A/B/C 实测去掉 lightningcss transformer / 去掉 manualChunks 差异均在 ±7% 噪声内。排查构建耗时用 `node --cpu-prof node_modules/vite/bin/vite.js build`。
 
 ## 7. 关键约定

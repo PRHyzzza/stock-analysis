@@ -27,6 +27,7 @@
 - 前端：`pnpm build`（vite 8，通过即视为 OK；PowerShell 下 stderr 误报 exit 1 属正常现象）
 - 后端：`cd src-tauri && cargo check`（需 **Rust ≥ 1.85**；项目内 `src-tauri/.cargo/config.toml` 已内置 USTC sparse 镜像，不要删除）
 - 沙箱提示：cargo/rustup 在沙箱外，运行需 `danger-full-access` 权限
+- 本机 cargo 的 DNS 受限（libcurl 线程解析器报 `getaddrinfo() thread failed to start`，curl/python 正常）。**已把 Rust 依赖全量灌进 `~/.cargo/registry` 的 USTC 源缓存**，因此 `cargo check` / `cargo build` / `pnpm tauri build` 可在无网络下完成；**新增或升级依赖时**才会重新需要网络，此时先用本地 Python 稀疏索引代理临时指向 localhost（用完务必改回 USTC 镜像），不要删掉 USTC 配置
 
 ## 高频文件地图
 
