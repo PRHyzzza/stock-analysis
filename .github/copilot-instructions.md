@@ -2,7 +2,7 @@
 
 ## 首要规则：先读 PROJECT.md
 
-**每次对话开始或收到新问题时，必须首先阅读 `e:\stock-analysis\PROJECT.md`**，其中包含项目全貌：技术栈、文件结构、数据流、21 个 Tauri 命令、Skills 系统、设计约束等。以下为高频编码约定的补充速查。
+**每次对话开始或收到新问题时，必须首先阅读 `e:\stock-analysis\PROJECT.md`**，其中包含项目全貌：技术栈、文件结构、数据流、26 个 Tauri 命令、本地历史库（SQLite）、回测口径、Skills 系统、设计约束等。以下为高频编码约定的补充速查。
 
 ## 代码约定
 
@@ -26,3 +26,5 @@
 11. **市场判定单一入口** → 盘中/交易日判断只用 `src/utils/marketTime.js`（`getMarketStatus` / `isTradingHours`），不要在组件里重写时段常量；港股假期表 `src/utils/hkHolidays.js` 每年随 GovHK 公告追加翌年（未收录年份自动退回工作日判定，不含台风/黑雨停市）
 12. **刷新失败保留旧数据** → 行情/K 线/分时请求失败不清空已有数据（仅换标的/换周期时清空），置 `stale=true` 并用 `src/components/DataFreshness.vue` 角标标注「更新失败 + 重试」
 13. **窗口不可见必降频** → 隐藏信号是双来源：`document.visibilitychange` + Rust 事件 `main-window-hidden`/`main-window-shown`（`lib.rs`）；新增轮询必须经由 `App.vue` 的 `effectiveInterval()` 得到间隔
+14. **本地历史库是旁路** → `src-tauri/src/db.rs` 的 `record_*` 只 eprintln，绝不把错误返回给命令层（落库失败不能影响行情/K线返回）；新埋点写 `db.rs` + 命令转发，前端埋点走 `src/utils/history.js`（fire-and-forget）
+15. **回测口径** → `useSignalBacktest` 只回测**日线级**规则：T+0/量价陷阱/量价信号依赖分时数据，无法用日 K 回测；UI 与文档必须标注「非重叠交易 + 固定持有期 + 样本 <10 笔仅供参考」，禁止无标注展示胜率

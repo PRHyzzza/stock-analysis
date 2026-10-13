@@ -14,6 +14,7 @@ import TechAnalysisModal from "./components/TechAnalysisModal.vue";
 import AiAnalysisModal from "./components/AiAnalysisModal.vue";
 import GlobalAiModal from "./components/GlobalAiModal.vue";
 import ChipDistribution from "./components/ChipDistribution.vue";
+import BacktestModal from "./components/BacktestModal.vue";
 import PositionModal from "./components/PositionModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
@@ -140,6 +141,11 @@ function selectIwencaiStock(stock) {
 const showChipModal = ref(false);
 function openChipModal() { showChipModal.value = true; }
 function closeChipModal() { showChipModal.value = false; }
+
+// ---- 信号回测弹窗 ----
+const showBacktestModal = ref(false);
+function openBacktestModal() { showBacktestModal.value = true; }
+function closeBacktestModal() { showBacktestModal.value = false; }
 
 // ---- 持仓弹窗 ----
 const showPositionsModal = ref(false);
@@ -649,6 +655,7 @@ onUnmounted(() => {
         @open-tech-modal="openTechModal"
         @open-ai-modal="openAiModal"
         @open-chip-modal="openChipModal"
+        @open-backtest-modal="openBacktestModal"
         @load-intraday="loadIntradayData(selectedStock)"
         @retry-quote="refreshAllQuotes()"
         @retry-kline="loadKlineData(selectedStock)"
@@ -707,6 +714,13 @@ onUnmounted(() => {
       :kline-data="klineData"
       :loading="klineLoading"
       @close="closeChipModal"
+    />
+
+    <!-- 信号回测弹窗 -->
+    <BacktestModal
+      :show="showBacktestModal"
+      :stock="selectedStock"
+      @close="closeBacktestModal"
     />
 
     <!-- 持仓弹窗 -->

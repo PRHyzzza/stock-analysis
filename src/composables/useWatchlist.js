@@ -1,4 +1,5 @@
 import { ref, computed, watch } from "vue";
+import { recordWatchlistChange } from "../utils/history";
 
 const STORAGE_KEY = "stock-analysis-watchlist";
 
@@ -67,10 +68,13 @@ export function useWatchlist() {
         addedPrice: stock.price > 0 ? stock.price : undefined,
       },
     ];
+    recordWatchlistChange("add", stock.code, stock.name);
   }
 
   function removeFromWatchlist(code) {
+    const removed = watchlist.value.find((s) => s.code === code);
     watchlist.value = watchlist.value.filter((s) => s.code !== code);
+    if (removed) recordWatchlistChange("remove", code, removed.name);
     if (selectedStock.value?.code === code) {
       selectedStock.value = watchlist.value[0] || null;
     }

@@ -189,7 +189,8 @@ export function useMaAlerts() {
       const emoji = t.dir === "up" ? "📈" : "📉";
       const sent = await sendAlertNotification(
         `${emoji} ${dirLabel} MA${t.period}: ${name} (${code})`,
-        `现价 ${price.toFixed(2)} 已${dirLabel} MA${t.period}(${t.ma.toFixed(2)})`
+        `现价 ${price.toFixed(2)} 已${dirLabel} MA${t.period}(${t.ma.toFixed(2)})`,
+        { code, kind: `ma${t.period}_${t.dir}`, price, target: t.ma }
       );
       // 权限被拒时中止后续发送
       if (!sent) return;

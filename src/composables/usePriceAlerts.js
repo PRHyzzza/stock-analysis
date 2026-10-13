@@ -261,7 +261,8 @@ export function usePriceAlerts() {
       }
       const sent = await sendAlertNotification(
         `${emoji} ${dirLabel}提醒: ${alert.name} (${code})`,
-        body
+        body,
+        { code, kind: "price", price, target: alert.price }
       );
       // 权限被拒时中止后续发送
       if (!sent) return;

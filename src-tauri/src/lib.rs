@@ -4,10 +4,12 @@
 //   types     - data structures (StockQuote, KlineItem, IndustryData, etc.)
 //   helpers   - utility functions (code conversion, JSON parsing)
 //   api       - API client functions (Tencent, East Money)
+//   db        - local history store (SQLite via rusqlite)
 //   commands  - Tauri command handlers
 
 mod api;
 pub mod commands;
+pub mod db;
 pub mod helpers;
 pub mod types;
 
@@ -47,6 +49,15 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            // 本地历史库：初始化失败只记录日志，不阻断应用启动（落库为旁路）
+            match app.path().app_data_dir() {
+                Ok(dir) => match db::init(&dir) {
+                    Ok(path) => println!("[db] 本地历史库就绪: {}", path.display()),
+                    Err(e) => eprintln!("[db] 初始化失败，本次运行不落库: {e}"),
+                },
+                Err(e) => eprintln!("[db] 无法定位应用数据目录，本次运行不落库: {e}"),
+            }
+
             // 系统托盘：右键菜单含「显示主窗口 / 退出」，左键单击恢复主窗口
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -109,6 +120,11 @@ pub fn run() {
             commands::get_iwencai_robot,
             commands::get_app_version,
             commands::check_for_update,
+            commands::record_signal_events,
+            commands::record_alert_events,
+            commands::record_watchlist_change,
+            commands::get_kline_history,
+            commands::get_db_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

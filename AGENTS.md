@@ -19,6 +19,8 @@
 - **市场判定单一入口**：盘中/交易日判断只走 `src/utils/marketTime.js`（`getMarketStatus` / `isTradingHours`），不要在组件里重写时段常量；港股假期表 `src/utils/hkHolidays.js` 每年随 GovHK 公告追加翌年（未收录年份自动退回工作日判定）
 - **刷新失败保留旧数据**：行情/K 线/分时请求失败不清空已有数据（仅换标的/换周期时清空），置 `stale=true` 并用 `src/components/DataFreshness.vue` 角标标注「更新失败 + 重试」
 - **窗口不可见必降频**：隐藏信号为双来源——`document.visibilitychange` + Rust 事件 `main-window-hidden`/`main-window-shown`；新增轮询必须用 `App.vue` 的 `effectiveInterval()`
+- **本地历史库是旁路**：`src-tauri/src/db.rs` 的 `record_*` 不得把错误返回给命令层（失败只 eprintln），落库失败绝不能影响行情/K线返回
+- **回测口径**：`useSignalBacktest` 只回测日线级规则（T+0/量价陷阱等日内信号依赖分时数据，无法用日 K 回测）；UI/文档必须标注「非重叠交易 + 固定持有期 + 样本 <10 笔仅供参考」，禁止无标注展示胜率
 
 ## 构建与验证
 
@@ -32,6 +34,8 @@
 |------|------|
 | 前端入口 | `src/App.vue`（窗口/定时器/联动）+ `src/components/` |
 | 数据加载 | `src/composables/useXxx.js` → Rust 命令 |
-| Rust 命令 | `src-tauri/src/commands.rs`（21 个命令）→ `src-tauri/src/api/*.rs` |
+| Rust 命令 | `src-tauri/src/commands.rs`（26 个命令）→ `src-tauri/src/api/*.rs` |
+| 本地历史库 | `src-tauri/src/db.rs`（SQLite/rusqlite，落库全部旁路静默）+ `src/utils/history.js`（前端埋点） |
+| 回测 | `src/composables/useSignalBacktest.js`（纯函数 `analyzeBars`）+ `src/components/BacktestModal.vue` |
 | 窗口权限 | `src-tauri/capabilities/default.json`（main/mini/iwencai 三个窗口） |
 | AI 提示词 | `src/prompts/system-prompt.md` + `src/composables/aiContext.js` + `src/skills/` |

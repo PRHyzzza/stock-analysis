@@ -6,6 +6,7 @@ import AlertsModal from "./AlertsModal.vue";
 import DetailActionBar from "./DetailActionBar.vue";
 import DataFreshness from "./DataFreshness.vue";
 import { signChar } from "../utils/format";
+import { recordSignalEvents } from "../utils/history.js";
 import { useT0Signals } from "../composables/useT0Signals.js";
 import { useMaAlerts } from "../composables/useMaAlerts.js";
 import { usePriceAlerts } from "../composables/usePriceAlerts.js";
@@ -40,6 +41,7 @@ const emit = defineEmits([
   "open-tech-modal",
   "open-ai-modal",
   "open-chip-modal",
+  "open-backtest-modal",
   "load-intraday",
   "retry-quote",
   "retry-kline",
@@ -95,6 +97,12 @@ watch(
       // （历史教训：一次未捕获异常会级联打崩整个渲染周期）
       try {
         computeT0Signals(kline, intraday, stock);
+        // 只落"事件型"信号（日内量价陷阱 / 放量异动）：带时间锚点，后端按
+        // (code, 日期, 类型, 名称, 时间) 去重，重复计算不会产生重复行
+        if (stock?.code) {
+          recordSignalEvents(stock.code, "trap", t0Summary.value?.signals);
+          recordSignalEvents(stock.code, "volume", t0Summary.value?.raw?.volumeSignals);
+        }
       } catch (e) {
         console.error("计算 T+0/量价陷阱信号失败:", e);
       }
@@ -266,6 +274,7 @@ const sinceAddedPct = computed(() => {
         @open-chip-modal="emit('open-chip-modal')"
         @open-money-flow="showMoneyFlowModal = true"
         @open-alerts="showAlertsModal = true"
+        @open-backtest-modal="emit('open-backtest-modal')"
         @open-ai-modal="emit('open-ai-modal')"
         @toggle-watchlist="emit('toggle-watchlist', $event)"
       />
