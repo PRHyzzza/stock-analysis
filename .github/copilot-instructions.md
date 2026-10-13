@@ -8,7 +8,7 @@
 
 ### 修改与验证
 1. **前端** → `src/` → `pnpm build` 验证
-2. **Rust 后端** → `src-tauri/` → `cargo check` 验证（本机 cargo DNS 受限，依赖已全量缓存，见 `PROJECT.md` §6；勿为联网删掉 USTC 镜像）
+2. **Rust 后端** → `src-tauri/` → `cargo check` 验证（本机 cargo 联网需经用户级 `~/.cargo/config.toml` 的 `[http] proxy = "http://127.0.0.1:6789"` 走 Clash，依赖已全量缓存，见 `PROJECT.md` §6；勿为联网删掉 USTC 镜像）
 3. **Bug 与死代码检查** → 每次新增或修改文件后，必须逐文件检查：① 逻辑 bug（边界条件、空值处理、类型错误、竞态条件）；② 无用代码（未使用的变量/导入/函数、注释掉的旧代码、调试用 console.log）；③ 确认代码风格与项目现有模式一致
 4. **文件变动后** → 同步更新 `PROJECT.md` 对应章节
 
