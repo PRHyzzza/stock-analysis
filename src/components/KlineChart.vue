@@ -4,6 +4,7 @@ import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries,
 import { calcSupportResistance } from "../composables/useSupportResistance.js";
 import { useSettings } from "../composables/useSettings.js";
 import { usePositions } from "../composables/usePositions.js";
+import DataFreshness from "./DataFreshness.vue";
 
 const { positions } = usePositions();
 
@@ -17,9 +18,13 @@ const props = defineProps({
   showSR: { type: Boolean, default: false },
   signalMarkers: { type: Array, default: () => [] },
   code: { type: String, default: "" },
+  /** 最近一次成功获取 K 线的时间戳（ms）；0 = 未获取过 */
+  fetchedAt: { type: Number, default: 0 },
+  /** 最近一次刷新失败：当前展示的是旧数据 */
+  stale: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["change-period"]);
+const emit = defineEmits(["change-period", "retry"]);
 
 const periodNames = { day: "日 K", week: "周 K", month: "月 K" };
 const periodLabel = computed(() => `${periodNames[props.period] || "日 K"} 线`);
@@ -590,7 +595,10 @@ onUnmounted(() => {
 <template>
   <div class="kline-wrapper">
     <div class="kline-header">
-      <span class="kline-title">{{ periodLabel }}</span>
+      <div class="kline-header-left">
+        <span class="kline-title">{{ periodLabel }}</span>
+        <DataFreshness :at="fetchedAt" :stale="stale" label="K 线" @retry="emit('retry')" />
+      </div>
       <div class="kline-header-right">
         <div class="kline-periods">
           <button
@@ -638,7 +646,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <div class="kline-chart-wrap">
+    <div class="kline-chart-wrap" :class="{ 'is-stale': stale }">
       <div ref="chartContainer" class="kline-chart"></div>
       <div v-if="loading" class="kline-loading">
         <span class="kline-loading-icon">⟳</span>
@@ -669,6 +677,13 @@ onUnmounted(() => {
   flex-shrink: 0;
   flex-wrap: wrap;
   gap: 8px 12px;
+}
+
+.kline-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .kline-title {
@@ -767,6 +782,12 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-light);
   overflow: hidden;
+}
+
+/* 刷新失败：当前画的是旧数据，整块图表转灰提示 */
+.kline-chart-wrap.is-stale {
+  filter: grayscale(0.85);
+  opacity: 0.7;
 }
 
 .kline-chart {

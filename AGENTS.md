@@ -16,6 +16,9 @@
 - **股票代码**：A 股 6 位 / 港股 5 位 / 北交所 43|82|83|87|88|92 开头；外部来源（问财）代码必须剥离 `.SH/.SZ/.BJ` 后缀
 - **AI 数据真实性**：提示词禁止模型编造数值——所有行情/资金/财务数字必须来自工具返回
 - **TLS 不降级**：reqwest 禁止 `danger_accept_invalid_certs`
+- **市场判定单一入口**：盘中/交易日判断只走 `src/utils/marketTime.js`（`getMarketStatus` / `isTradingHours`），不要在组件里重写时段常量；港股假期表 `src/utils/hkHolidays.js` 每年随 GovHK 公告追加翌年（未收录年份自动退回工作日判定）
+- **刷新失败保留旧数据**：行情/K 线/分时请求失败不清空已有数据（仅换标的/换周期时清空），置 `stale=true` 并用 `src/components/DataFreshness.vue` 角标标注「更新失败 + 重试」
+- **窗口不可见必降频**：隐藏信号为双来源——`document.visibilitychange` + Rust 事件 `main-window-hidden`/`main-window-shown`；新增轮询必须用 `App.vue` 的 `effectiveInterval()`
 
 ## 构建与验证
 

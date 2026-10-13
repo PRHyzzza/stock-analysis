@@ -2,7 +2,7 @@
 
 ## 首要规则：先读 PROJECT.md
 
-**每次对话开始或收到新问题时，必须首先阅读 `e:\stock-analysis\PROJECT.md`**，其中包含项目全貌：技术栈、文件结构、数据流、15 个 Tauri 命令、Skills 系统、设计约束等。以下为高频编码约定的补充速查。
+**每次对话开始或收到新问题时，必须首先阅读 `e:\stock-analysis\PROJECT.md`**，其中包含项目全貌：技术栈、文件结构、数据流、21 个 Tauri 命令、Skills 系统、设计约束等。以下为高频编码约定的补充速查。
 
 ## 代码约定
 
@@ -23,3 +23,6 @@
 8. **DeepSeek V4 工具调用** → assistant 消息须回传 `reasoning_content` 字段，否则 HTTP 400
 9. **竞态保护** → 切换股票时丢弃旧请求结果（`useMoneyFlow` / `useKlineData` 已内置 `requestSeq` 序号守卫，流式请求用 `streamGeneration`；新增 composable 须自行加同类守卫，项目内没有通用 fetcher 封装）
 10. **资金流向双数据源** → 腾讯优先，东方财富 push2 备选（偶发连接重置）
+11. **市场判定单一入口** → 盘中/交易日判断只用 `src/utils/marketTime.js`（`getMarketStatus` / `isTradingHours`），不要在组件里重写时段常量；港股假期表 `src/utils/hkHolidays.js` 每年随 GovHK 公告追加翌年（未收录年份自动退回工作日判定，不含台风/黑雨停市）
+12. **刷新失败保留旧数据** → 行情/K 线/分时请求失败不清空已有数据（仅换标的/换周期时清空），置 `stale=true` 并用 `src/components/DataFreshness.vue` 角标标注「更新失败 + 重试」
+13. **窗口不可见必降频** → 隐藏信号是双来源：`document.visibilitychange` + Rust 事件 `main-window-hidden`/`main-window-shown`（`lib.rs`）；新增轮询必须经由 `App.vue` 的 `effectiveInterval()` 得到间隔

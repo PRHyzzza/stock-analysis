@@ -12,11 +12,11 @@ stock-analysis/
 ├── PROJECT.md                  本文档（架构/约定真源）
 ├── src/                        Vue 前端
 │   ├── App.vue                 入口：窗口/定时器/跨窗口联动
-│   ├── components/             布局/列表/详情/弹窗/迷你窗 + settings/(5) + ai/(4)
+│   ├── components/             布局/列表/详情/弹窗/迷你窗 + 标题栏市场状态胶囊 + 数据新鲜度角标(DataFreshness) + settings/(5) + ai/(4)
 │   ├── composables/            29 个（§3.1）
-│   ├── skills/                 13 skill / 17 工具（§3.2）
+│   ├── skills/                 12 skill / 17 工具（§3.2）
 │   ├── prompts/                system-prompt.md（AI 提示词模板，§3.4）
-│   └── utils/                  format / limit（涨跌停按板块）/ marketTime（交易日历+时段）/ notify / klineCache
+│   └── utils/                  format / limit（涨跌停按板块）/ marketTime（交易日历+时段）/ hkHolidays（港股公众假期表）/ notify / klineCache
 ├── src-tauri/                  Rust 后端
 │   ├── .cargo/config.toml      USTC sparse 镜像（勿删）
 │   ├── capabilities/           default.json 窗口权限：main/mini/iwencai
@@ -43,7 +43,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 |------|------|------|
 | `useQuoteLoader` | 批量行情 | `get_stock_quote(s_batch)` |
 | `useStockSearch` | 搜索（防抖） | `search_stocks` |
-| `useKlineData` / `useIntradayData` | K线周期 / 分时 | `get_stock_kline` / `get_stock_intraday` |
+| `useKlineData` / `useIntradayData` | K线周期 / 分时（另返回 `fetchedAt`/`stale` 供数据新鲜度角标；**刷新失败保留旧数据**，仅换标的时清空） | `get_stock_kline` / `get_stock_intraday` |
 | `useMoneyFlow` | 资金流向 + 近 30 日历史（2min 节流） | `get_stock_money_flow(_history)` |
 | `useIndustryData` / `useMarketIndices` | 行业 / 指数 | `get_stock_industry` / `get_market_indices` |
 | `useAiAnalysis` | AI 对话：Agent 循环 10 轮上限、流式切股代际守卫、@代码/热榜选股、注入预计算指标 | `call_llm(_stream)` |
@@ -56,7 +56,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 **窗口与系统**：`useChildWindows`（子窗口管理）、`useGlobalShortcuts`（Ctrl+K 搜索 / Ctrl+N 全局 AI）
 
-### 3.2 Skills（12 skill / 16 工具）
+### 3.2 Skills（12 skill / 17 工具）
 
 `index.js` 合并 tools/toolImpl/systemPrompt；新增 skill → 创建文件 → 加入 `SKILLS` 数组。
 
@@ -84,7 +84,10 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **AI 双入口**: 个股 AI（注入行情/K线/资金/行业/筹码/持仓 + 预计算指标）；全局 AI（注入指数/持仓，@代码 引用，热榜选股）
 - **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）；短线买入清单带**贴线硬性条件**（现价须在 MA5 之上且偏离 ≤3% 优先、>5% 剔除，用 `get_stock_kline` 的 `ma.MA5`/`vsMA5Pct` 核验）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`
-- **交易日历**: `useTradingCalendar` 拉取 `get_trading_calendar` → 注入 `marketTime.js` 模块级 Set；**仅 A 股**——港股仍按周一~周五，且仅当自选/持仓含 5 位港股代码时才纳入 `isMarketSession`（否则 A 股休市日完全零轮询）；接口窗口固定 `[今日-1年, 今日]`，只对拉取当日及之前有效 → 日缓存 + 跨日自动刷新；无 Key / 请求失败静默降级回周末判断
+- **交易日历 / 市场状态**: A 股由 `useTradingCalendar` 拉取 `get_trading_calendar` → 注入 `marketTime.js` 模块级 Set；港股由静态公众假期表 `utils/hkHolidays.js`（2024–2027，每年随 GovHK 公告追加翌年；未收录年份返回 `null` → 退回周一~周五判定，功能不中断）。两者最终统一由 `marketTime.getMarketStatus(code, at)` 输出状态（`pre/open/break/post/holiday` + `minutesToClose`），`isTradingHours(code, at)` 只是它的一层包装 —— 轮询守卫与 UI 口径同源；**港股仅当自选/持仓含 5 位代码时才纳入 `isMarketSession`**（否则 A 股休市日完全零轮询）；A 股接口窗口固定 `[今日-1年, 今日]`，只对拉取当日及之前有效 → 日缓存 + 跨日自动刷新；无 Key / 请求失败静默降级回周末判断；**不含港股「八号风球/黑色暴雨」临场停市**（临时决定，无法静态维护）
+- **标题栏市场状态胶囊**: `MarketStatusPill.vue`（A 股常显，自选/持仓含港股时追加港股）显示 未开盘 / 开盘中 / 午间休市 / 已收盘 / 休市 + 距收盘倒计时；盘中 1 秒刷新、盘外对齐到下一个整分钟（纯本地计算，不产生请求）；日历未就绪时悬浮提示「暂按工作日判定」；**点击胶囊 = 手动刷新全部行情**（刷新中显示「刷新中…」，键盘 Enter/Space 同效）
+- **数据新鲜度标注**: `DataFreshness.vue` 角标显示行情/K 线/分时的最近成功时间（`HH:mm`）；刷新失败时保留旧数据、标注「更新失败 + 重试」，价格行与图表转灰（`.is-stale`）—— 旧行为是失败即清空导致图表闪空，且用户无法分辨数据新旧
+- **窗口不可见降频**: 最小化（`document.visibilitychange`）或关窗进托盘（Rust emit `main-window-hidden` / 恢复 emit `main-window-shown`）时四个间隔 ×`HIDDEN_REFRESH_FACTOR`(4)，恢复可见立即补刷一次并恢复原间隔（子窗口不参与）
 - **快捷键/单例/托盘/时段感知**: Ctrl+K / Ctrl+N；single-instance；关窗隐藏托盘；四定时器经 `sessionTick` 守卫，盘外零请求
 - **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页；AI 优化查询）
 
@@ -165,3 +168,6 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 12. **提醒类 composable 必须单例**: 轮询方（`App.vue`）与配置方（`*AlertConfig.vue`）必须拿到同一实例——否则弹窗内新增的提醒要到重启后才生效，`removeConfig` 还会把启动快照回写 localStorage 造成配置丢失
 13. **本地日期一致性**: 所有 `YYYY-MM-DD`（`marketTime.getToday()` / `daysAgoISO`）都按本地时区拼接，禁用 `toISOString()`（UTC 会让东八区凌晨少算/多算一天，历史记录被提前裁剪）
 14. **Tauri 事件监听须登记注销**: `listen()` 是异步的，组件卸载后才兑现的注销函数必须立即调用（`App.vue` `listenTracked`），否则事件通道泄漏
+15. **市场判定唯一入口**: 任何「是否盘中 / 是否交易日」的判断都走 `utils/marketTime.js`（`getMarketStatus` / `isTradingHours`），禁止在组件里重写时段常量；港股假期表 `utils/hkHolidays.js` 每年随 GovHK 公告追加翌年（须整年完整，未收录年份自动退回工作日判定）
+16. **刷新失败保留旧数据**: 行情/K 线/分时请求失败**不清空**已有数据（仅换标的/换周期时清空，`useKlineData`/`useIntradayData` 的 `dataKey` 决定），并置 `stale=true` 由 `DataFreshness` 角标标注——避免图表闪空、避免把上一只股票的数据画到新股票上
+17. **窗口不可见必降频**: 隐藏信号取双来源——`document.visibilitychange`（最小化）+ Rust `main-window-hidden`/`main-window-shown` 事件（`lib.rs` 的 `window.hide()`/`show_main_window`，WebView2 的 `visibilityState` 不保证随窗口隐藏同步）；新增轮询定时器一律走 `effectiveInterval()`

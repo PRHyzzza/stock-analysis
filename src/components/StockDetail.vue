@@ -4,6 +4,7 @@ import IntradayChart from "./IntradayChart.vue";
 import MoneyFlowModal from "./MoneyFlowModal.vue";
 import AlertsModal from "./AlertsModal.vue";
 import DetailActionBar from "./DetailActionBar.vue";
+import DataFreshness from "./DataFreshness.vue";
 import { signChar } from "../utils/format";
 import { useT0Signals } from "../composables/useT0Signals.js";
 import { useMaAlerts } from "../composables/useMaAlerts.js";
@@ -23,6 +24,13 @@ const props = defineProps({
   moneyFlowHistory: { type: Array, default: null },
   moneyFlowHistoryLoading: { type: Boolean, default: false },
   watchlistMarkers: { type: Array, default: () => [] },
+  // 数据新鲜度：最近一次成功时间（ms，0=未获取）与最近一次刷新是否失败（展示旧数据）
+  quoteFetchedAt: { type: Number, default: 0 },
+  quoteStale: { type: Boolean, default: false },
+  klineFetchedAt: { type: Number, default: 0 },
+  klineStale: { type: Boolean, default: false },
+  intradayFetchedAt: { type: Number, default: 0 },
+  intradayStale: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -33,6 +41,9 @@ const emit = defineEmits([
   "open-ai-modal",
   "open-chip-modal",
   "load-intraday",
+  "retry-quote",
+  "retry-kline",
+  "retry-intraday",
 ]);
 
 const chartMode = ref("intraday"); // "kline" | "intraday"
@@ -156,7 +167,7 @@ const sinceAddedPct = computed(() => {
       </div>
 
       <div class="price-area">
-        <div class="price-main">
+        <div class="price-main" :class="{ 'is-stale': quoteStale }">
           <span class="price" :class="selectedStock.change >= 0 ? 'up' : 'down'">
             {{ currencySymbol }}{{ selectedStock.price.toFixed(2) }}
           </span>
@@ -166,6 +177,13 @@ const sinceAddedPct = computed(() => {
           <span class="price-pct" :class="selectedStock.change >= 0 ? 'up' : 'down'">
             {{ signChar(selectedStock.changePct) }}{{ selectedStock.changePct.toFixed(2) }}%
           </span>
+          <DataFreshness
+            class="price-fresh"
+            :at="quoteFetchedAt"
+            :stale="quoteStale"
+            label="行情"
+            @retry="emit('retry-quote')"
+          />
         </div>
       </div>
 
@@ -193,7 +211,10 @@ const sinceAddedPct = computed(() => {
           :markers="watchlistMarkers"
           :show-sr="showSR"
           :code="selectedStock?.code ?? ''"
+          :fetched-at="klineFetchedAt"
+          :stale="klineStale"
           @change-period="emit('change-kline-period', $event)"
+          @retry="emit('retry-kline')"
         />
       </div>
 
@@ -204,6 +225,9 @@ const sinceAddedPct = computed(() => {
           :loading="intradayLoading"
           :signal-markers="signalMarkers"
           :code="selectedStock?.code ?? ''"
+          :fetched-at="intradayFetchedAt"
+          :stale="intradayStale"
+          @retry="emit('retry-intraday')"
         />
       </div>
 
@@ -416,6 +440,16 @@ const sinceAddedPct = computed(() => {
   align-items: baseline;
   gap: 14px;
   flex-wrap: wrap;
+}
+
+/* 刷新失败：展示的是旧价格，整行转灰（角标处给出「更新失败 + 重试」） */
+.price-main.is-stale {
+  opacity: 0.55;
+}
+
+/* 角标按基线对齐会偏低，改为垂直居中 */
+.price-fresh {
+  align-self: center;
 }
 
 .price {

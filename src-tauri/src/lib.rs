@@ -14,8 +14,12 @@ pub mod types;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
+
+/// 前端 App.vue 约定：主窗口隐藏/恢复时通知前端（隐藏期间降频、恢复可见立即补刷）
+const EVENT_WINDOW_HIDDEN: &str = "main-window-hidden";
+const EVENT_WINDOW_SHOWN: &str = "main-window-shown";
 
 /// 恢复/聚焦主窗口（托盘双击、左键单击、菜单项共用）
 fn show_main_window(app: &tauri::AppHandle) {
@@ -23,6 +27,7 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = app.emit(EVENT_WINDOW_SHOWN, ());
     }
 }
 
@@ -31,10 +36,8 @@ pub fn run() {
     tauri::Builder::default()
         // 单例：重复启动时聚焦已有窗口（主窗口优先，迷你窗口次之），并退出新实例
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
+            if app.get_webview_window("main").is_some() {
+                show_main_window(app);
             } else if let Some(window) = app.get_webview_window("mini") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -78,6 +81,8 @@ pub fn run() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
+                    // 通知前端降频：WebView2 的 document.visibilityState 不保证随窗口隐藏同步
+                    let _ = window.emit(EVENT_WINDOW_HIDDEN, ());
                 }
             }
         })
