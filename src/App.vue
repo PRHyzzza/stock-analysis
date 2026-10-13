@@ -389,10 +389,21 @@ function rescheduleTimers() {
   }
 }
 
-let unlistenMiniSelect = null;
-let unlistenIwencaiSelect = null;
-let unlistenIwencaiAdd = null;
-let unlistenIwencaiAiAnalyze = null;
+let appUnmounted = false;
+/** 已登记的事件注销函数（组件卸载时统一调用） */
+const unlistenFns = [];
+
+/**
+ * 监听 Tauri 事件并登记注销函数。
+ * listen() 是异步的：若在 Promise 兑现前组件已卸载，注销函数会永久丢失并泄漏事件通道，
+ * 因此已卸载时立刻注销。
+ */
+function listenTracked(event, handler) {
+  listen(event, handler).then((fn) => {
+    if (appUnmounted) fn();
+    else unlistenFns.push(fn);
+  });
+}
 
 onMounted(() => {
   if (isMiniMode || isIwencaiMode) return; // 子窗口不执行主窗口逻辑（自带独立刷新）
@@ -401,22 +412,22 @@ onMounted(() => {
   // 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI）
   setupShortcuts();
   // 迷你窗口选中股票 → 主窗口联动
-  listen("mini-select-stock", (e) => {
+  listenTracked("mini-select-stock", (e) => {
     const stock = watchlist.value.find((s) => s.code === e.payload?.code);
     if (stock) {
       selectStock(stock);
       appWindow.setFocus();
     }
-  }).then((fn) => { unlistenMiniSelect = fn; });
+  });
   // 问财选股窗口选中股票 → 主窗口联动
-  listen("iwencai-select-stock", (e) => {
+  listenTracked("iwencai-select-stock", (e) => {
     if (e.payload?.code) {
       selectIwencaiStock(e.payload);
       appWindow.setFocus();
     }
-  }).then((fn) => { unlistenIwencaiSelect = fn; });
+  });
   // 问财窗口「加入自选」→ 主窗口自选列表追加并刷新行情
-  listen("iwencai-add-watchlist", (e) => {
+  listenTracked("iwencai-add-watchlist", (e) => {
     const p = e.payload;
     if (p?.code) {
       addToWatchlist({
@@ -427,14 +438,14 @@ onMounted(() => {
       });
       refreshAllQuotes();
     }
-  }).then((fn) => { unlistenIwencaiAdd = fn; });
+  });
   // 问财窗口「AI 分析这批股票」→ 打开全局 AI 并注入选股结果解读
-  listen("iwencai-ai-analyze", (e) => {
+  listenTracked("iwencai-ai-analyze", (e) => {
     if (e.payload?.question && e.payload?.rows?.length) {
       screeningRequest.value = e.payload;
       openGlobalAiModal();
     }
-  }).then((fn) => { unlistenIwencaiAiAnalyze = fn; });
+  });
   // 拉取港元兑人民币汇率
   invoke("get_fx_rate").then((rate) => setFxRate(rate)).catch(() => {});
   // 加载用户画像
@@ -509,12 +520,11 @@ async function refreshAllQuotes() {
 
 onUnmounted(() => {
   if (isMiniMode || isIwencaiMode) return;
+  appUnmounted = true;
   document.removeEventListener("keydown", onKeydown);
   teardownShortcuts();
-  if (unlistenMiniSelect) unlistenMiniSelect();
-  if (unlistenIwencaiSelect) unlistenIwencaiSelect();
-  if (unlistenIwencaiAdd) unlistenIwencaiAdd();
-  if (unlistenIwencaiAiAnalyze) unlistenIwencaiAiAnalyze();
+  unlistenFns.forEach((fn) => fn());
+  unlistenFns.length = 0;
   clearInterval(indicesTimer);
   clearInterval(quotesTimer);
   clearInterval(klineTimer);

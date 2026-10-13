@@ -2,7 +2,7 @@ import { ref, computed, watch } from "vue";
 
 const STORAGE_KEY = "stock-analysis-watchlist";
 
-/** 默认股票池 */
+/** 默认股票池（仅作首次启动的种子数据，绝不可被运行时改动污染） */
 const DEFAULT_STOCKS = [
   { code: "300750", name: "宁德时代", market: "SZ", price: 256.80, change: -3.12, changePct: -1.20 },
 ];
@@ -12,10 +12,12 @@ function loadWatchlist() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      // 注意：空数组是用户的真实意图（已清空自选），不能当作"无数据"重新塞回默认股票
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch { /* ignore */ }
-  return DEFAULT_STOCKS;
+  // 返回默认股票池的深拷贝：避免行情刷新写回时污染模块级常量
+  return DEFAULT_STOCKS.map((s) => ({ ...s }));
 }
 
 /**

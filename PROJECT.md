@@ -48,11 +48,11 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useIndustryData` / `useMarketIndices` | 行业 / 指数 | `get_stock_industry` / `get_market_indices` |
 | `useAiAnalysis` | AI 对话：Agent 循环 10 轮上限、流式切股代际守卫、@代码/热榜选股、注入预计算指标 | `call_llm(_stream)` |
 | `usePositions` / `useUserProfile` | 持仓+盈亏（港股汇率换算）/ 画像读写 | `get_fx_rate` / `read_save_user_profile` |
-| `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
+| `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存，**缓存 key = 归一化问题 + perpage**——服务端忽略 page、perpage 决定行数，故不能只按问题缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
 
 **纯计算**：`useTechIndicators`（MACD/KDJ/RSI/WR，AI 预计算注入复用）、`useChipDistribution`（筹码）、`useSupportResistance`（支撑/阻力）、`useT0Signals` + `useTrapSignals` + `useVolumeSignals`（T+0 信号/量价陷阱/量价信号，细节见文件注释）、`aiContext`（提示词构建，§3.4）
 
-**状态与持久化**：`useWatchlist`（自选 CRUD）、`useSettings`（全局设置单例）、`useTradingCalendar`（A 股交易日历，lazy 注入 `marketTime.js`）、`useWatchlistNotifications` / `useMaAlerts` / `usePriceAlerts`（三套通知，跨日重置快照防隔夜跳空）、`aiMessageStore`（AI 消息隔离持久化）、`llmClient`（SSE 流式，streamId 过滤 + 120s 超时）
+**状态与持久化**：`useWatchlist`（自选 CRUD，默认股票池只作首次种子且返回深拷贝、持久化的空数组视为用户已清空不再回填默认股）、`useSettings`（全局设置单例）、`useTradingCalendar`（A 股交易日历单例，lazy 注入 `marketTime.js`）、`useWatchlistNotifications` / `useMaAlerts` / `usePriceAlerts`（三套通知，跨日重置快照防隔夜跳空；**后两者为单例**——`App.vue` 与配置弹窗共用同一实例）、`aiMessageStore`（AI 消息隔离持久化）、`llmClient`（SSE 流式，streamId 过滤 + 120s 超时）
 
 **窗口与系统**：`useChildWindows`（子窗口管理）、`useGlobalShortcuts`（Ctrl+K 搜索 / Ctrl+N 全局 AI）
 
@@ -77,7 +77,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 - **持仓**: 30s 刷新盈亏，AI 对话注入；港股（5 位代码）按汇率换算
 - **画像**: md 存 `app_data_dir`；AI 后台增量更新（10min 节流 + 短消息跳过，写串行化）
-- **三套通知**（自选/均线/价格，共用 `utils/marketTime.js` + `notify.js` + `klineCache.js`）: 每股票每日每类型一次、仅交易时段、**跨日重置快照防隔夜跳空误报**；价格提醒支持突破/跌破目标价 + 放量条件，一次性/每日模式
+- **三套通知**（自选/均线/价格，共用 `utils/marketTime.js` + `notify.js` + `klineCache.js`）: 每股票每日每类型一次、仅交易时段、**跨日重置快照防隔夜跳空误报**；价格提醒支持突破/跌破目标价 + 放量条件，一次性/每日模式；**均线/价格提醒为单例**（`App.vue` 与 `PriceAlertConfig.vue`/`MaAlertConfig.vue` 共用同一实例，弹窗内新增/删除的配置立即可被轮询使用，且删除时不会用启动快照覆盖 localStorage）
 - **资金流向可视化**: `MoneyFlowModal` — 当日 5 档快照 + 近 30 日主力净流入柱状图（东财 push2his，万元）
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **全局设置**: 5 标签页实时生效
@@ -104,7 +104,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 |------|--------|------|
 | `get_stock_quote(s_batch)` / `get_stock_kline` / `get_stock_intraday` | Tencent | 行情 / 批量（A 股 50 只/批，港股逐只）/ K线（日周月+分钟，§4.2）/ 分时 |
 | `get_stock_money_flow(_history)` | Tencent → 东财备选 | 资金 5 档 / 近 N 日历史（默认 30，万元，升序勿反转；双数据源 §7.4） |
-| `get_stock_industry` / `get_market_indices` | 东财 / Tencent | 行业（港股空）/ 七大指数（失败兜底真实名称） |
+| `get_stock_industry` / `get_market_indices` | 东财 / Tencent | 行业（港股空）/ 六大指数（上证/深证/创业板/沪深300/科创50/中证500，失败兜底真实名称） |
 | `search_stocks` / `get_hot_list` | Tencent / 同花顺 | 搜索 / 热榜 |
 | `get_trading_calendar` | 同花顺 Fuyao | A 股交易日历（近一年，`yyyy-MM-dd` 升序；需 `X-api-key`，无 Key 报 `[NO_API_KEY]`） |
 | `call_llm` / `call_llm_stream` | DeepSeek | 非流式 / SSE 流式（§4.2） |
@@ -116,10 +116,10 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 | 文件 | 编码 | 注意 |
 |------|------|------|
-| `tencent.rs` | **GBK** → `encoding_rs` | `~` 分隔无反爬；分钟 K（m5/m15/m30/m60）走 mkline（320 根、无复权、**港股不支持**），日周月走 fqkline（前复权 120 根）；分时按市场交易时段过滤（剔盘后零星成交） |
+| `tencent.rs` | **GBK** → `encoding_rs` | `~` 分隔无反爬；分钟 K（m5/m15/m30/m60）走 mkline（320 根、无复权、**港股不支持**），日周月走 fqkline（前复权 120 根）；分时按市场交易时段过滤（剔盘后零星成交）；**累计成交量单位按市场归一**——A 股/北交所为「手」（均价分母 ×100 换算成股），港股原值是「股」（×1，且分钟量 ÷100 归一到「手」）；分时时间戳 `HHmm` 需 `len==4 && is_ascii` 才切片；资金流字段需 `≥41` 段否则报 `NO_DATA` 交东财兜底 |
 | `eastmoney.rs` | UTF-8 | push2 主域被 WAF 拦，用 push2delay → push2his 兜底 |
 | `llm.rs` | UTF-8 | V4 回传 `reasoning_content`；SSE 兼容 `\n\n`/`\r\n\r\n` + 流末 flush 尾块；`data:` 有/无空格；LLM client 240s 读超时 |
-| `web.rs` | UTF-8（无 charset 头探测 GBK） | sort=default 相关性排序；中文无空格按子串剥泛词；四级正文提取；反爬站过滤；**SSRF 防护**（私网拒绝、禁跨主机重定向、≤50MB） |
+| `web.rs` | UTF-8（无 charset 头探测 GBK） | sort=default 相关性排序；中文无空格按子串剥泛词；四级正文提取；反爬站过滤；**SSRF 防护**（私网拒绝、禁跨主机重定向、≤50MB）；JSON 反转义按 UTF-16 处理 `\uXXXX`（**支持代理对**，孤立代理项转 `U+FFFD` 而非 panic/丢字） |
 | `iwencai.rs` | UTF-8 | 路径 `data.answer[0].txt[0].content.components[0].data`；**同 v 4-6 次 → 403（换 v 恢复）；带 condition 必 403**；风控带 `[RATE_LIMITED]` 标记 |
 | `hotlist.rs` | UTF-8 | JSON API |
 | `calendar.rs` | UTF-8 | 同花顺 Fuyao：需 `X-api-key`；**无参数**，固定返回 `[今日-1年, 今日]` 交易日（`yyyyMMdd` → 转 `yyyy-MM-dd` 升序去重）；**仅 A 股，无港股**；业务错误走 HTTP 200 + `code≠0`（2001 无 Key / 2003 无权限 / 4001 限流） |
@@ -162,3 +162,6 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 9. **文件变动 → 同步本文档**（新增/删除文件、命令、composable/skill 等）
 10. **AI 提示词维护**: 三处位置——`system-prompt.md`（模板）/ `aiContext.js`（填充+公共常量）/ `skills/*.js`（各段），改后同步 §3.4；保留「数据必须真实」约束
 11. **AI 必读文档**: `AGENTS.md`（自动注入短指令，保持精简 ≤64KB）+ 本文档（完整真源），细节一律下沉到本文档
+12. **提醒类 composable 必须单例**: 轮询方（`App.vue`）与配置方（`*AlertConfig.vue`）必须拿到同一实例——否则弹窗内新增的提醒要到重启后才生效，`removeConfig` 还会把启动快照回写 localStorage 造成配置丢失
+13. **本地日期一致性**: 所有 `YYYY-MM-DD`（`marketTime.getToday()` / `daysAgoISO`）都按本地时区拼接，禁用 `toISOString()`（UTC 会让东八区凌晨少算/多算一天，历史记录被提前裁剪）
+14. **Tauri 事件监听须登记注销**: `listen()` 是异步的，组件卸载后才兑现的注销函数必须立即调用（`App.vue` `listenTracked`），否则事件通道泄漏

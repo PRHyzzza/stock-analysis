@@ -21,5 +21,5 @@
 
 7. **腾讯 API 返回 GBK** → Rust 端必须 `encoding_rs::GBK.decode()` 解码，不可直接用 UTF-8
 8. **DeepSeek V4 工具调用** → assistant 消息须回传 `reasoning_content` 字段，否则 HTTP 400
-9. **竞态保护** → 切换股票时丢弃旧请求结果（`useMoneyFlow` / `useKlineData` 已内置，新增 data fetcher 须复用 `fetcher.js` 的 `createDataFetcher()`）
+9. **竞态保护** → 切换股票时丢弃旧请求结果（`useMoneyFlow` / `useKlineData` 已内置 `requestSeq` 序号守卫，流式请求用 `streamGeneration`；新增 composable 须自行加同类守卫，项目内没有通用 fetcher 封装）
 10. **资金流向双数据源** → 腾讯优先，东方财富 push2 备选（偶发连接重置）

@@ -60,9 +60,14 @@ export function isTradingHours(code) {
   return (t >= 570 && t <= 690) || (t >= 780 && t <= 900);
 }
 
-/** 距今 N 天前的日期字符串 YYYY-MM-DD（用于裁剪历史记录） */
+/**
+ * 距今 N 天前的日期字符串 YYYY-MM-DD（用于裁剪历史记录）
+ * 必须与 getToday() 一致使用本地时区：toISOString() 走 UTC，
+ * 在东八区会导致 08:00 之前算出的日期比 getToday() 早一天，历史记录被提前裁掉。
+ */
 function daysAgoISO(days) {
-  return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const d = new Date(Date.now() - days * 86400000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /**

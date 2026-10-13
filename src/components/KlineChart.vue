@@ -23,6 +23,8 @@ const emit = defineEmits(["change-period"]);
 
 const periodNames = { day: "日 K", week: "周 K", month: "月 K" };
 const periodLabel = computed(() => `${periodNames[props.period] || "日 K"} 线`);
+/** 30 根 K 线高低线的单位：周 K / 月 K 时不能再叫「30日」 */
+const hlUnitLabel = computed(() => ({ day: "日", week: "周", month: "月" }[props.period] || "日"));
 
 const chartContainer = ref(null);
 let chart = null;
@@ -336,15 +338,17 @@ function updateChartData(newData) {
   candleSeries.setData(candleData);
   volumeSeries.setData(volumeData);
 
-  // 计算近 30 日高低并更新/创建价格线
+  // 计算近 30 根 K 线高低并更新/创建价格线
   if (show30DayHL.value) {
     const lookback = Math.min(30, candleData.length);
     const recentCandles = candleData.slice(-lookback);
     const high30 = Math.max(...recentCandles.map((c) => c.high));
     const low30 = Math.min(...recentCandles.map((c) => c.low));
+    const highTitle = `30${hlUnitLabel.value}高`;
+    const lowTitle = `30${hlUnitLabel.value}低`;
 
     if (highPriceLine) {
-      highPriceLine.applyOptions({ price: high30 });
+      highPriceLine.applyOptions({ price: high30, title: highTitle });
     } else {
       highPriceLine = candleSeries.createPriceLine({
         price: high30,
@@ -352,11 +356,11 @@ function updateChartData(newData) {
         lineWidth: 1,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: "30日高",
+        title: highTitle,
       });
     }
     if (lowPriceLine) {
-      lowPriceLine.applyOptions({ price: low30 });
+      lowPriceLine.applyOptions({ price: low30, title: lowTitle });
     } else {
       lowPriceLine = candleSeries.createPriceLine({
         price: low30,
@@ -364,7 +368,7 @@ function updateChartData(newData) {
         lineWidth: 1,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: "30日低",
+        title: lowTitle,
       });
     }
   } else {
