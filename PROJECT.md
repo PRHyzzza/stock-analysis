@@ -182,6 +182,8 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 > 前端 vendor 分包（charts / markdown / vue 三 chunk）。PowerShell `2>&1` 下构建会误报 exit 1，以 `✓ built` / `Finished` 为准。
 >
 > **`vite.config.js` 已实测调优，勿随意改动**：`target: esnext`、`cssMinify` / `css.transformer: lightningcss`、`reportCompressedSize: false`、`checks.pluginTimings: false`（rolldown 的 `[PLUGIN_TIMINGS]` 按 hook 跨度统计，异步 hook 跨度重叠会虚报，实测为噪声）。真实热点是 Vue SFC 编译，属框架固有、无配置可调。排查构建耗时：`node --cpu-prof node_modules/vite/bin/vite.js build`。
+>
+> **本机本地脚本**（`scripts/` 已被 `.gitignore` 忽略，其他机器 clone 后不存在）：推送代码用 `.\scripts\git-push-proxy.ps1`——自动探测本机代理端口 → `git push` → 清理全局 `http(s).proxy`（清理走 `finally`，推送失败也不残留代理）；可 `-Proxy http://127.0.0.1:7897` 显式指定，`-Remote` / `-Branch` 同 `git push`。代理客户端未运行时明确报 FAILED 并以非 0 `$LASTEXITCODE` 回报，不静默失败。
 
 ## 7. 关键约定
 
