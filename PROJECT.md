@@ -2,17 +2,17 @@
 
 > **Tauri 2 + Vue 3 + Rust** · 数据源: 腾讯财经 / 东方财富 / 同花顺 · AI: DeepSeek API · 图表: Lightweight Charts™ · 构建: Vite + pnpm
 >
-> 🤖 AI 代理：开工前先读本文件；配合根目录 `AGENTS.md`（会话自动注入的短指令）。文件变动须同步本文档（§7.9）。
+> 🤖 AI 代理：开工前先读本文件（唯一真源）；根目录 `AGENTS.md` 是会话自动注入的短索引。文件变动须同步本文档（§7.9）。
 
 ## 1. 项目骨架
 
 ```
 stock-analysis/
-├── AGENTS.md                   AI 代理必读指令（DSH 会话自动注入）
+├── AGENTS.md                   AI 代理短索引（会话自动注入：铁律 + 导航）
 ├── PROJECT.md                  本文档（架构/约定真源）
 ├── src/                        Vue 前端
 │   ├── App.vue                 入口：窗口/定时器/跨窗口联动
-│   ├── components/             布局/列表/详情/弹窗/迷你窗 + 标题栏市场状态胶囊 + 数据新鲜度角标(DataFreshness) + 信号回测弹窗(BacktestModal) + settings/(5) + ai/(4)
+│   ├── components/             布局/列表/详情/弹窗/迷你窗/标题栏 + settings/(5) + ai/(4)（子系统见 §3.3）
 │   ├── composables/            30 个（§3.1）
 │   ├── skills/                 12 skill / 17 工具（§3.2）
 │   ├── prompts/                system-prompt.md（AI 提示词模板，§3.4）
@@ -34,7 +34,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 模式：每个 composable 返回 `{ data, loading, load(), ... }`，App.vue 统一调用、props 下发。
 
-**旁路落库**：`commands.rs` 在行情/K线/资金成功返回时顺手写入本地历史库（`db.rs`），失败静默不阻断；前端另经 `utils/history.js` 写入信号/提醒/自选变更事件。
+**旁路落库**：`commands.rs` 在行情/K线/资金成功返回时顺手写库（失败静默不阻断，细则 §4.4 / 约定 §7.18）；前端另经 `utils/history.js` 写信号/提醒/自选变更事件。
 
 ## 3. 前端模块
 
@@ -46,13 +46,13 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 |------|------|------|
 | `useQuoteLoader` | 批量行情 | `get_stock_quote(s_batch)` |
 | `useStockSearch` | 搜索（防抖） | `search_stocks` |
-| `useKlineData` / `useIntradayData` | K线周期 / 分时（另返回 `fetchedAt`/`stale` 供数据新鲜度角标；**刷新失败保留旧数据**，仅换标的时清空） | `get_stock_kline` / `get_stock_intraday` |
+| `useKlineData` / `useIntradayData` | K线周期 / 分时（另返回 `fetchedAt`/`stale` 供新鲜度角标；换标的清空、刷新失败保留旧数据见 §7.16） | `get_stock_kline` / `get_stock_intraday` |
 | `useMoneyFlow` | 资金流向 + 近 30 日历史（2min 节流） | `get_stock_money_flow(_history)` |
 | `useIndustryData` / `useMarketIndices` | 行业 / 指数 | `get_stock_industry` / `get_market_indices` |
 | `useAiAnalysis` | AI 对话：Agent 循环 10 轮上限、流式切股代际守卫、@代码/热榜选股、注入预计算指标 | `call_llm(_stream)` |
 | `usePositions` / `useUserProfile` | 持仓+盈亏（港股汇率换算）/ 画像读写 | `get_fx_rate` / `read_save_user_profile` |
 | `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存，**缓存 key = 归一化问题 + perpage**——服务端忽略 page、perpage 决定行数，故不能只按问题缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
-| `useSignalBacktest` | 信号回测与胜率统计：读本地日 K 跑 8 条日线规则 × 4 持有期（非重叠交易），本地不足 60 根或手动同步时补拉远端一次并落库；纯函数 `analyzeBars(bars, code)` 可单测 | `get_kline_history` / `get_db_stats`（+ `get_stock_kline`） |
+| `useSignalBacktest` | 信号回测：读本地日 K 跑 8 条日线规则 × 4 持有期（非重叠交易，口径见 §7.19），本地不足 60 根或手动同步时补拉远端一次并落库；纯函数 `analyzeBars(bars, code)` 可单测 | `get_kline_history` / `get_db_stats`（+ `get_stock_kline`） |
 
 **纯计算**：`useTechIndicators`（MACD/KDJ/RSI/WR，AI 预计算注入复用）、`useChipDistribution`（筹码）、`useSupportResistance`（支撑/阻力）、`useT0Signals` + `useTrapSignals` + `useVolumeSignals`（T+0 信号/量价陷阱/量价信号，细节见文件注释）、`aiContext`（提示词构建，§3.4）
 
@@ -81,19 +81,19 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 - **持仓**: 30s 刷新盈亏，AI 对话注入；港股（5 位代码）按汇率换算
 - **画像**: md 存 `app_data_dir`；AI 后台增量更新（10min 节流 + 短消息跳过，写串行化）
-- **三套通知**（自选/均线/价格，共用 `utils/marketTime.js` + `notify.js` + `klineCache.js`）: 每股票每日每类型一次、仅交易时段、**跨日重置快照防隔夜跳空误报**；价格提醒支持突破/跌破目标价 + 放量条件，一次性/每日模式；**均线/价格提醒为单例**（`App.vue` 与 `PriceAlertConfig.vue`/`MaAlertConfig.vue` 共用同一实例，弹窗内新增/删除的配置立即可被轮询使用，且删除时不会用启动快照覆盖 localStorage）
+- **三套通知**（自选/均线/价格，共用 `utils/marketTime.js` + `notify.js` + `klineCache.js`）: 每股票每日每类型一次、仅交易时段、跨日重置快照防隔夜跳空误报；价格提醒支持突破/跌破目标价 + 放量条件，一次性/每日模式；均线/价格提醒为单例（§7.12）
 - **资金流向可视化**: `MoneyFlowModal` — 当日 5 档快照 + 近 30 日主力净流入柱状图（东财 push2his，万元）
-- **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——6 表（`quote_snapshot` / `kline` / `money_flow`（当日快照与近 N 日历史同表，主键 `code+date`）/ `signal_event` / `alert_event` / `watchlist_change`）+ 3 索引，`PRAGMA user_version` 迁移；行情快照 60s/code 节流、保留 30 天，事件表保留 180 天，启动时 `prune()`；**落库全部走旁路**（失败仅 eprintln，绝不影响行情返回）；日期由 SQL `date('now','+8 hours')` 生成（与 §7.13 本地时区一致）
-- **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 对本地历史日 K 跑 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），**非重叠交易**统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；**T+0/量价陷阱等日内信号依赖分时数据，不在回测范围**（面板内已明示，避免误读口径）
+- **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——落库全部走旁路（§7.18）；表结构 / 保留期 / 日期口径见 §4.4
+- **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），非重叠交易统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；口径与标注要求见 §7.19
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **全局设置**: 5 标签页实时生效
 - **AI 双入口**: 个股 AI（注入行情/K线/资金/行业/筹码/持仓 + 预计算指标）；全局 AI（注入指数/持仓，@代码 引用，热榜选股）
 - **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）；短线买入清单带**贴线硬性条件**（现价须在 MA5 之上且偏离 ≤3% 优先、>5% 剔除，用 `get_stock_kline` 的 `ma.MA5`/`vsMA5Pct` 核验）
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`
-- **交易日历 / 市场状态**: A 股由 `useTradingCalendar` 拉取 `get_trading_calendar` → 注入 `marketTime.js` 模块级 Set；港股由静态公众假期表 `utils/hkHolidays.js`（2024–2027，每年随 GovHK 公告追加翌年；未收录年份返回 `null` → 退回周一~周五判定，功能不中断）。两者最终统一由 `marketTime.getMarketStatus(code, at)` 输出状态（`pre/open/break/post/holiday` + `minutesToClose`），`isTradingHours(code, at)` 只是它的一层包装 —— 轮询守卫与 UI 口径同源；**港股仅当自选/持仓含 5 位代码时才纳入 `isMarketSession`**（否则 A 股休市日完全零轮询）；A 股接口窗口固定 `[今日-1年, 今日]`，只对拉取当日及之前有效 → 日缓存 + 跨日自动刷新；无 Key / 请求失败静默降级回周末判断；**不含港股「八号风球/黑色暴雨」临场停市**（临时决定，无法静态维护）
+- **交易日历 / 市场状态**: A 股由 `useTradingCalendar` 拉 `get_trading_calendar` 注入 `marketTime.js` 模块级 Set；港股用静态假期表 `utils/hkHolidays.js`（2024–2027，每年随 GovHK 公告追加翌年；未收录年份退回周一~周五判定）。两者统一由 `getMarketStatus(code, at)` 输出 `pre/open/break/post/holiday` + `minutesToClose`（轮询守卫与 UI 口径同源，§7.15）；港股仅当自选/持仓含 5 位代码时才纳入 `isMarketSession`（否则 A 股休市日完全零轮询）；A 股接口窗口固定 `[今日-1年, 今日]` → 日缓存 + 跨日自动刷新；无 Key / 请求失败静默降级；不含港股八号风球/黑雨临场停市
 - **标题栏市场状态胶囊**: `MarketStatusPill.vue`（A 股常显，自选/持仓含港股时追加港股）显示 未开盘 / 开盘中 / 午间休市 / 已收盘 / 休市 + 距收盘倒计时；盘中 1 秒刷新、盘外对齐到下一个整分钟（纯本地计算，不产生请求）；日历未就绪时悬浮提示「暂按工作日判定」；**点击胶囊 = 手动刷新全部行情**（刷新中显示「刷新中…」，键盘 Enter/Space 同效）
-- **数据新鲜度标注**: `DataFreshness.vue` 角标显示行情/K 线/分时的最近成功时间（`HH:mm`）；刷新失败时保留旧数据、标注「更新失败 + 重试」，价格行与图表转灰（`.is-stale`）—— 旧行为是失败即清空导致图表闪空，且用户无法分辨数据新旧
-- **窗口不可见降频**: 最小化（`document.visibilitychange`）或关窗进托盘（Rust emit `main-window-hidden` / 恢复 emit `main-window-shown`）时四个间隔 ×`HIDDEN_REFRESH_FACTOR`(4)，恢复可见立即补刷一次并恢复原间隔（子窗口不参与）
+- **数据新鲜度标注**: `DataFreshness.vue` 角标显示行情/K 线/分时的最近成功时间（`HH:mm`）；刷新失败时保留旧数据并标「更新失败 + 重试」，价格行与图表转灰（`.is-stale`）
+- **窗口不可见降频**: 最小化或关窗进托盘时四个间隔 ×`HIDDEN_REFRESH_FACTOR`(4)，恢复可见立即补刷一次并还原间隔（子窗口不参与；隐藏信号双来源见 §7.17）
 - **快捷键/单例/托盘/时段感知**: Ctrl+K / Ctrl+N；single-instance；关窗隐藏托盘；四定时器经 `sessionTick` 守卫，盘外零请求
 - **子窗口**: 迷你 `?mini=1`（10s 刷新）、问财 `?iwencai=1`（本地分页；AI 优化查询）
 
@@ -159,7 +159,7 @@ init(app_data_dir)  → create_dir_all → migrate(PRAGMA user_version) → prun
 | `alert_event` / `watchlist_change` | 自增（不去重） | 180 天 |
 
 - 写入 API：`record_quotes` / `record_kline` / `record_money_flow(_history)` / `record_signal_events` / `record_alert_events` / `record_watchlist_change`；查询：`query_kline` / `stats()`。
-- **旁路为准**：行情/K线/资金命令内的落库是 `void`（`silent()` 包一层，失败只 stderr）；`record_*_events` 三个命令会返回 `Result`，但前端 `utils/history.js` 一律 `.catch(() => {})` 忽略——落库失败绝不阻塞主流程。全库不引 chrono，日期由 SQL `date('now','+8 hours')` 生成。
+- **旁路为准**（§7.18）：命令内的自动落库是 `void`（`silent()` 包一层，失败只 stderr）；`record_*_events` 三个命令返回 `Result`，但前端 `utils/history.js` 一律 `.catch(() => {})` 吞掉。全库不引 chrono，日期由 SQL `date('now','+8 hours')` 生成。
 - 事务写法：`conn.unchecked_transaction()` + 语句块 `{}` 包住 `prepare`，必须先于 `tx.commit()` 出作用域（否则借用冲突）。
 - 回测数据来源于 `kline` 表：K 线每次刷新都会整表 upsert，**本地历史随日常使用自然增厚**；`get_stock_kline` 远端只给 120 根（§4.2），故首次回测需点「同步更多历史」补齐。
 
@@ -176,11 +176,11 @@ pnpm install / dev / build / tauri dev / tauri build
 cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 ```
 
-> `src-tauri/.cargo/config.toml` 内置 USTC sparse 镜像（覆盖用户全局失效镜像，勿删）。前端 vendor 分包（charts/markdown/vue 三 chunk）。PowerShell `2>&1` 下构建误报 exit 1 属正常，以 `✓ built`/`Finished` 为准。
+> `src-tauri/.cargo/config.toml` 内置 USTC sparse 镜像——**勿删、勿换源**（换镜像 = 换源身份 = 全量重编 `target/`）；Rust 依赖已全量缓存，`cargo check` / `pnpm tauri build` 可完全离线完成。若 `cargo add` / `fetch` 报 hostname 解析失败，属本地网络/代理环境问题（cargo 不读系统代理，只认 `http.proxy` 与 `HTTP(S)_PROXY`），按需自行配置即可，不要改仓库内的源配置。
 >
-> **本机 cargo 联网受限（根因已定位并已修复）**：cargo 进程内的 libcurl 线程解析器不可用（报 `[6] Could not resolve hostname (getaddrinfo() thread failed to start)`；同期 `curl` / `python` / `nslookup` 解析均正常），而 cargo **不读 Windows 系统代理（WinINET）**，只认 `http.proxy` 配置与 `HTTP(S)_PROXY` 环境变量，于是直连时 `cargo add` / `update` / `fetch` 一律失败（表现为 `failed to query replaced source registry crates-io`）。本机 Clash Verge Ninja 的 `mixed-port = 6789`，**已在用户级 `~/.cargo/config.toml` 写入 `[http] proxy = "http://127.0.0.1:6789"`**：cargo 改为连数字 IP 的本地代理、域名解析交给代理，实测 `cargo add --dry-run serde` EXIT=0（此前 EXIT=101）。Clash 未启动时新增依赖会报 `[7] Could not connect to server (... via 127.0.0.1)`。另：Rust 依赖已全量灌入 `~/.cargo/registry` 里 **USTC 源身份**的索引与 `cache/*.crate`（约 543 个包），故 `cargo check` / `cargo build` / `pnpm tauri build` 无网络也能跑完。**勿为联网改掉 `src-tauri/.cargo/config.toml` 的 USTC 源**——换镜像=换源身份，会再触发一轮全量重编 `target/`。本机**直连 GitHub 被阻断**（`github.com:443` TCP 超时，`curl` 直连同样失败；hosts 里钉的 `20.205.243.166` 就是真实解析 IP），故 `.git/config` 未设代理时 `git fetch/push` 需依赖 Clash 的 TUN 模式，或临时 `git config --local http.proxy http://127.0.0.1:6789`（并设 `https.proxy`）后重试。
+> 前端 vendor 分包（charts / markdown / vue 三 chunk）。PowerShell `2>&1` 下构建会误报 exit 1，以 `✓ built` / `Finished` 为准。
 >
-> **构建配置现状**（`vite.config.js`，已实测调优，勿随意改动）：`target: esnext` + `cssMinify/transformer: lightningcss` + `reportCompressedSize: false` + `checks.pluginTimings: false`（关闭 rolldown 的 `[PLUGIN_TIMINGS]` 提示——该统计按 hook 跨度计，`vite:css` 的 async 回调在等 resolve/读文件期间与其他回调重叠、跨度被重复计入，实测剥离全部 SFC `<style>` 后整条 CSS 管线仅占约 10% 构建耗时，而报告显示 46%）。真实热点是 Vue SFC 编译（`@babel/parser` 解析模板表达式/`<script setup>` + `@vue/compiler-core` 代码生成 ≈ 28%，框架固有、无配置可调）；A/B/C 实测去掉 lightningcss transformer / 去掉 manualChunks 差异均在 ±7% 噪声内。排查构建耗时用 `node --cpu-prof node_modules/vite/bin/vite.js build`。
+> **`vite.config.js` 已实测调优，勿随意改动**：`target: esnext`、`cssMinify` / `css.transformer: lightningcss`、`reportCompressedSize: false`、`checks.pluginTimings: false`（rolldown 的 `[PLUGIN_TIMINGS]` 按 hook 跨度统计，异步 hook 跨度重叠会虚报，实测为噪声）。真实热点是 Vue SFC 编译，属框架固有、无配置可调。排查构建耗时：`node --cpu-prof node_modules/vite/bin/vite.js build`。
 
 ## 7. 关键约定
 
@@ -194,13 +194,13 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 8. **V4 reasoning_content**: 思考模式 assistant 消息须回传，否则 400
 9. **文件变动 → 同步本文档**（新增/删除文件、命令、composable/skill 等）
 10. **AI 提示词维护**: 三处位置——`system-prompt.md`（模板）/ `aiContext.js`（填充+公共常量）/ `skills/*.js`（各段），改后同步 §3.4；保留「数据必须真实」约束
-11. **AI 必读文档**: `AGENTS.md`（自动注入短指令，保持精简 ≤64KB）+ 本文档（完整真源），细节一律下沉到本文档
+11. **AI 必读文档**: `AGENTS.md`（会话自动注入的短索引，只放铁律与导航，保持精简）+ 本文档（完整真源），细节一律下沉到本文档
 12. **提醒类 composable 必须单例**: 轮询方（`App.vue`）与配置方（`*AlertConfig.vue`）必须拿到同一实例——否则弹窗内新增的提醒要到重启后才生效，`removeConfig` 还会把启动快照回写 localStorage 造成配置丢失
 13. **本地日期一致性**: 所有 `YYYY-MM-DD`（`marketTime.getToday()` / `daysAgoISO`）都按本地时区拼接，禁用 `toISOString()`（UTC 会让东八区凌晨少算/多算一天，历史记录被提前裁剪）
 14. **Tauri 事件监听须登记注销**: `listen()` 是异步的，组件卸载后才兑现的注销函数必须立即调用（`App.vue` `listenTracked`），否则事件通道泄漏
-15. **市场判定唯一入口**: 任何「是否盘中 / 是否交易日」的判断都走 `utils/marketTime.js`（`getMarketStatus` / `isTradingHours`），禁止在组件里重写时段常量；港股假期表 `utils/hkHolidays.js` 每年随 GovHK 公告追加翌年（须整年完整，未收录年份自动退回工作日判定）
-16. **刷新失败保留旧数据**: 行情/K 线/分时请求失败**不清空**已有数据（仅换标的/换周期时清空，`useKlineData`/`useIntradayData` 的 `dataKey` 决定），并置 `stale=true` 由 `DataFreshness` 角标标注——避免图表闪空、避免把上一只股票的数据画到新股票上
-17. **窗口不可见必降频**: 隐藏信号取双来源——`document.visibilitychange`（最小化）+ Rust `main-window-hidden`/`main-window-shown` 事件（`lib.rs` 的 `window.hide()`/`show_main_window`，WebView2 的 `visibilityState` 不保证随窗口隐藏同步）；新增轮询定时器一律走 `effectiveInterval()`
-18. **本地历史库是旁路**: 自动落库（`record_quotes` / `record_kline` / `record_money_flow*`）不向命令层返回错误，失败只 eprintln；`record_*_events` 三个命令虽返回 `Result`，前端 `utils/history.js` 也一律吞掉——落库失败绝不能影响行情返回或提醒发送。新增埋点数据照此办理：写库函数放 `db.rs`，命令只做参数转发
-19. **回测口径必须如实标注**: 现有信号模块（`useT0Signals`/`useVolumeSignals`/`useTrapSignals`）**依赖分时数据，无法用日 K 回测**；`useSignalBacktest` 只回测日线级规则，UI 与文档必须同时声明「非重叠交易 + 固定持有期 + 不含日内信号 + 样本少于 10 笔仅供参考」，禁止在无标注的情况下展示胜率
-20. **同一信号不重复入库**: `signal_event` 用 `UNIQUE (code, date, kind, name, time)`，前端 `recordSignalEvents` 对缺 name 的信号直接跳过——新增信号类型必须自带稳定的 `name`，否则每次轮询都会插入一行
+15. **市场判定唯一入口**: 「是否盘中 / 是否交易日」只走 `utils/marketTime.js`（`getMarketStatus` / `isTradingHours`），禁止在组件里重写时段常量；港股假期表 `utils/hkHolidays.js` 每年随 GovHK 公告追加翌年（未收录年份自动退回工作日判定）
+16. **刷新失败保留旧数据**: 请求失败**不清空**已有数据（仅换标的/换周期时清空），置 `stale=true` 交 `DataFreshness` 角标标注——避免图表闪空，也避免把上一只股票的数据画到新标的上
+17. **窗口不可见必降频**: 隐藏信号取双来源——`document.visibilitychange` + Rust `main-window-hidden`/`main-window-shown`（`lib.rs`；WebView2 的 `visibilityState` 不保证随窗口隐藏同步）；新增轮询定时器一律走 `effectiveInterval()`
+18. **本地历史库是旁路**: 自动落库失败绝不能影响行情返回或提醒发送（`db.rs` 只 eprintln；`record_*_events` 前端 `utils/history.js` 一律吞掉）；新增埋点写 `db.rs` + 命令转发
+19. **回测口径必须如实标注**: `useSignalBacktest` 只回测日线级规则（T+0/量价陷阱/量价信号依赖分时，无法用日 K 回测）；UI 与文档须声明「非重叠交易 + 固定持有期 + 不含日内信号 + 样本少于 10 笔仅供参考」，禁止无标注展示回测胜率
+20. **同一信号不重复入库**: `signal_event` 以 `UNIQUE (code, date, kind, name, time)` 去重，前端跳过缺 `name` 的信号——新增信号类型必须自带稳定 `name`
