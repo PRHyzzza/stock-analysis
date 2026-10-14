@@ -62,12 +62,12 @@ pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
         return Err(format!("腾讯API返回格式异常: {} 个字段", fields.len()));
     }
 
-    // A 股直接解析（振幅在 [46]）
+    // A 股直接解析（振幅在 [43]）
     if !is_hk_stock(code) {
         return Ok(parse_a_quote_fields(code, &fields));
     }
 
-    // 港股字段差异：振幅在 [43]、换手率在 [59]、单位归一化
+    // 港股字段差异：换手率在 [59]（A 股在 [38]）、量额单位需归一化（振幅同为 [43]）
     let name = fields.get(1).cloned().unwrap_or_default();
     let price = fields.get(3).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
     let prev_close = fields.get(4).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
@@ -99,7 +99,7 @@ pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
 
 /// 解析 A 股行情字段（腾讯 qt.gtimg.cn 布局，~ 分隔）
 /// 字段: [1]名称 [3]价格 [4]昨收 [5]今开 [6]成交量(手) [31]涨跌额 [32]涨跌幅
-///       [33]最高 [34]最低 [37]成交额(万元) [38]换手率 [39]市盈率 [46]振幅
+///       [33]最高 [34]最低 [37]成交额(万元) [38]换手率 [39]市盈率 [43]振幅 [46]市净率
 fn parse_a_quote_fields(code: &str, fields: &[String]) -> StockQuote {
     let get = |i: usize| fields.get(i).unwrap_or(&"0".to_string()).parse::<f64>().unwrap_or(0.0);
     StockQuote {
@@ -116,7 +116,7 @@ fn parse_a_quote_fields(code: &str, fields: &[String]) -> StockQuote {
         low: get(34),
         turnover_rate: get(38),
         pe: get(39),
-        amplitude: get(46),
+        amplitude: get(43),
     }
 }
 

@@ -57,15 +57,19 @@ export function calcChipDistribution(klineData, options = {}) {
   for (const k of data) {
     const { high, low, close, volume } = k;
     if (!volume || volume <= 0) continue;
-    if (high - low < 0.001) continue;
 
     const lowIdx = Math.max(0, Math.min(steps - 1, Math.floor((low - minPrice) / priceStep)));
     const highIdx = Math.max(0, Math.min(steps - 1, Math.floor((high - minPrice) / priceStep)));
     const closeIdx = Math.max(0, Math.min(steps - 1, Math.floor((close - minPrice) / priceStep)));
 
+    // 金额比手数更能反映资金沉淀；口径须对所有 K 线一致（腾讯日 K 无成交额字段，恒回退到 volume * close）
+    const turnover = k.turnover || volume * close;
+    const allocValue = turnover > 0 ? turnover : volume;
+
     const range = highIdx - lowIdx;
+    // 一字板（high === low）或整段价格落在同一档位：全部计入该档，不可丢弃
     if (range === 0) {
-      distribution[closeIdx] += volume;
+      distribution[closeIdx] += allocValue;
       continue;
     }
 
@@ -80,10 +84,6 @@ export function calcChipDistribution(klineData, options = {}) {
       weights.push(weight);
       totalWeight += weight;
     }
-
-    // 按权重分配该 K 线的成交额（金额比手数更能反映资金沉淀）
-    const turnover = k.turnover || volume * close;
-    const allocValue = turnover > 0 ? turnover : volume;
 
     for (let i = 0; i < weights.length; i++) {
       distribution[lowIdx + i] += (weights[i] / totalWeight) * allocValue;
