@@ -4,6 +4,7 @@
  */
 import systemPromptTemplate from "../prompts/system-prompt.md?raw";
 import { getMergedSystemPrompt } from "../skills/index.js";
+import { DEFAULT_KLINE_PERIOD, getPeriodMeta, periodLabel } from "../utils/klinePeriod.js";
 
 /**
  * 公共提示词片段（个股 AI 与全局 AI 共用，避免两处重复维护）
@@ -59,9 +60,15 @@ function computeMA(data, period) {
 
 /**
  * 将预加载数据序列化为上下文字符串
+ *
+ * contextData.klinePeriod 必须由调用方带上当前图表周期（见 utils/klinePeriod.js）：
+ * klineData 是共享且可切换周期的序列，缺省按日K解读会把周线/月线均线说成「5 日均线」。
  */
 export function serializeContext(contextData) {
   if (!contextData) return "";
+  const period = contextData.klinePeriod || DEFAULT_KLINE_PERIOD;
+  const pLabel = periodLabel(period);
+  const pMeta = getPeriodMeta(period);
   const parts = [];
 
   if (contextData.klineData && Array.isArray(contextData.klineData) && contextData.klineData.length > 0) {
@@ -76,14 +83,14 @@ export function serializeContext(contextData) {
         maData[`MA${p}`] = latest ? latest.value : null;
       }
     }
-    parts.push(`## 预加载 K 线数据（最近 ${recent.length} 根日K，已包含在上下文中无需重新调用工具）\n${JSON.stringify(recent, null, 2)}`);
-    parts.push(`## 预计算移动平均线（MA 最新值，系统计算，直接引用）\n${JSON.stringify(maData, null, 2)}\n（说明：以上为系统预计算的 MA5/MA10/MA20/MA30/MA60 最新值，你可以直接使用，无需自己计算。）`);
+    parts.push(`## 预加载 K 线数据（${pLabel}，最近 ${recent.length} 根，已包含在上下文中无需重新调用工具）\n${JSON.stringify(recent, null, 2)}`);
+    parts.push(`## 预计算移动平均线（${pLabel}口径 MA 最新值，系统计算，直接引用）\n${JSON.stringify(maData, null, 2)}\n（说明：以上为系统预计算的 MA5/MA10/MA20/MA30/MA60 最新值，基于${pLabel}计算，${pMeta.maDesc}——不是 5 日均线，禁止改写成日线口径。你可以直接使用，无需自己计算。）`);
   }
 
   // 预计算技术指标（MACD/KDJ/RSI/WR 最新值与信号，系统计算避免模型手算出错）
   if (contextData.indicators) {
     parts.push(
-      `## 预计算技术指标（系统计算，直接引用，无需自行计算）\n${JSON.stringify(contextData.indicators, null, 2)}\n（WR 为国际 %R 负值口径，−100 ~ 0：越接近 0 越超买，越接近 −100 越超卖。）`
+      `## 预计算技术指标（${pLabel}口径，系统计算，直接引用，无需自行计算；禁止把 ${pLabel} 指标描述成日线指标）\n${JSON.stringify(contextData.indicators, null, 2)}\n（WR 为国际 %R 负值口径，−100 ~ 0：越接近 0 越超买，越接近 −100 越超卖。）`
     );
   }
 
@@ -152,16 +159,25 @@ export function serializeContext(contextData) {
       : "无";
     // currentPrice 缺失时获利比例无意义，显示 "--" 而非恒为 0%（误导 AI）
     const hasPrice = chip.currentPrice > 0 && Array.isArray(chip.distribution);
-    const profitPct = hasPrice
-      ? chip.distribution.filter((d) => d.price < chip.currentPrice).reduce((s, d) => s + d.ratio, 0) * 100
+    // 口径与 UI（ChipDistribution.vue 的 profit/total）保持一致：按 ratio 总和归一化，
+    // 避免平滑窗口导致 Σratio ≠ 1 时获利+套牢 ≠ 100%
+    const totalRatio = hasPrice ? chip.distribution.reduce((s, d) => s + (d.ratio || 0), 0) : 0;
+    const profitPct = totalRatio > 0
+      ? (chip.distribution.filter((d) => d.price < chip.currentPrice).reduce((s, d) => s + d.ratio, 0) / totalRatio) * 100
       : null;
-    parts.push(`## 预加载筹码分布数据
+    // 衰减口径必须与实际计算一致：未衰减时明确说明，避免 AI 把估算值当成精确筹码
+    const trPct = chip.decayTurnoverRate;
+    const chipBasis = chip.decayed
+      ? `按${pLabel}的价格成交量分布 + 换手率衰减（衰减系数 1${trPct != null ? `，最新换手率 ${trPct}%` : ""}）估算`
+      : `按${pLabel}的价格成交量分布估算（未做换手率衰减，老筹码占比偏高）`;
+    parts.push(`## 预加载筹码分布数据（${chipBasis}）
 筹码峰价格：${chip.peakPrice}
 平均持仓成本：${chip.avgCost}
 当前价：${chip.currentPrice}
 获利比例：${profitPct != null ? `${profitPct.toFixed(1)}%` : "--"}
 套牢比例：${profitPct != null ? `${(100 - profitPct).toFixed(1)}%` : "--"}
-分位成本：${costStr}`);
+分位成本：${costStr}
+（说明：筹码分布由 K 线成交量按价格分布**估算**，不是真实持仓成本；可给区间与倾向，不可当成精确主力成本。）`);
   }
 
   return parts.join("\n\n");

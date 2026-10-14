@@ -19,4 +19,4 @@
 
 ## 硬性约定
 
-完整清单见 `PROJECT.md` §7（20 条）与 `AGENTS.md`「硬性约定」；改动时最易踩的几条：腾讯 API 是 **GBK**（须 `encoding_rs::GBK.decode()`）；切换股票的异步请求必须带请求序号 / 代际守卫；`marked.parse` 输出必须经 `DOMPurify.sanitize` 才能 `v-html`；刷新失败**保留旧数据**并置 `stale=true`；市场判定只走 `src/utils/marketTime.js`；本地历史库落库失败必须静默旁路。
+完整清单见 `PROJECT.md` §7（22 条）与 `AGENTS.md`「硬性约定」；改动时最易踩的几条：腾讯 API 是 **GBK**（须 `encoding_rs::GBK.decode()`）；切换股票的异步请求必须带请求序号 / 代际守卫；`marked.parse` 输出必须经 `DOMPurify.sanitize` 才能 `v-html`；刷新失败**保留旧数据**并置 `stale=true`；市场判定只走 `src/utils/marketTime.js`；本地历史库落库失败必须静默旁路；筹码分布是估算值——换手率衰减仅在日K且取到换手率时启用，UI 与 AI 注入都必须标注实际口径。

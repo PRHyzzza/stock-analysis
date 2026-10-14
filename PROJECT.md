@@ -16,7 +16,7 @@ stock-analysis/
 │   ├── composables/            30 个（§3.1）
 │   ├── skills/                 12 skill / 17 工具（§3.2）
 │   ├── prompts/                system-prompt.md（AI 提示词模板，§3.4）
-│   └── utils/                  format / limit（涨跌停按板块）/ marketTime（交易日历+时段）/ hkHolidays（港股公众假期表）/ notify / klineCache / history（本地历史库落库）
+│   └── utils/                  format / limit（涨跌停按板块）/ marketTime（交易日历+时段）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）
 ├── src-tauri/                  Rust 后端
 │   ├── .cargo/config.toml      USTC sparse 镜像（勿删）
 │   ├── capabilities/           default.json 窗口权限：main/mini/iwencai
@@ -54,7 +54,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存，**缓存 key = 归一化问题 + perpage**——服务端忽略 page、perpage 决定行数，故不能只按问题缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
 | `useSignalBacktest` | 信号回测：读本地日 K 跑 8 条日线规则 × 4 持有期（非重叠交易，口径见 §7.19），本地不足 60 根或手动同步时补拉远端一次并落库；纯函数 `analyzeBars(bars, code)` 可单测 | `get_kline_history` / `get_db_stats`（+ `get_stock_kline`） |
 
-**纯计算**：`useTechIndicators`（MACD/KDJ/RSI/WR，AI 预计算注入复用）、`useChipDistribution`（筹码）、`useSupportResistance`（支撑/阻力）、`useT0Signals` + `useTrapSignals` + `useVolumeSignals`（T+0 信号/量价陷阱/量价信号，细节见文件注释）、`aiContext`（提示词构建，§3.4）
+**纯计算**：`useTechIndicators`（MACD/KDJ/RSI/WR，交叉信号标注「N 根前」；AI 预计算注入复用）、`useChipDistribution`（筹码：最近 ≤480 根 K 线按价格分布，档位自适应保证每档 ≥0.01 元；**日K + 有换手率时按换手率衰减**——各根换手率 = 最新换手率 ×（该根量 ÷ 最新根量），无需流通股本，逐根留存系数 = 1 − 衰减系数×该根换手率，衰减系数默认 1；其余周期/缺换手率则不衰减并在 UI/AI 标注）、`useSupportResistance`（支撑/阻力）、`useT0Signals` + `useTrapSignals` + `useVolumeSignals`（T+0 信号/量价陷阱/量价信号，细节见文件注释；**趋势与 MACD 背离只吃日K**——非日K周期经 `klineCache` 取日K，取不到则跳过并披露）、`aiContext`（提示词构建，§3.4；周期口径随 `klinePeriod` 注入）
 
 **状态与持久化**：`useWatchlist`（自选 CRUD，默认股票池只作首次种子且返回深拷贝、持久化的空数组视为用户已清空不再回填默认股）、`useSettings`（全局设置单例）、`useTradingCalendar`（A 股交易日历单例，lazy 注入 `marketTime.js`）、`useWatchlistNotifications` / `useMaAlerts` / `usePriceAlerts`（三套通知，跨日重置快照防隔夜跳空；**后两者为单例**——`App.vue` 与配置弹窗共用同一实例）、`aiMessageStore`（AI 消息隔离持久化）、`llmClient`（SSE 流式，streamId 过滤 + 120s 超时）
 
@@ -86,6 +86,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——落库全部走旁路（§7.18）；表结构 / 保留期 / 日期口径见 §4.4
 - **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），非重叠交易统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；口径与标注要求见 §7.19
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
+- **K线周期口径**: `utils/klinePeriod.js` 是周期标签 / 均线口径 / 非日K提示的唯一真源（§7.21）；技术分析、AI 分析、筹码弹窗均按当前周期标注口径，T+0 趋势与 MACD 背离只吃日K
 - **全局设置**: 5 标签页实时生效
 - **AI 双入口**: 个股 AI（注入行情/K线/资金/行业/筹码/持仓 + 预计算指标）；全局 AI（注入指数/持仓，@代码 引用，热榜选股）
 - **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）；短线买入清单带**贴线硬性条件**（现价须在 MA5 之上且偏离 ≤3% 优先、>5% 剔除，用 `get_stock_kline` 的 `ma.MA5`/`vsMA5Pct` 核验）
@@ -102,7 +103,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **模板**: `prompts/system-prompt.md`，占位符 `{{BEIJING_TIME}}`/`{{SEARCH_POLICY}}`/`{{PRELOAD_SECTION}}`/`{{SKILL_PROMPTS}}`/`{{USER_PROFILE}}`/`{{MARKET_RULES}}`/`{{STOCK_CONTEXT}}`（无 `{{TOOLS}}`，工具走 API 参数）
 - **填充**: `aiContext.js` `buildSystemPrompt`（个股）+ `useAiAnalysis.js` `buildGlobalSystemPrompt`（全局）；公共常量 `MARKET_RULES`/`buildSearchPolicy` 在 `aiContext.js`；占位符残留校验
 - **独立提示词**: ① `IwencaiWindow.vue optimizeQuery()`（AI 改写查询）；② `GlobalAiModal.vue buildScreeningPrompt()`（问财结果注入 + 短线买入/贴线条件）；改动时同步本行
-- **注入**: `serializeContext` → K线 30 根 + MA 最新值 + 预计算指标 + 资金/行业/指数/热榜/持仓/筹码
+- **注入**: `serializeContext` → K线 30 根 + MA 最新值 + 预计算指标 + 资金/行业/指数/热榜/持仓/筹码（K线/均线/指标/筹码均按当前图表周期 `klinePeriod` 标注口径，禁止把周K均线说成 5 日均线；筹码按 `chipData.decayed` 标注「含换手率衰减 / 未做换手率衰减」，§7.22）
 - **硬约束**: 数值必须来自工具返回，失败明示「数据获取失败」，禁编造
 
 ## 4. Rust 后端
@@ -204,3 +205,5 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 18. **本地历史库是旁路**: 自动落库失败绝不能影响行情返回或提醒发送（`db.rs` 只 eprintln；`record_*_events` 前端 `utils/history.js` 一律吞掉）；新增埋点写 `db.rs` + 命令转发
 19. **回测口径必须如实标注**: `useSignalBacktest` 只回测日线级规则（T+0/量价陷阱/量价信号依赖分时，无法用日 K 回测）；UI 与文档须声明「非重叠交易 + 固定持有期 + 不含日内信号 + 样本少于 10 笔仅供参考」，禁止无标注展示回测胜率
 20. **同一信号不重复入库**: `signal_event` 以 `UNIQUE (code, date, kind, name, time)` 去重，前端跳过缺 `name` 的信号——新增信号类型必须自带稳定 `name`
+21. **K线周期口径**: `klineData` 是全应用共享且可切周期的序列（`klinePeriod` ∈ m5/m15/m30/m60/day/week/month）——消费它的计算与提示词必须显式带上周期，标签与均线口径一律取自 `utils/klinePeriod.js`，禁止硬编码「日K / 5 日均线」；只吃日K的逻辑（T+0 趋势、MACD 背离）改走 `utils/klineCache.js` 的日K缓存，取不到就跳过并如实披露，不得拿周线均线冒充日线
+22. **筹码口径必须如实标注**: 筹码分布是「成交量按价格分布」的**估算**，不是真实持仓成本。换手率衰减只在**日K + 取到换手率**时启用（`useChipDistribution.chipOptionsFromQuote`，逐根留存系数 = 1 − 衰减系数×换手率，衰减系数默认 1，各根换手率由量比折算，无需流通股本）；未启用（分钟/周/月K、缺换手率、停牌无量）时必须说清「未做换手率衰减，老筹码占比偏高」，启用的还要标出所用最新换手率（`chipData.decayTurnoverRate`）——UI（`ChipDistribution.vue`）与 AI 注入（`aiContext.js`）都要按 `chipData.decayed` 取文案，禁止无标注展示筹码峰/获利比例

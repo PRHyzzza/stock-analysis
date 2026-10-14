@@ -678,6 +678,7 @@ onUnmounted(() => {
     <TechAnalysisModal
       :show="showTechModal"
       :kline-data="klineData"
+      :kline-period="klinePeriod"
       :stock-name="selectedStock?.name ?? ''"
       @close="closeTechModal"
     />
@@ -687,6 +688,7 @@ onUnmounted(() => {
       :show="showAiModal"
       :selected-stock="selectedStock"
       :kline-data="klineData"
+      :kline-period="klinePeriod"
       :money-flow="moneyFlow"
       :industry-data="industryData"
       :indices="indices"
@@ -712,6 +714,8 @@ onUnmounted(() => {
     <ChipDistribution
       :show="showChipModal"
       :kline-data="klineData"
+      :kline-period="klinePeriod"
+      :stock="selectedStock"
       :loading="klineLoading"
       @close="closeChipModal"
     />

@@ -4,6 +4,7 @@ import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries,
 import { calcSupportResistance } from "../composables/useSupportResistance.js";
 import { useSettings } from "../composables/useSettings.js";
 import { usePositions } from "../composables/usePositions.js";
+import { getPeriodMeta } from "../utils/klinePeriod.js";
 import DataFreshness from "./DataFreshness.vue";
 
 const { positions } = usePositions();
@@ -26,10 +27,10 @@ const props = defineProps({
 
 const emit = defineEmits(["change-period", "retry"]);
 
-const periodNames = { day: "日 K", week: "周 K", month: "月 K" };
-const periodLabel = computed(() => `${periodNames[props.period] || "日 K"} 线`);
-/** 30 根 K 线高低线的单位：周 K / 月 K 时不能再叫「30日」 */
-const hlUnitLabel = computed(() => ({ day: "日", week: "周", month: "月" }[props.period] || "日"));
+const periodMeta = computed(() => getPeriodMeta(props.period));
+const periodLabel = computed(() => `${periodMeta.value.label}线`);
+/** 30 根 K 线高低线的单位：周/月/分钟K 时不能再叫「30日」 */
+const hlUnitLabel = computed(() => periodMeta.value.hl);
 
 const chartContainer = ref(null);
 let chart = null;

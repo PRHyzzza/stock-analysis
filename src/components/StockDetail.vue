@@ -6,6 +6,7 @@ import AlertsModal from "./AlertsModal.vue";
 import DetailActionBar from "./DetailActionBar.vue";
 import DataFreshness from "./DataFreshness.vue";
 import { signChar } from "../utils/format";
+import { isDayPeriod } from "../utils/klinePeriod.js";
 import { recordSignalEvents } from "../utils/history.js";
 import { useT0Signals } from "../composables/useT0Signals.js";
 import { useMaAlerts } from "../composables/useMaAlerts.js";
@@ -88,15 +89,17 @@ const currencySymbol = computed(() => isHK.value ? "HK$" : "¥");
 /** T+0 信号系统 */
 const { signalMarkers, summary: t0Summary, compute: computeT0Signals } = useT0Signals();
 
-// 当分时数据或K线数据变化时重新计算信号
+// 当分时数据、K线数据或图表周期变化时重新计算信号
+// 注意：compute 是异步的（非日K周期需取日K缓存做趋势/背离），必须 await 后再落库，
+// 否则 t0Summary 还是 null，信号事件会被静默丢掉
 watch(
-  [() => props.klineData, () => props.intradayData, () => props.selectedStock],
-  ([kline, intraday, stock]) => {
+  [() => props.klineData, () => props.intradayData, () => props.selectedStock, () => props.klinePeriod],
+  async ([kline, intraday, stock, period]) => {
     if (intraday && intraday.items && intraday.items.length > 0) {
       // 信号分析为尽力而为的辅助功能：内部异常不得打断组件更新队列
       // （历史教训：一次未捕获异常会级联打崩整个渲染周期）
       try {
-        computeT0Signals(kline, intraday, stock);
+        await computeT0Signals(kline, intraday, stock, period);
         // 只落"事件型"信号（日内量价陷阱 / 放量异动）：带时间锚点，后端按
         // (code, 日期, 类型, 名称, 时间) 去重，重复计算不会产生重复行
         if (stock?.code) {
@@ -144,6 +147,8 @@ const sinceAddedPct = computed(() => {
     return ((currentPrice - stock.addedPrice) / stock.addedPrice) * 100;
   }
   // 回退：从 K 线中找加入自选当日的收盘价
+  // 只有日K的 date 才等于「某交易日」，周/月/分钟K 的 date 撞上 addedAt 会取到错误收盘价
+  if (!isDayPeriod(props.klinePeriod)) return null;
   if (!klines || !Array.isArray(klines) || klines.length === 0) return null;
   const addedKline = klines.find((k) => k.date === stock.addedAt);
   if (!addedKline?.close || addedKline.close === 0) return null;
