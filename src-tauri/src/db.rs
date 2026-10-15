@@ -498,7 +498,21 @@ pub fn stats() -> Result<DbStats, String> {
             kline_last_date: scalar_str(conn, "SELECT MAX(date) FROM kline")?,
             money_rows: scalar_i64(conn, "SELECT COUNT(*) FROM money_flow")?,
             signal_rows: scalar_i64(conn, "SELECT COUNT(*) FROM signal_event")?,
+            signal_rows_today: scalar_i64(
+                conn,
+                "SELECT COUNT(*) FROM signal_event WHERE date = date('now', '+8 hours')",
+            )?,
             alert_rows: scalar_i64(conn, "SELECT COUNT(*) FROM alert_event")?,
+            alert_rows_today: scalar_i64(
+                conn,
+                "SELECT COUNT(*) FROM alert_event WHERE date = date('now', '+8 hours')",
+            )?,
+            alert_rows_distinct: scalar_i64(
+                conn,
+                "SELECT COUNT(*) FROM (SELECT DISTINCT code, date, kind FROM alert_event)",
+            )?,
+            alert_first_date: scalar_str(conn, "SELECT MIN(date) FROM alert_event")?,
+            alert_last_date: scalar_str(conn, "SELECT MAX(date) FROM alert_event")?,
             watchlist_rows: scalar_i64(conn, "SELECT COUNT(*) FROM watchlist_change")?,
         })
     })?;

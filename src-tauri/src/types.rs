@@ -209,5 +209,18 @@ pub struct DbStats {
     pub signal_rows: i64,
     pub alert_rows: i64,
     pub watchlist_rows: i64,
+    /// 各事件表的今日（UTC+8）条数，用于区分「累计」与「今天真的发生过」
+    #[serde(default)]
+    pub signal_rows_today: i64,
+    #[serde(default)]
+    pub alert_rows_today: i64,
+    /// 提醒事件按（代码/日期/类型）去重后的条数；alert_event 不去重落库，仅按行数展示会夸大触发次数
+    #[serde(default)]
+    pub alert_rows_distinct: i64,
+    /// alert_event 的日期覆盖范围（YYYY-MM-DD，无数据为空串）
+    #[serde(default)]
+    pub alert_first_date: String,
+    #[serde(default)]
+    pub alert_last_date: String,
 }
 

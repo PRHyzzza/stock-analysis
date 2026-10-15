@@ -260,15 +260,26 @@ function backtestRule(hits, closes, hold) {
 export function analyzeBars(bars, code) {
   const list = Array.isArray(bars) ? bars.filter((b) => b && Number(b.close) > 0) : [];
   if (list.length < MIN_BARS) {
-    return { bars: list.length, enough: false, from: null, to: null, rules: [], periods: HOLD_PERIODS };
+    return {
+      bars: list.length,
+      enough: false,
+      from: null,
+      to: null,
+      asOf: null,
+      rules: [],
+      periods: HOLD_PERIODS,
+    };
   }
 
   const ind = prepareIndicators(list, code);
   const start = Math.min(START_INDEX, list.length - 1);
 
+  const last = list.length - 1;
+
   const rules = RULES.map((rule) => {
     const hits = new Array(list.length).fill(false);
     let hitCount = 0;
+    let lastHit = -1;
     for (let i = Math.max(start, 1); i < list.length; i++) {
       let ok = false;
       try {
@@ -279,13 +290,36 @@ export function analyzeBars(bars, code) {
       if (ok) {
         hits[i] = true;
         hitCount += 1;
+        lastHit = i;
       }
     }
     const byPeriod = {};
     for (const hold of HOLD_PERIODS) {
       byPeriod[hold] = backtestRule(hits, ind.closes, hold);
     }
-    return { id: rule.id, name: rule.name, hint: rule.hint, signalCount: hitCount, byPeriod };
+
+    // ---- 当前状态：最后一根 K 线上是否触发 + 距今天数 ----
+    let active = false;
+    try {
+      active = rule.detect(last, list, ind) === true;
+    } catch {
+      active = false;
+    }
+    const barsAgo = lastHit < 0 ? null : last - lastHit;
+
+    return {
+      id: rule.id,
+      name: rule.name,
+      hint: rule.hint,
+      signalCount: hitCount,
+      byPeriod,
+      // 当前状态（面板「现在」一栏用；与历史统计相互独立）
+      active,
+      barsAgo,
+      lastHitDate: lastHit < 0 ? null : list[lastHit]?.date || null,
+      // 该规则是否在当前这根 K 线上真正参与过判定（未参与则不能断言「未触发」）
+      evaluated: last >= Math.max(start, 1),
+    };
   });
 
   return {
@@ -293,6 +327,7 @@ export function analyzeBars(bars, code) {
     enough: true,
     from: list[0]?.date || null,
     to: list[list.length - 1]?.date || null,
+    asOf: list[last]?.date || null,
     periods: HOLD_PERIODS,
     rules,
   };

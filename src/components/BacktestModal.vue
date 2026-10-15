@@ -37,12 +37,75 @@ const sortedRows = computed(() => {
   });
 });
 
-/** 本地库概况文本 */
+/** 当前信号状态：按「现在成立 / 最近成立 / 未触发」分组，只取最近 LOOKBACK 根内出现过的 */
+const LOOKBACK = 10;
+
+const currentGroups = computed(() => {
+  const res = data.value;
+  if (!res?.enough || !res.rules?.length) return [];
+  const active = [];
+  const recent = [];
+  const idle = [];
+  for (const rule of res.rules) {
+    const item = {
+      id: rule.id,
+      name: rule.name,
+      hint: rule.hint,
+      barsAgo: rule.barsAgo,
+      lastHitDate: rule.lastHitDate,
+      signalCount: rule.signalCount,
+    };
+    if (rule.active) active.push(item);
+    else if (rule.barsAgo != null && rule.barsAgo <= LOOKBACK) recent.push(item);
+    else idle.push(item);
+  }
+  recent.sort((a, b) => a.barsAgo - b.barsAgo);
+  idle.sort((a, b) => (a.barsAgo ?? Infinity) - (b.barsAgo ?? Infinity));
+  return [
+    { key: "active", label: "现在成立", tone: "on", items: active },
+    { key: "recent", label: `近 ${LOOKBACK} 日内出现过`, tone: "recent", items: recent },
+    // 当前 K 线上不成立：既含「很久前出现过」也含「区间内从未出现」，故不叫「未触发」
+    { key: "idle", label: "当前不成立", tone: "off", items: idle },
+  ].filter((g) => g.items.length);
+});
+
+/** 当前成立条数（用于折叠标题） */
+const activeCount = computed(
+  () => data.value?.rules?.filter((r) => r.active).length || 0
+);
+
+/** 距今天数文案 */
+function agoText(barsAgo) {
+  if (barsAgo == null) return "区间内未出现";
+  if (barsAgo === 0) return "今日";
+  return `${barsAgo} 个交易日前`;
+}
+
+/** 该规则在回测区间内是否出现过（用于区分「很久前有过」与「从未出现」） */
+function everFired(rule) {
+  return rule.signalCount > 0;
+}
+
+/** 本地库概况文本（行数均为累计值：事件类表按保留天数清理，不是「当前生效的提醒数」） */
 const dbSummary = computed(() => {
   const s = stats.value;
   if (!s) return "";
   const size = s.sizeBytes > 0 ? ` (${(s.sizeBytes / 1024).toFixed(0)} KB)` : "";
-  return `本地 K 线 ${s.klineRows} 行 / ${s.klineCodes} 只，行情快照 ${s.quoteRows} 行，信号 ${s.signalRows} 条，提醒 ${s.alertRows} 条${size}`;
+  return `本地 K 线 ${s.klineRows} 行 / ${s.klineCodes} 只，行情快照 ${s.quoteRows} 行，信号 ${s.signalRows} 条，提醒通知 ${s.alertRows} 次${size}`;
+});
+
+/** 提醒明细：累计触发次数 ≠ 当前挂着的提醒，单独一行说清楚 */
+const alertSummary = computed(() => {
+  const s = stats.value;
+  if (!s) return "";
+  if (!s.alertRows) return "提醒通知：本地从未记录到成功发出的通知";
+  const parts = [`累计 ${s.alertRows} 次`];
+  if (s.alertRowsToday > 0) parts.push(`今日 ${s.alertRowsToday} 次`);
+  if (s.alertRowsDistinct != null && s.alertRowsDistinct !== s.alertRows) {
+    parts.push(`去重后 ${s.alertRowsDistinct} 条`);
+  }
+  if (s.alertLastDate) parts.push(`最近 ${s.alertLastDate}`);
+  return `提醒通知：${parts.join(" · ")}（累计发出次数，不是当前生效的提醒）`;
 });
 
 function pctText(v) {
@@ -127,6 +190,7 @@ function switchHold(h) {
               <span v-else-if="loading">正在读取历史数据…</span>
             </div>
             <div class="bt-meta-line bt-muted" v-if="dbSummary">{{ dbSummary }}</div>
+            <div class="bt-meta-line bt-muted" v-if="alertSummary">{{ alertSummary }}</div>
           </div>
 
           <!-- 持有期切换 + 同步 -->
@@ -147,6 +211,32 @@ function switchHold(h) {
           </div>
 
           <div v-if="error" class="bt-error">{{ error }}</div>
+
+          <!-- 当前信号状态（「现在」；与下方历史统计相互独立，不代表未来收益） -->
+          <div class="bt-now" v-if="currentGroups.length">
+            <div class="bt-now-head">
+              <span class="bt-now-title">当前状态</span>
+              <span class="bt-now-asof">截至 {{ data.asOf }}</span>
+              <span class="bt-now-count" :class="{ hit: activeCount > 0 }">
+                {{ activeCount > 0 ? `${activeCount} 条规则现在成立` : "当前无规则成立" }}
+              </span>
+            </div>
+            <div class="bt-now-group" v-for="g in currentGroups" :key="g.key">
+              <span class="bt-now-label" :class="`tone-${g.tone}`">{{ g.label }}</span>
+              <div class="bt-now-items">
+                <span
+                  v-for="it in g.items"
+                  :key="it.id"
+                  class="bt-chip"
+                  :class="[`tone-${g.tone}`, { never: g.tone !== 'active' && !everFired(it) }]"
+                  :title="it.hint"
+                >
+                  {{ it.name }}
+                  <em v-if="g.tone !== 'active'">{{ agoText(it.barsAgo) }}</em>
+                </span>
+              </div>
+            </div>
+          </div>
 
           <!-- 统计表 -->
           <table class="bt-table" v-if="sortedRows.length">
@@ -205,7 +295,8 @@ function switchHold(h) {
             胜率 = 盈利笔数 / 总笔数，平均收益 = 单笔平均涨跌幅，盈亏比 = 平均盈利 / 平均亏损（等权、未计手续费与滑点）。
             样本少于 {{ MIN_SAMPLE }} 笔的结果仅供参考。
             当前版本仅回测<b>日线级</b>规则——T+0 / 量价陷阱等日内信号依赖分时数据，不在本表范围内。
-            历史表现不代表未来收益，本面板不构成投资建议。
+            顶部「当前状态」只表示<b>最后一根日 K</b> 上各规则是否触发，与下方持有期胜率相互独立，
+            不代表该信号未来会上涨；历史表现不代表未来收益，本面板不构成投资建议。
           </p>
         </div>
       </div>
@@ -462,5 +553,113 @@ function switchHold(h) {
 .bt-note b {
   color: var(--text-secondary);
   font-weight: 600;
+}
+
+/* ---- 当前信号状态 ---- */
+.bt-now {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: var(--fog);
+}
+
+.bt-now-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.bt-now-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.bt-now-asof {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bt-now-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.bt-now-count.hit {
+  color: var(--rust);
+  font-weight: 600;
+}
+
+.bt-now-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+.bt-now-label {
+  flex: none;
+  width: 108px;
+  font-size: 12px;
+  padding-top: 3px;
+  color: var(--text-muted);
+}
+
+.bt-now-label.tone-on {
+  color: var(--rust);
+  font-weight: 600;
+}
+
+.bt-now-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bt-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bt-chip em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.bt-chip.tone-on {
+  border-color: var(--rust);
+  background: var(--apricot-wash);
+  color: var(--rust);
+  font-weight: 600;
+}
+
+.bt-chip.tone-recent {
+  color: var(--text-primary);
+}
+
+.bt-chip.tone-off {
+  opacity: 0.6;
+}
+
+/* 区间内从未出现过：与「很久前出现过」区分（后者仍可能有效，只是近期没触发） */
+.bt-chip.never {
+  opacity: 0.4;
+}
+
+.bt-chip.never em {
+  font-style: italic;
 }
 </style>
