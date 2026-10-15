@@ -28,13 +28,37 @@ export function recordSignalEvents(code, kind, signals) {
       kind: kind || "",
       name,
       time: typeof s?.time === "string" ? s.time : "",
-      dir: typeof s?.dir === "string" ? s.dir : (typeof s?.action === "string" ? s.action : ""),
+      dir: pickDir(s),
       detail: typeof s?.detail === "string" ? s.detail : (typeof s?.desc === "string" ? s.desc : ""),
       price: Number(s?.price) || 0,
     });
   }
   if (events.length === 0) return;
   fire("record_signal_events", { events });
+}
+
+/**
+ * 取信号方向：dir → action → type。
+ *
+ * `type` 回退是必需的：`useVolumeSignals` 只产出 `{time,name,type,desc,level}`，
+ * 其中 `type` 就是真实方向（bull/bear），没有 dir/action；`useT0Signals.js:499`
+ * 透传的 volumeSignals 也只有 time/name/type。修复前只认 dir → action，导致
+ * `放量急拉⚠` / `放量急跌⚠` / `无量拉升⚠` 三个 `level="warn"` 的前瞻预警方向被
+ * 静默丢弃，落库 `dir=""` → 计入 unknownDir → 永远进不了胜率。实测（用真实
+ * `calcVolumeSignals` + 真实 `recordSignalEvents`，见修复期临时探针）：
+ * volume 链路 unknown 3/7 → 修复后 0/7；`突破↑`/`破位↓`/`顶背离`/`底背离`
+ * 仅因名称含关键词才侥幸救回，不能依赖。
+ *
+ * 安全性：两条落库链路的形状互斥——trap 链路（`useT0Signals.js:359`）产出的是
+ * `action` + `trapType`，**没有** `type` 字段，所以这里不会误把 trapType 当方向；
+ * 且 volume 链路的 `type` 实测恒为 bull/bear（JSDoc 虽允许 neutral，但无调用点使用）。
+ * 若将来有信号同时带 `type` 与非方向语义，须改为按 kind 区分而非继续依赖回退顺序。
+ */
+function pickDir(s) {
+  for (const v of [s?.dir, s?.action, s?.type]) {
+    if (typeof v === "string" && v.trim() !== "") return v;
+  }
+  return "";
 }
 
 /**

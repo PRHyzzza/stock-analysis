@@ -17,7 +17,7 @@ use rusqlite::{params, Connection};
 
 use crate::types::{
     AlertEventInput, DbStats, KlineItem, MoneyFlow, MoneyFlowHistoryItem, SignalEventInput,
-    StockQuote,
+    SignalEventRow, StockQuote,
 };
 
 const DB_FILENAME: &str = "stock-analysis.db";
@@ -464,6 +464,42 @@ pub fn query_kline(code: &str, period: &str, limit: u32) -> Result<Vec<KlineItem
         let mut items: Vec<KlineItem> = rows.collect::<rusqlite::Result<_>>()?;
         items.reverse();
         Ok(items)
+    })
+}
+
+/// 读取信号事件（按时间倒序，可选按代码/类型过滤），供历史信号胜率统计。
+///
+/// 说明：`signal_event` 原先只写不读；本查询是「实盘信号胜率」的数据入口。
+/// 返回的 `price` 为触发时价格，可能为 0（当时未取到行情），调用方须据此跳过收益计算。
+pub fn query_signal_events(
+    code: Option<&str>,
+    kind: Option<&str>,
+    limit: u32,
+) -> Result<Vec<SignalEventRow>, String> {
+    let limit = limit.clamp(1, 5000) as i64;
+    let code = code.unwrap_or("");
+    let kind = kind.unwrap_or("");
+    fallible("读取信号事件", |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT ts, date, code, kind, name, time, dir, detail, price FROM signal_event
+             WHERE (?1 = '' OR code = ?1)
+               AND (?2 = '' OR kind = ?2)
+             ORDER BY ts DESC, id DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![code, kind, limit], |row| {
+            Ok(SignalEventRow {
+                ts: row.get(0)?,
+                date: row.get(1)?,
+                code: row.get(2)?,
+                kind: row.get(3)?,
+                name: row.get(4)?,
+                time: row.get(5)?,
+                dir: row.get(6)?,
+                detail: row.get(7)?,
+                price: row.get(8)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
     })
 }
 

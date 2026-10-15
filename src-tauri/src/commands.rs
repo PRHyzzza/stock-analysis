@@ -6,7 +6,8 @@ use crate::api::{
 };
 use crate::types::{
     AlertEventInput, DbStats, HotListData, IndustryData, IntradayData, KlineItem, MarketIndex,
-    MoneyFlow, MoneyFlowHistoryItem, SearchResult, SignalEventInput, StockQuote, UpdateInfo,
+    MoneyFlow, MoneyFlowHistoryItem, SearchResult, SignalEventInput, SignalEventRow, StockQuote,
+    UpdateInfo,
 };
 use crate::db;
 use std::fs;
@@ -404,5 +405,20 @@ pub async fn get_kline_history(
 #[tauri::command]
 pub async fn get_db_stats() -> Result<DbStats, String> {
     db::stats()
+}
+
+/// 读取历史信号事件（`code` / `kind` 为空串表示不过滤），供「实盘信号胜率」统计。
+/// 信号由前端计算后经 `record_signal_events` 落库，此前只写不读。
+#[tauri::command]
+pub async fn get_signal_events(
+    code: Option<String>,
+    kind: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<SignalEventRow>, String> {
+    db::query_signal_events(
+        code.as_deref().filter(|s| !s.is_empty()),
+        kind.as_deref().filter(|s| !s.is_empty()),
+        limit.unwrap_or(500),
+    )
 }
 

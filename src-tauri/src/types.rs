@@ -191,6 +191,21 @@ pub struct AlertEventInput {
     pub target: f64, // 触发目标价（无则 0）
 }
 
+/// 从本地历史库读出的信号事件（历史信号胜率统计用）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SignalEventRow {
+    pub ts: i64,
+    pub date: String,   // YYYY-MM-DD（UTC+8）
+    pub code: String,
+    pub kind: String,   // trap / volume
+    pub name: String,
+    pub time: String,   // 日内时间锚点，日 K 类信号为空
+    pub dir: String,    // bull / bear
+    pub detail: String,
+    pub price: f64,     // 触发时价格（0 表示未记录，无法计算收益）
+}
+
 /// 本地历史库概况
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

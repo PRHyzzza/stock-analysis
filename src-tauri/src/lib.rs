@@ -125,6 +125,7 @@ pub fn run() {
             commands::record_watchlist_change,
             commands::get_kline_history,
             commands::get_db_stats,
+            commands::get_signal_events,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

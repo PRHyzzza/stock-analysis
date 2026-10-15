@@ -17,6 +17,7 @@ import ChipDistribution from "./components/ChipDistribution.vue";
 import BacktestModal from "./components/BacktestModal.vue";
 import PositionModal from "./components/PositionModal.vue";
 import PortfolioModal from "./components/PortfolioModal.vue";
+import SignalHistoryModal from "./components/SignalHistoryModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import IwencaiWindow from "./components/IwencaiWindow.vue";
@@ -196,6 +197,35 @@ function handlePortfolioOpenDetail(code) {
   selectStock({
     code: c,
     name: pos?.name || c,
+    market,
+    price: 0, change: 0, changePct: 0,
+    open: 0, high: 0, low: 0, prevClose: 0,
+    volume: 0, turnover: 0, turnoverRate: 0, pe: 0, amplitude: 0,
+  });
+}
+
+// ---- 历史信号胜率弹窗（本地历史库 signal_event 的读回路）----
+const showSignalHistoryModal = ref(false);
+function openSignalHistoryModal() { showSignalHistoryModal.value = true; }
+function closeSignalHistoryModal() { showSignalHistoryModal.value = false; }
+
+/**
+ * 历史信号面板点击某只股票 → 切到该股详情并关闭面板。
+ * 与组合面板同一套市场推断规则；此处没有持仓记录，故名称先用代码占位，
+ * selectStock 拉取行情后会以真实名称覆盖。
+ */
+function handleSignalHistoryOpenDetail(code) {
+  const c = String(code || "").replace(/\.(SH|SZ|BJ)$/i, "");
+  if (!c) return;
+  let market;
+  if (/^\d{5}$/.test(c)) market = "HK";
+  else if (/^(43|82|83|87|88|92)/.test(c)) market = "BJ";
+  else market = c.startsWith("6") ? "SH" : "SZ";
+
+  closeSignalHistoryModal();
+  selectStock({
+    code: c,
+    name: c,
     market,
     price: 0, change: 0, changePct: 0,
     open: 0, high: 0, low: 0, prevClose: 0,
@@ -660,6 +690,7 @@ onUnmounted(() => {
       @refresh="handleManualRefresh"
       @open-positions="openPositionsModal"
       @open-portfolio="openPortfolioModal"
+      @open-signal-history="openSignalHistoryModal"
       @open-profile="openProfileModal"
       @open-settings="openSettingsModal"
       @open-global-ai="openGlobalAiModal"
@@ -796,6 +827,13 @@ onUnmounted(() => {
       :show="showPortfolioModal"
       @close="closePortfolioModal"
       @open-detail="handlePortfolioOpenDetail"
+    />
+
+    <!-- 历史信号胜率弹窗（本地历史库 signal_event 读取 + 日K回看） -->
+    <SignalHistoryModal
+      :show="showSignalHistoryModal"
+      @close="closeSignalHistoryModal"
+      @open-detail="handleSignalHistoryOpenDetail"
     />
 
     <!-- 画像弹窗 -->

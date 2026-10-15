@@ -55,6 +55,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `usePositionAlerts` | 持仓止损/止盈提醒（**单例**，§7.12）：每股票每日每类型一次、仅交易时段、跨日重置内部基线 | 无（复用 `notify.js`） |
 | `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存，**缓存 key = 归一化问题 + perpage**——服务端忽略 page、perpage 决定行数，故不能只按问题缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
 | `useSignalBacktest` | 信号回测：读本地日 K 跑 8 条日线规则 × 4 持有期（非重叠交易，口径见 §7.19），本地不足 60 根或手动同步时补拉远端一次并落库；纯函数 `analyzeBars(bars, code)` 可单测；返回值另含每条规则的**当前状态**（`active` 末根是否触发 / `barsAgo` 距今天数 / `lastHitDate`），供面板「当前状态」区显示 | `get_kline_history` / `get_db_stats`（+ `get_stock_kline`） |
+| `useSignalHistory` | 历史信号胜率：读本地库 `signal_event`（**此前只写不读**）+ 逐只取日 K，按信号方向算 1/3/5/10 日持有期胜率 / 平均收益 / 盈亏比。纯函数 `inferDirection` / `forwardReturn` / `summarizeSamples` 可单测。与 `useSignalBacktest` 的区别和口径要求见 §7.26 | `get_signal_events` / `get_kline_history` |
 
 **纯计算**：`useTechIndicators`（MACD/KDJ/RSI/WR，交叉信号标注「N 根前」；AI 预计算注入复用）、`useChipDistribution`（筹码：最近 ≤480 根 K 线按价格分布，档位自适应保证每档 ≥0.01 元；**日K + 有换手率时按换手率衰减**——各根换手率 = 最新换手率 ×（该根量 ÷ 最新根量），无需流通股本，逐根留存系数 = 1 − 衰减系数×该根换手率，衰减系数默认 1；其余周期/缺换手率则不衰减并在 UI/AI 标注）、`useSupportResistance`（支撑/阻力）、`useT0Signals` + `useTrapSignals` + `useVolumeSignals`（T+0 信号/量价陷阱/量价信号，细节见文件注释；**趋势与 MACD 背离只吃日K**——非日K周期经 `klineCache` 取日K，取不到则跳过并披露）、`aiContext`（提示词构建，§3.4；周期口径随 `klinePeriod` 注入）
 
@@ -88,6 +89,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **持仓止损/止盈提醒**: `usePositionAlerts.js` — 按持仓成本价算涨跌幅，触及阈值即发系统通知（闭区间）；每股票每日每类型一次、仅交易时段；权限被拒时不标记已通知，以便恢复后重试；单例（§7.12）
 - **资金流向可视化**: `MoneyFlowModal` — 当日 5 档快照 + 近 30 日主力净流入柱状图（东财 push2his，万元）
 - **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——落库全部走旁路（§7.18）；表结构 / 保留期 / 日期口径见 §4.4
+- **历史信号胜率面板**: `SignalHistoryModal.vue` + `useSignalHistory.js` — 消费此前只写不读的 `signal_event`：把**真实落库过的**信号与之后真实走出的日 K 对照，给 1/3/5/10 日持有期的胜率 / 平均收益 / 盈亏比，并按信号名与股票分组。**胜负按信号方向判定**（看涨信号涨了算胜、看跌信号跌了算胜），方向未知的不计入胜率并单独披露；缺价格 / 缺日 K / 持有期超出 K 线长度的样本一律排除并展示覆盖度。口径与标注要求见 §7.26
 - **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），非重叠交易统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；顶部另有**当前状态**区（截至 `asOf` 末根 K 线，按「现在成立 / 近 10 日内出现过 / 未触发」分组，只含上述 8 条可回测规则），口径与标注要求见 §7.19
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **K线周期口径**: `utils/klinePeriod.js` 是周期标签 / 均线口径 / 非日K提示的唯一真源（§7.21）；技术分析、AI 分析、筹码弹窗均按当前周期标注口径，T+0 趋势与 MACD 背离只吃日K
@@ -127,6 +129,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `get_app_version` / `check_for_update` | 本地 / GitHub | 版本 / 更新（直连失败回退系统代理） |
 | `record_signal_events` / `record_alert_events` / `record_watchlist_change` | 本地库 | 前端上报信号 / 提醒触发 / 自选变更事件（去重键见 §4.4） |
 | `get_kline_history` / `get_db_stats` | 本地库 | 供回测读取日 K（升序，≤2000 根）/ 库概况（行数、只数、日期跨度、文件大小，另含各事件表今日条数与 `alertRowsDistinct`） |
+| `get_signal_events` | 本地库 | 读历史信号事件（按 `ts` 倒序，可选 `code`/`kind` 过滤，`limit` 默认 500 上限 5000），供历史信号胜率统计；**空串即不过滤**，SQL 用 `(?1='' OR ...)` 参数化，不拼串 |
 
 ### 4.2 数据源特征（quirk 唯一真源）
 
@@ -163,7 +166,7 @@ init(app_data_dir)  → create_dir_all → migrate(PRAGMA user_version) → prun
 | `signal_event` | UNIQUE (code, date, kind, name, time) | 180 天 |
 | `alert_event` / `watchlist_change` | 自增（不去重） | 180 天 |
 
-- 写入 API：`record_quotes` / `record_kline` / `record_money_flow(_history)` / `record_signal_events` / `record_alert_events` / `record_watchlist_change`；查询：`query_kline` / `stats()`。
+- 写入 API：`record_quotes` / `record_kline` / `record_money_flow(_history)` / `record_signal_events` / `record_alert_events` / `record_watchlist_change`；查询：`query_kline` / `query_signal_events` / `stats()`。
 - **旁路为准**（§7.18）：命令内的自动落库是 `void`（`silent()` 包一层，失败只 stderr）；`record_*_events` 三个命令返回 `Result`，但前端 `utils/history.js` 一律 `.catch(() => {})` 吞掉。全库不引 chrono，日期由 SQL `date('now','+8 hours')` 生成。
 - 事务写法：`conn.unchecked_transaction()` + 语句块 `{}` 包住 `prepare`，必须先于 `tx.commit()` 出作用域（否则借用冲突）。
 - 回测数据来源于 `kline` 表：K 线每次刷新都会整表 upsert，**本地历史随日常使用自然增厚**；`get_stock_kline` 远端只给 120 根（§4.2），故首次回测需点「同步更多历史」补齐。
@@ -211,9 +214,15 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 17. **窗口不可见必降频**: 隐藏信号取双来源——`document.visibilitychange` + Rust `main-window-hidden`/`main-window-shown`（`lib.rs`；WebView2 的 `visibilityState` 不保证随窗口隐藏同步）；新增轮询定时器一律走 `effectiveInterval()`
 18. **本地历史库是旁路**: 自动落库失败绝不能影响行情返回或提醒发送（`db.rs` 只 eprintln；`record_*_events` 前端 `utils/history.js` 一律吞掉）；新增埋点写 `db.rs` + 命令转发
 19. **回测口径必须如实标注**: `useSignalBacktest` 只回测日线级规则（T+0/量价陷阱/量价信号依赖分时，无法用日 K 回测）；UI 与文档须声明「非重叠交易 + 固定持有期 + 不含日内信号 + 样本少于 10 笔仅供参考」，禁止无标注展示回测胜率。面板的**当前状态**区只显示这 8 条可回测规则，不得把无法回测的日内信号混入；`active` 只看末根 K 线（不作为持有期收益口径），且必须与历史统计区视觉上分开，避免把「现在成立」误读成有胜率支撑
-20. **同一信号不重复入库**: `signal_event` 以 `UNIQUE (code, date, kind, name, time)` 去重，前端跳过缺 `name` 的信号——新增信号类型必须自带稳定 `name`
+20. **同一信号不重复入库**: `signal_event` 以 `UNIQUE (code, date, kind, name, time)` 去重，前端跳过缺 `name` 的信号——新增信号类型必须自带稳定 `name`。另外**方向字段必须能落库**：`dir` 取值顺序 `dir → action → type`（见 §7.27），新增信号类型若用别的字段名承载 bull/bear，必须同步改 `utils/history.js`，否则该信号永远算不出胜率且不会有任何报错
 21. **K线周期口径**: `klineData` 是全应用共享且可切周期的序列（`klinePeriod` ∈ m5/m15/m30/m60/day/week/month）——消费它的计算与提示词必须显式带上周期，标签与均线口径一律取自 `utils/klinePeriod.js`，禁止硬编码「日K / 5 日均线」；只吃日K的逻辑（T+0 趋势、MACD 背离）改走 `utils/klineCache.js` 的日K缓存，取不到就跳过并如实披露，不得拿周线均线冒充日线
 22. **筹码口径必须如实标注**: 筹码分布是「成交量按价格分布」的**估算**，不是真实持仓成本。换手率衰减只在**日K + 取到换手率**时启用（`useChipDistribution.chipOptionsFromQuote`，逐根留存系数 = 1 − 衰减系数×换手率，衰减系数默认 1，各根换手率由量比折算，无需流通股本）；未启用（分钟/周/月K、缺换手率、停牌无量）时必须说清「未做换手率衰减，老筹码占比偏高」，启用的还要标出所用最新换手率（`chipData.decayTurnoverRate`）——UI（`ChipDistribution.vue`）与 AI 注入（`aiContext.js`）都要按 `chipData.decayed` 取文案，禁止无标注展示筹码峰/获利比例
 23. **持仓行情写入必须走白名单**: `usePositions.updatePositionQuote` 禁止用 `{...pos, ...quote}` 展开合并——只能逐字段拷贝行情字段（`price/prevClose/change/changePct/high/low/open/turnoverRate/pe/amplitude/volume/turnover/quoteAt`）。理由：用户手填字段（`name`/`quantity`/`buyPrice`/阈值）一旦与行情对象同名字段碰撞就会被静默覆盖，且 `prevClose` 正是在此约定下才得以持久化——**没有 `prevClose` 就没有当日盈亏**。用户级字段改动一律走 `updatePositionFields`
 24. **组合统计不得用成本价替代缺失行情**: 当日盈亏 = Σ(现价 − 昨收) × 数量 × 汇率，缺 `prevClose` 的持仓必须计入 `dayProfit.missing` 且**不进涨跌家数**，其 `dayChangePct` 置 `null`（不得回退到成本价，否则会把「没有数据」伪装成「涨跌为 0」）；行业覆盖率不足时同样按 `coveragePct`/`unknownCount` 披露，禁止静默丢弃未覆盖持仓
 25. **提醒接线禁用空 catch 掩盖类型错误**: `App.vue` 中提醒调用普遍写成 `checkXxx(...).catch(() => {})`（§7.18 旁路容错），但这会把**接线层的 TypeError 一并吞掉**——曾有 `positionAlertCodes.value.includes`（该变量是普通数组，无 `.value`）导致止损止盈提醒整体失效且无任何报错。新增提醒接线后必须核对变量类型，并以「真实触发一次」验证链路，不能只依赖 `pnpm build` 通过
+26. **历史信号胜率 ≠ 策略胜率，且必须按信号方向判定**:
+    - **性质区分**：`useSignalBacktest` 是**规则回测**（把日线规则在历史上重放，与用户是否看过无关，样本 = 规则触发次数）；`useSignalHistory` 是**实盘记录统计**（只统计真的落库过的信号，即用户当时确实打开过该股分时图，样本天然稀疏且存在选择偏差）。UI 与 AI 注入都**必须**写明「本页是真实记录信号的统计，样本稀疏且存在选择偏差，不等于策略胜率」，禁止表述为「策略胜率 / 该信号胜率」
+    - **收益口径**：`signal_event` 记录的是**日内**信号（带 `time` 锚点），但分时数据不落库，因此收益一律按**日 K 收盘价**估算，必须标注「按日K收盘估算」，不得声称是分时级收益。持有期为 1/3/5/10 个**交易日**；持有期超出已有 K 线长度的样本判为 `insufficient` 并排除，**不得**用最后一根 K 线兜底
+    - **方向判定是正确性核心**：胜负按信号方向对齐——`bull` 信号涨了算胜、`bear` 信号跌了算胜（`summarizeSamples` 内部对 bear 取负）。`dir` 缺失时按名称关键词推断（`inferDirection`）；**推断不出必须返回 `unknown` 并排除在胜率之外**，绝不能默认成看涨——那会让胜率凭空偏向有利方向
+    - **必须披露覆盖度**：缺价格（`price <= 0`）、缺日 K、方向未知的样本都要计数并展示（`coverage` / `stats.unknownDir`）；`judged < 10` 时标注「样本不足」；`profitFactor` 在无亏损样本时必须为 `null`（不得返回 `Infinity`），所有无意义统计量在 UI 上显示 `--` 而非 `NaN`
+27. **落信号方向必须兼容 `type` 字段**: `utils/history.js` 的 `dir` 取值顺序为 `dir → action → type`（`pickDir`）。理由：`useVolumeSignals` 只产出 `{time,name,type,desc,level}`，**`type` 就是真实方向**（bull/bear），没有 `dir`/`action`；`useT0Signals.js:499` 透传的 `volumeSignals` 也只有 `time/name/type`。修复前只认 `dir → action`，导致 `放量急拉⚠`/`放量急跌⚠`/`无量拉升⚠` 三个带 `level="warn"` 的前瞻预警**方向被静默丢弃**，落库 `dir=""` → 计入 `unknownDir` → 永远进不了胜率（实测 volume 链路 unknown 3/7 → 修复后 0/7）。**安全性依据**：两条落库链路形状互斥——trap 链路（`useT0Signals.js:359`）产出 `action` + `trapType` 且**没有** `type` 字段，故不会误把 `trapType` 当方向。若将来新增的信号同时带 `type` 与非方向语义，必须改为**按 kind 区分**，不得继续依赖回退顺序
