@@ -16,6 +16,7 @@ import GlobalAiModal from "./components/GlobalAiModal.vue";
 import ChipDistribution from "./components/ChipDistribution.vue";
 import BacktestModal from "./components/BacktestModal.vue";
 import PositionModal from "./components/PositionModal.vue";
+import PortfolioModal from "./components/PortfolioModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import IwencaiWindow from "./components/IwencaiWindow.vue";
@@ -32,6 +33,7 @@ import { useUserProfileSingleton } from "./composables/useUserProfile";
 import { useWatchlistNotifications } from "./composables/useWatchlistNotifications";
 import { useMaAlerts } from "./composables/useMaAlerts";
 import { usePriceAlerts } from "./composables/usePriceAlerts";
+import { usePositionAlerts } from "./composables/usePositionAlerts";
 import { useChildWindows } from "./composables/useChildWindows";
 import { useGlobalShortcuts } from "./composables/useGlobalShortcuts";
 import { useSettings } from "./composables/useSettings";
@@ -169,6 +171,38 @@ async function handleEditPosition(pos) {
 function openPositionsModal() { showPositionsModal.value = true; }
 function closePositionsModal() { showPositionsModal.value = false; }
 
+// ---- 持仓组合弹窗（组合视角：当日盈亏 / 权重 / 集中度 / 行业分布）----
+const showPortfolioModal = ref(false);
+function openPortfolioModal() { showPortfolioModal.value = true; }
+function closePortfolioModal() { showPortfolioModal.value = false; }
+
+/**
+ * 组合面板点击某只持仓 → 切到该股详情并关闭组合面板。
+ *
+ * selectStock 需要完整的 stock 对象（不是裸 code），此处按项目统一的市场推断规则
+ * 构造：5 位=港股，43/82/83/87/88/92 开头=北交所，6 开头=沪市，其余=深市。
+ * 行情字段先置 0，随后 selectStock 内部会立即拉取真实行情覆盖。
+ */
+function handlePortfolioOpenDetail(code) {
+  const c = String(code || "").replace(/\.(SH|SZ|BJ)$/i, "");
+  if (!c) return;
+  let market;
+  if (/^\d{5}$/.test(c)) market = "HK";
+  else if (/^(43|82|83|87|88|92)/.test(c)) market = "BJ";
+  else market = c.startsWith("6") ? "SH" : "SZ";
+
+  const pos = positions.value.find((p) => p.code === c);
+  closePortfolioModal();
+  selectStock({
+    code: c,
+    name: pos?.name || c,
+    market,
+    price: 0, change: 0, changePct: 0,
+    open: 0, high: 0, low: 0, prevClose: 0,
+    volume: 0, turnover: 0, turnoverRate: 0, pe: 0, amplitude: 0,
+  });
+}
+
 // ---- 画像弹窗 ----
 const showProfileModal = ref(false);
 function openProfileModal() { showProfileModal.value = true; }
@@ -190,6 +224,14 @@ const {
 const { checkAndNotify, prevPrices } = useWatchlistNotifications();
 const { configs: maAlerts, checkMaAlerts, removeConfig } = useMaAlerts();
 const { alerts: priceAlerts, checkPriceAlerts } = usePriceAlerts();
+// 持仓止损/止盈提醒（第 4 套通知）：configs 为 { [code]: {stopLossPct, takeProfitPct} }
+const {
+  configs: positionAlertConfigs,
+  checkPositionAlerts,
+  setConfig: setPositionAlertConfig,
+  getConfig: getPositionAlertConfig,
+  removeConfig: removePositionAlertConfig,
+} = usePositionAlerts();
 const { state: settings } = useSettings();
 // 交易日历（A 股，识别法定节假日/调休；无 Key 时降级为周末判断）
 const { init: initTradingCalendar } = useTradingCalendar();
@@ -525,6 +567,8 @@ async function refreshAllQuotes() {
   const priceAlertCodes = [
     ...new Set(priceAlerts.value.filter((a) => a.enabled).map((a) => a.code)),
   ];
+  // 已配置止损/止盈阈值的持仓（用于下方按持仓逐只检查）
+  const positionAlertCodes = Object.keys(positionAlertConfigs.value);
   const codes = [...new Set([...watchlist.value.map((s) => s.code), ...maCodes, ...priceAlertCodes])];
   if (codes.length > 0) {
     const quotes = await loadQuotesBatch(codes);
@@ -560,6 +604,15 @@ async function refreshAllQuotes() {
     const quotes = await loadQuotesBatch(posCodes);
     if (quotes) {
       quotes.forEach((quote) => updatePositionQuote(quote.code, quote));
+      // 持仓止损/止盈检查：只对配置过阈值的持仓逐只判断，未配置的直接跳过
+      // 通知失败（权限/系统异常）静默忽略，不影响行情刷新
+      const positioned = new Map(positions.value.map((p) => [p.code, p]));
+      quotes.forEach((quote) => {
+        const pos = positioned.get(quote.code);
+        if (pos && positionAlertCodes.includes(quote.code)) {
+          checkPositionAlerts(quote, pos, settings).catch(() => {});
+        }
+      });
     }
   }
   // 同时刷新当前选中股票的资金流向（历史数据走内部 2 分钟节流，避免高频请求）
@@ -606,6 +659,7 @@ onUnmounted(() => {
       :refreshing="refreshing"
       @refresh="handleManualRefresh"
       @open-positions="openPositionsModal"
+      @open-portfolio="openPortfolioModal"
       @open-profile="openProfileModal"
       @open-settings="openSettingsModal"
       @open-global-ai="openGlobalAiModal"
@@ -735,6 +789,13 @@ onUnmounted(() => {
       @add="handleAddPosition"
       @edit="handleEditPosition"
       @remove="removePosition"
+    />
+
+    <!-- 持仓组合弹窗（组合视角：当日盈亏/权重/集中度/行业分布） -->
+    <PortfolioModal
+      :show="showPortfolioModal"
+      @close="closePortfolioModal"
+      @open-detail="handlePortfolioOpenDetail"
     />
 
     <!-- 画像弹窗 -->

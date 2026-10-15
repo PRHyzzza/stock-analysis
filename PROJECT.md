@@ -51,6 +51,8 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useIndustryData` / `useMarketIndices` | 行业 / 指数 | `get_stock_industry` / `get_market_indices` |
 | `useAiAnalysis` | AI 对话：Agent 循环 10 轮上限、流式切股代际守卫、@代码/热榜选股、注入预计算指标 | `call_llm(_stream)` |
 | `usePositions` / `useUserProfile` | 持仓+盈亏（港股汇率换算）/ 画像读写 | `get_fx_rate` / `read_save_user_profile` |
+| `usePortfolio` | 组合面板聚合（**纯计算，不发请求**）：多币种折算、当日盈亏（只用 `prevClose`，缺则 `dayProfit.missing` 计数并置 `dayChangePct=null`，**绝不用成本价凑数**）、权重/HHI 集中度、行业分布（`ensureIndustries` 懒抓 + 缓存，失败只记录不抛）、资产类别拆分、加权 PE、止损止盈阈值判定（闭区间：恰好等于阈值同样触发）；行业未覆盖时按 `coveragePct`/`unknownCount` 如实披露 | 无（行业经注入的 `fetchIndustry` 回调走 `get_stock_industry`） |
+| `usePositionAlerts` | 持仓止损/止盈提醒（**单例**，§7.12）：每股票每日每类型一次、仅交易时段、跨日重置内部基线 | 无（复用 `notify.js`） |
 | `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存，**缓存 key = 归一化问题 + perpage**——服务端忽略 page、perpage 决定行数，故不能只按问题缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
 | `useSignalBacktest` | 信号回测：读本地日 K 跑 8 条日线规则 × 4 持有期（非重叠交易，口径见 §7.19），本地不足 60 根或手动同步时补拉远端一次并落库；纯函数 `analyzeBars(bars, code)` 可单测；返回值另含每条规则的**当前状态**（`active` 末根是否触发 / `barsAgo` 距今天数 / `lastHitDate`），供面板「当前状态」区显示 | `get_kline_history` / `get_db_stats`（+ `get_stock_kline`） |
 
@@ -82,6 +84,8 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **持仓**: 30s 刷新盈亏，AI 对话注入；港股（5 位代码）按汇率换算
 - **画像**: md 存 `app_data_dir`；AI 后台增量更新（10min 节流 + 短消息跳过，写串行化）
 - **三套通知**（自选/均线/价格，共用 `utils/marketTime.js` + `notify.js` + `klineCache.js`）: 每股票每日每类型一次、仅交易时段、跨日重置快照防隔夜跳空误报；价格提醒支持突破/跌破目标价 + 放量条件，一次性/每日模式；均线/价格提醒为单例（§7.12）
+- **持仓组合面板**: `PortfolioModal.vue` + `usePortfolio.js` — 组合总览（市值/当日盈亏/累计盈亏、涨跌家数、加权 PE）、权重与集中度（HHI、前 N 大）、行业分布（覆盖不足时如实标注）、资产类别拆分（A 股/港股）；行内点「查看」跳个股。**当日盈亏只用昨收**，缺昨收的持仓计入 `missing` 且不进涨跌家数（§7.23）。行业标签懒抓且失败不影响面板其余部分（`get_stock_industry` 对非港股会整条命令失败，故必须容错）
+- **持仓止损/止盈提醒**: `usePositionAlerts.js` — 按持仓成本价算涨跌幅，触及阈值即发系统通知（闭区间）；每股票每日每类型一次、仅交易时段；权限被拒时不标记已通知，以便恢复后重试；单例（§7.12）
 - **资金流向可视化**: `MoneyFlowModal` — 当日 5 档快照 + 近 30 日主力净流入柱状图（东财 push2his，万元）
 - **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——落库全部走旁路（§7.18）；表结构 / 保留期 / 日期口径见 §4.4
 - **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），非重叠交易统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；顶部另有**当前状态**区（截至 `asOf` 末根 K 线，按「现在成立 / 近 10 日内出现过 / 未触发」分组，只含上述 8 条可回测规则），口径与标注要求见 §7.19
@@ -210,3 +214,6 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 20. **同一信号不重复入库**: `signal_event` 以 `UNIQUE (code, date, kind, name, time)` 去重，前端跳过缺 `name` 的信号——新增信号类型必须自带稳定 `name`
 21. **K线周期口径**: `klineData` 是全应用共享且可切周期的序列（`klinePeriod` ∈ m5/m15/m30/m60/day/week/month）——消费它的计算与提示词必须显式带上周期，标签与均线口径一律取自 `utils/klinePeriod.js`，禁止硬编码「日K / 5 日均线」；只吃日K的逻辑（T+0 趋势、MACD 背离）改走 `utils/klineCache.js` 的日K缓存，取不到就跳过并如实披露，不得拿周线均线冒充日线
 22. **筹码口径必须如实标注**: 筹码分布是「成交量按价格分布」的**估算**，不是真实持仓成本。换手率衰减只在**日K + 取到换手率**时启用（`useChipDistribution.chipOptionsFromQuote`，逐根留存系数 = 1 − 衰减系数×换手率，衰减系数默认 1，各根换手率由量比折算，无需流通股本）；未启用（分钟/周/月K、缺换手率、停牌无量）时必须说清「未做换手率衰减，老筹码占比偏高」，启用的还要标出所用最新换手率（`chipData.decayTurnoverRate`）——UI（`ChipDistribution.vue`）与 AI 注入（`aiContext.js`）都要按 `chipData.decayed` 取文案，禁止无标注展示筹码峰/获利比例
+23. **持仓行情写入必须走白名单**: `usePositions.updatePositionQuote` 禁止用 `{...pos, ...quote}` 展开合并——只能逐字段拷贝行情字段（`price/prevClose/change/changePct/high/low/open/turnoverRate/pe/amplitude/volume/turnover/quoteAt`）。理由：用户手填字段（`name`/`quantity`/`buyPrice`/阈值）一旦与行情对象同名字段碰撞就会被静默覆盖，且 `prevClose` 正是在此约定下才得以持久化——**没有 `prevClose` 就没有当日盈亏**。用户级字段改动一律走 `updatePositionFields`
+24. **组合统计不得用成本价替代缺失行情**: 当日盈亏 = Σ(现价 − 昨收) × 数量 × 汇率，缺 `prevClose` 的持仓必须计入 `dayProfit.missing` 且**不进涨跌家数**，其 `dayChangePct` 置 `null`（不得回退到成本价，否则会把「没有数据」伪装成「涨跌为 0」）；行业覆盖率不足时同样按 `coveragePct`/`unknownCount` 披露，禁止静默丢弃未覆盖持仓
+25. **提醒接线禁用空 catch 掩盖类型错误**: `App.vue` 中提醒调用普遍写成 `checkXxx(...).catch(() => {})`（§7.18 旁路容错），但这会把**接线层的 TypeError 一并吞掉**——曾有 `positionAlertCodes.value.includes`（该变量是普通数组，无 `.value`）导致止损止盈提醒整体失效且无任何报错。新增提醒接线后必须核对变量类型，并以「真实触发一次」验证链路，不能只依赖 `pnpm build` 通过

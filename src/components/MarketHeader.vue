@@ -4,7 +4,7 @@ defineProps({
   refreshing: { type: Boolean, default: false },
 });
 
-defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open-global-ai", "open-iwencai"]);
+defineEmits(["refresh", "open-positions", "open-portfolio", "open-profile", "open-settings", "open-global-ai", "open-iwencai"]);
 </script>
 
 <template>
@@ -38,6 +38,12 @@ defineEmits(["refresh", "open-positions", "open-profile", "open-settings", "open
           <rect x="6" y="8" width="4" height="5" rx="0.4" stroke="currentColor" stroke-width="1.2"/>
         </svg>
         <span>持仓</span>
+      </button>
+      <button class="btn-positions" @click="$emit('open-portfolio')" title="持仓组合（当日盈亏 / 权重 / 集中度）">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 13V9M6 13V4M10 13V7M14 13V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>组合</span>
       </button>
       <button class="btn-positions" @click="$emit('open-iwencai')" title="问财选股">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

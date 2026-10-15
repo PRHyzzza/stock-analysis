@@ -88,12 +88,48 @@ export function usePositions() {
     positions.value = [...positions.value];
   }
 
+  /**
+   * 写入实时行情快照。
+   *
+   * 刻意把行情字段与用户录入字段分开存放：行情每次刷新整体覆盖，用户字段（成本/数量/
+   * 止损止盈阈值等）永不被行情覆盖。早期实现用 `{...pos, ...quote}`，一旦行情对象将来
+   * 带上同名字段（如 name/quantity）就会静默改写用户数据，故保留白名单拷贝。
+   *
+   * 注意：`prevClose` / `changePct` / `turnoverRate` / `pe` 会被组合面板
+   * （usePortfolio）用于当日盈亏与估值统计，必须落盘。
+   */
   function updatePositionQuote(code, quote) {
     const idx = positions.value.findIndex((p) => p.code === code);
-    if (idx !== -1) {
-      positions.value[idx] = { ...positions.value[idx], ...quote };
-      positions.value = [...positions.value];
-    }
+    if (idx === -1) return;
+    const q = quote || {};
+    positions.value[idx] = {
+      ...positions.value[idx],
+      price: Number(q.price) || 0,
+      prevClose: Number(q.prevClose) || 0,
+      change: Number(q.change) || 0,
+      changePct: Number(q.changePct) || 0,
+      high: Number(q.high) || 0,
+      low: Number(q.low) || 0,
+      open: Number(q.open) || 0,
+      turnoverRate: Number(q.turnoverRate) || 0,
+      pe: Number(q.pe) || 0,
+      amplitude: Number(q.amplitude) || 0,
+      volume: Number(q.volume) || 0,
+      turnover: Number(q.turnover) || 0,
+      quoteAt: Date.now(),
+    };
+    positions.value = [...positions.value];
+  }
+
+  /**
+   * 更新用户级字段（成本/数量/买入日期等），不触碰行情快照字段。
+   * 用于持仓表单编辑与止损止盈阈值等用户设置。
+   */
+  function updatePositionFields(code, fields) {
+    const idx = positions.value.findIndex((p) => p.code === code);
+    if (idx === -1) return;
+    positions.value[idx] = { ...positions.value[idx], ...fields };
+    positions.value = [...positions.value];
   }
 
   // ── 盈亏计算（原始币种）──
@@ -156,6 +192,7 @@ export function usePositions() {
     addPosition,
     removePosition,
     updatePositionQuote,
+    updatePositionFields,
   };
   return _instance;
 }
