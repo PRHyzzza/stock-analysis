@@ -63,8 +63,9 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().expect("bundle icon missing").clone())
+            // 托盘图标缺失（打包资源不全/自定义构建）时不要 panic 让整个应用起不来：
+            // 退化为无图标托盘，菜单与点击行为保持不变
+            let mut tray = TrayIconBuilder::new()
                 .tooltip("stock-analysis")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -82,8 +83,12 @@ pub fn run() {
                     {
                         show_main_window(tray.app_handle());
                     }
-                })
-                .build(app)?;
+                });
+            match app.default_window_icon() {
+                Some(icon) => tray = tray.icon(icon.clone()),
+                None => eprintln!("[tray] 未找到应用图标，托盘以无图标模式运行"),
+            }
+            tray.build(app)?;
             Ok(())
         })
         // 关闭主窗口 → 隐藏到托盘（不退出）；迷你窗口关闭仍为正常关闭

@@ -1,4 +1,6 @@
 <script setup>
+import { num, fmtPctOrDash, trendClass } from "../utils/format";
+
 defineProps({
   indices: { type: Array, default: () => [] },
   refreshing: { type: Boolean, default: false },
@@ -15,11 +17,11 @@ defineEmits(["refresh", "open-positions", "open-portfolio", "open-signal-history
           <span v-if="i > 0" class="index-divider"></span>
           <span class="index-item">
             <span class="index-name">{{ idx.name }}</span>
-            <span class="index-value" :class="idx.price === 0 ? '' : idx.change >= 0 ? 'up' : 'down'">
-              {{ idx.price === 0 ? '--' : idx.price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+            <span class="index-value" :class="num(idx.price) ? trendClass(idx.change) : ''">
+              {{ num(idx.price) ? idx.price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--' }}
             </span>
-            <span class="index-change" :class="idx.price === 0 ? '' : idx.change >= 0 ? 'up' : 'down'">
-              {{ idx.price === 0 ? '--' : (idx.changePct > 0 ? '+' : '') + idx.changePct.toFixed(2) + '%' }}
+            <span class="index-change" :class="num(idx.price) ? trendClass(idx.change) : ''">
+              {{ num(idx.price) ? fmtPctOrDash(idx.changePct) : '--' }}
             </span>
           </span>
         </template>

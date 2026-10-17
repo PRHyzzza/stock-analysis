@@ -260,7 +260,7 @@ function switchHold(h) {
                 <td class="num">{{ row.signalCount }}</td>
                 <td class="num">{{ row.stat?.trades ?? 0 }}</td>
                 <td class="num">
-                  <template v-if="row.stat?.trades">
+                  <template v-if="row.stat?.decided">
                     <div class="bt-winrate">
                       <span :style="{ color: winRateColor(row.stat.winRate) }">
                         {{ row.stat.winRate.toFixed(1) }}%
@@ -270,7 +270,9 @@ function switchHold(h) {
                       </span>
                     </div>
                     <div class="bt-low" v-if="row.stat.trades < MIN_SAMPLE">样本不足</div>
+                    <div class="bt-low" v-if="row.stat.flats > 0">{{ row.stat.flats }} 笔平盘未计入</div>
                   </template>
+                  <span v-else-if="row.stat?.trades" class="bt-muted">平盘</span>
                   <span v-else class="bt-muted">—</span>
                 </td>
                 <td class="num" :style="{ color: pctColor(row.stat?.avgRet) }">
@@ -292,7 +294,8 @@ function switchHold(h) {
 
           <p class="bt-note">
             口径：信号日收盘买入、持有 N 个交易日后收盘卖出，<b>持有期内不重复开仓</b>（非重叠交易）；
-            胜率 = 盈利笔数 / 总笔数，平均收益 = 单笔平均涨跌幅，盈亏比 = 平均盈利 / 平均亏损（等权、未计手续费与滑点）。
+            胜率 = 盈利笔数 /（盈利 + 亏损笔数），平盘（收益恰为 0）不进退分母，
+            平均收益 = 单笔平均涨跌幅，盈亏比 = 平均盈利 / 平均亏损（等权、未计手续费与滑点）。
             样本少于 {{ MIN_SAMPLE }} 笔的结果仅供参考。
             当前版本仅回测<b>日线级</b>规则——T+0 / 量价陷阱等日内信号依赖分时数据，不在本表范围内。
             顶部「当前状态」只表示<b>最后一根日 K</b> 上各规则是否触发，与下方持有期胜率相互独立，

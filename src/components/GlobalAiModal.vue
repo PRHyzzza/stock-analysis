@@ -1,7 +1,8 @@
 <script setup>
-import { ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useAiAnalysis } from "../composables/useAiAnalysis";
+import { HOT_STOCK_LIMIT } from "../composables/aiContext";
 import AiApiKeySetup from "./ai/AiApiKeySetup.vue";
 import AiChatMessages from "./ai/AiChatMessages.vue";
 import AiChatFooter from "./ai/AiChatFooter.vue";
@@ -29,11 +30,20 @@ const {
   switchGlobal,
 } = useAiAnalysis(true);
 
-// 弹窗打开时加载全局对话
+/** 热榜扫描轮次令牌：关闭弹窗/组件卸载/重新扫描时自增，令在途的逐只请求与发送立即失效 */
+let hotScanRound = 0;
+
+// 弹窗打开时加载全局对话；关闭时作废在途的热榜扫描
 watch(() => props.show, (val) => {
   if (val) {
     switchGlobal();
+  } else {
+    hotScanRound++;
   }
+});
+
+onUnmounted(() => {
+  hotScanRound++;
 });
 
 const inputText = ref("");
@@ -74,10 +84,13 @@ async function analyzeHotList() {
   }
   hotScanning.value = true;
   error.value = "";
+  // 本次扫描的轮次号：被关闭/重开/卸载取代后，后续请求与发送全部作废
+  const round = ++hotScanRound;
   try {
     // 1. 获取热榜（全部股票）
     const hot = await invoke("get_hot_list");
     const list = hot.stock_list || [];
+    if (round !== hotScanRound) return;
     if (!list.length) {
       error.value = "热榜数据为空，请稍后重试";
       return;
@@ -90,17 +103,22 @@ async function analyzeHotList() {
       quotes = (await invoke("get_stock_quotes_batch", { codes })) || [];
     } catch { /* 行情失败则跳过该维度 */ }
     const quoteMap = new Map(quotes.map((q) => [q.code, q]));
+    if (round !== hotScanRound) return;
 
     // 3. 主力资金流向 + 日K线（并发 6，单只失败不影响整体）
-    const flows = await mapLimit(codes, 6, (code) =>
-      invoke("get_stock_money_flow", { code })
+    // 只扫注入上下文的前 HOT_STOCK_LIMIT 只：超出部分不会进提示词，逐只拉取纯属白耗 IPC
+    const scanCodes = codes.slice(0, HOT_STOCK_LIMIT);
+    const flows = await mapLimit(scanCodes, 6, (code) =>
+      round !== hotScanRound ? null : invoke("get_stock_money_flow", { code })
     );
-    const flowMap = new Map(codes.map((c, i) => [c, flows[i]]));
+    if (round !== hotScanRound) return;
+    const flowMap = new Map(scanCodes.map((c, i) => [c, flows[i]]));
 
-    const klines = await mapLimit(codes, 6, (code) =>
-      invoke("get_stock_kline", { code, period: "day" })
+    const klines = await mapLimit(scanCodes, 6, (code) =>
+      round !== hotScanRound ? null : invoke("get_stock_kline", { code, period: "day" })
     );
-    const klineMap = new Map(codes.map((c, i) => [c, klines[i]]));
+    if (round !== hotScanRound) return;
+    const klineMap = new Map(scanCodes.map((c, i) => [c, klines[i]]));
 
     // 4. 组装热榜上下文（行情 + 资金流 + K线摘要）
     const hotStocks = list.map((item) => {
@@ -129,10 +147,11 @@ async function analyzeHotList() {
     });
 
     // 5. 发送给 AI 分析（热榜数据已注入系统上下文）
+    if (round !== hotScanRound) return;
     inputText.value = "";
     await sendGlobalMessage(
-      `请遍历热榜全部 ${hotStocks.length} 只股票，找出其中值得买入的股票，要符合短线。\n` +
-      `热榜排名、实时行情、主力资金流向、日K线（含均线）已随对话预加载（见系统数据），直接分析即可，无需重复调用工具。\n` +
+      `本次热榜共 ${hotStocks.length} 只，系统已注入排名前 ${Math.min(hotStocks.length, HOT_STOCK_LIMIT)} 只的排名、实时行情、主力资金流向与日K线（含均线）。\n` +
+      `请仅基于这 ${Math.min(hotStocks.length, HOT_STOCK_LIMIT)} 只已注入的数据，找出其中值得短线买入的股票；未注入的股票不要臆测。\n` +
       `要求：\n` +
       `1. 一定要结合主力资金净流入、换手率、热度排名变化、涨跌幅、概念题材、K线趋势与均线位置综合判断\n` +
       `2. **只输出值得买入的股票**，按代码+名称列出，每只说明买入逻辑（资金面 / 人气面 / 题材面 / 技术面）\n` +
@@ -145,7 +164,7 @@ async function analyzeHotList() {
   } catch (e) {
     error.value = `热榜分析失败: ${e.message || e}`;
   } finally {
-    hotScanning.value = false;
+    if (round === hotScanRound) hotScanning.value = false;
   }
 }
 
@@ -215,6 +234,10 @@ async function handleSend() {
   const text = inputText.value.trim();
   if (!text || loading.value) return;
 
+  // 先取出并清空输入框，再 await 行情请求：
+  // 否则请求返回前用户再次 Enter 会用同一段文本重复发送
+  inputText.value = "";
+
   // 解析 @代码 → 拉取实时行情作为快捷引用上下文
   const atCode = parseAtCode(text);
   if (atCode && quickStock.value?.code !== atCode) {
@@ -228,8 +251,6 @@ async function handleSend() {
     }
   }
 
-  inputText.value = "";
-
   try {
     // 注入大盘指数 + 用户持仓 + 快捷股票上下文
     await sendGlobalMessage(text, quickStock.value, {
@@ -238,7 +259,9 @@ async function handleSend() {
     });
   } catch (e) {
     if (e.message === "NO_API_KEY") {
+      // 未配置 Key：把原文放回输入框，配 Key 后用户无需重输
       showApiKeyInput.value = true;
+      if (!inputText.value) inputText.value = text;
     }
   } finally {
     // @代码快捷引用只对当前消息生效：发送后清除，
@@ -335,10 +358,11 @@ watch(
   }
 );
 
-// API Key 配置完成后，若有未消费的选股结果注入请求则自动重试
-watch(showApiKeyInput, (v) => {
-  if (!v || !props.show) return;
-  if (props.screeningRequest) analyzeScreening(props.screeningRequest);
+// API Key 配置完成后（showApiKeyInput 由 true → false），若有未消费的选股结果注入请求则自动重试
+watch(showApiKeyInput, (v, old) => {
+  if (v || !old) return;
+  if (!props.show || !props.screeningRequest) return;
+  analyzeScreening(props.screeningRequest);
 });
 
 function doSuggestion(text) {

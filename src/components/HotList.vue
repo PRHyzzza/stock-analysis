@@ -1,6 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { inferMarket } from "../utils/market";
+import { effectiveInterval, onIntervalModeChange } from "../utils/refreshInterval";
+
+/** 热榜轮询间隔（窗口不可见时由 effectiveInterval 降频） */
+const POLL_MS = 60000;
 
 const props = defineProps({
   watchlist: { type: Array, default: () => [] },
@@ -43,12 +48,11 @@ async function loadHotList() {
 function selectStock(item) {
   selectedCode.value = item.code;
   // 选中并显示到右侧面板
-  // 注意：同花顺 market 字段 17=沪市、33=深市（与下方 marketLabel 一致），
-  // 不能误用 1/0 判断（原实现 === 1 恒为 false，所有沪市股被标成 SZ）
+  // 市场按代码判定（inferMarket），同花顺 market 数值字段不再作为依据
   const stock = {
     code: item.code,
     name: item.name,
-    market: marketLabel(item.market),
+    market: marketLabel(item),
     price: 0,
     change: 0,
     changePct: item.rise_and_fall,
@@ -77,8 +81,8 @@ function rankChgClass(chg) {
   return "rank-flat";
 }
 
-function marketLabel(market) {
-  return market === 17 ? "SH" : "SZ";
+function marketLabel(item) {
+  return inferMarket(item.code);
 }
 
 function isInWatchlist(code) {
@@ -86,15 +90,28 @@ function isInWatchlist(code) {
 }
 
 let refreshTimer;
+let unsubscribeIntervalMode = null;
+
+function stopTimer() {
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+}
+
+/** 按当前可见性重建定时器（先清旧定时器，保证只有一份） */
+function startTimer() {
+  stopTimer();
+  refreshTimer = setInterval(loadHotList, effectiveInterval(POLL_MS));
+}
 
 onMounted(() => {
   loadHotList();
-  // 每 60 秒刷新
-  refreshTimer = setInterval(loadHotList, 60000);
+  startTimer();
+  unsubscribeIntervalMode = onIntervalModeChange(startTimer);
 });
 
 onUnmounted(() => {
-  clearInterval(refreshTimer);
+  stopTimer();
+  if (unsubscribeIntervalMode) unsubscribeIntervalMode();
 });
 </script>
 
@@ -135,8 +152,8 @@ onUnmounted(() => {
             <div class="hot-name-row">
               <span class="item-name">{{ item.name }}</span>
               <span class="item-code">{{ item.code }}</span>
-              <span class="hot-market" :class="item.market === 17 ? 'market-sh' : 'market-sz'">{{
-                marketLabel(item.market) }}</span>
+              <span class="hot-market" :class="`market-${marketLabel(item).toLowerCase()}`">{{
+                marketLabel(item) }}</span>
             </div>
             <div class="hot-tags" v-if="item.tags?.length">
               <span class="hot-tag" v-for="tag in item.tags.slice(0, 2)" :key="tag" @click.stop="selectTag(tag)">{{ tag
@@ -391,6 +408,16 @@ onUnmounted(() => {
 .market-sz {
   background: var(--apricot-wash);
   color: var(--rust);
+}
+
+.market-bj {
+  background: var(--sage-wash);
+  color: var(--sage);
+}
+
+.market-hk {
+  background: var(--violet-wash, var(--sky-wash));
+  color: var(--violet, #7c3aed);
 }
 
 /* 标签行 */

@@ -87,10 +87,28 @@ function scrollToBottom() {
   }
 }
 
+// markdown 渲染缓存：流式期间列表每个 token 都会重渲染，已落定的消息文本不变，
+// 缓存消毒后的 HTML 可把「全量重复解析」降为 O(1)；限制条数防止内存无限增长
+const MD_CACHE_LIMIT = 50;
+const mdCache = new Map();
+
 function renderMarkdown(text) {
   if (!text) return "";
+  const cached = mdCache.get(text);
+  if (cached !== undefined) return cached;
   // marked 默认透传原始 HTML（AI 回答含联网抓取内容，不可信），必须 DOMPurify 消毒
-  return DOMPurify.sanitize(marked.parse(text));
+  const html = DOMPurify.sanitize(marked.parse(text));
+  mdCache.set(text, html);
+  if (mdCache.size > MD_CACHE_LIMIT) {
+    mdCache.delete(mdCache.keys().next().value); // 丢弃最早条目
+  }
+  return html;
+}
+
+// 深度思考框的滚动容器：在 v-for 内用函数式 ref 绑定，
+// 避免模板 ref 在循环里被收集成数组导致 scrollTop 写入失效
+function setReasoningEl(el) {
+  if (el) reasoningEl.value = el;
 }
 
 /** 现价格式化（NaN/空显示 --） */
@@ -167,9 +185,11 @@ defineExpose({ scrollToBottom });
               <span class="thinking-dot"></span>
               <span>深度思考中...</span>
             </div>
-            <div v-if="msg._reasoning" ref="reasoningEl" class="thinking-reasoning">{{ msg._reasoning }}</div>
+            <div v-if="msg._reasoning" :ref="setReasoningEl" class="thinking-reasoning">{{ msg._reasoning }}</div>
           </div>
-          <!-- 正常渲染 markdown -->
+          <!-- 流式中：纯文本直出（每 token 只做插值，不解析 markdown） -->
+          <div v-else-if="msg._streaming" class="msg-text plain-stream">{{ msg.content }}</div>
+          <!-- 落定后：一次性渲染 markdown -->
           <div v-else class="msg-text markdown-body" v-html="renderMarkdown(msg.content)"></div>
 
           <!-- 选股/推荐结果卡片（render_stock_picks 渲染） -->
@@ -331,6 +351,12 @@ defineExpose({ scrollToBottom });
   font-size: 14px;
   line-height: 1.6;
   color: var(--text-primary);
+}
+
+/* 流式中的纯文本：保留换行，避免 DOM 结构随 token 变化 */
+.ai-msg .msg-text.plain-stream {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .ai-msg .msg-text :deep(pre) {

@@ -1,6 +1,7 @@
 /// 腾讯财经数据源
-use crate::helpers::{is_hk_stock, to_tencent_code};
+use crate::helpers::{is_hk_stock, normalize_code, to_tencent_code};
 use crate::types::{IntradayData, IntradayItem, KlineItem, MarketIndex, MoneyFlow, SearchResult, StockQuote};
+use futures_util::StreamExt;
 use regex::Regex;
 
 /// 获取个股实时行情（来自腾讯财经）
@@ -120,40 +121,86 @@ fn parse_a_quote_fields(code: &str, fields: &[String]) -> StockQuote {
     }
 }
 
-/// 批量获取 A 股实时行情（腾讯批量接口，一次请求多只，大幅减少 HTTP 请求数）
-/// 港股逐只走 fetch_stock_quote（分时接口，实时性要求高）
+/// 批量获取行情：港股逐只走分时接口（实时性要求高），A 股走批量接口（每次 ≤50 只）。
+/// 单只/单批失败不再丢弃整批：保留成功部分、记录失败代码，全部失败才返回 Err。
+/// 返回顺序与请求一致（用 slots 按输入下标回填，失败的位置留空）。
 pub async fn fetch_stock_quotes_batch(codes: &[String]) -> Result<Vec<StockQuote>, String> {
     if codes.is_empty() {
         return Ok(vec![]);
     }
     let client = super::build_http_client()?;
-    let mut results = Vec::with_capacity(codes.len());
+    let mut slots: Vec<Option<StockQuote>> = vec![None; codes.len()];
+    let mut failed: Vec<String> = Vec::new();
 
-    // 港股逐只（延迟接口无法批量，走分时实时接口）
-    for code in codes.iter().filter(|c| is_hk_stock(c)) {
-        match fetch_stock_quote(code).await {
-            Ok(q) => results.push(q),
-            Err(e) => eprintln!("批量行情: 港股 {} 失败: {}", code, e),
+    // 港股逐只（延迟接口无法批量，走分时实时接口）：并发上限 4，
+    // 否则自选股里港股一多，刷新就退化成串行请求
+    // 这里持有 owned 代码（不借用 codes），否则 async 闭包对 &&String 的
+    // 生命周期要求过强，命令宏展开处会报「FnOnce is not general enough」
+    let hk_codes: Vec<(usize, String)> = codes
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| is_hk_stock(c))
+        .map(|(i, c)| (i, c.clone()))
+        .collect();
+    if !hk_codes.is_empty() {
+        let mut stream = futures_util::stream::iter(hk_codes.into_iter().map(|(i, code)| async move {
+            (i, fetch_stock_quote(&code).await)
+        }))
+        .buffer_unordered(4);
+        while let Some((i, res)) = stream.next().await {
+            match res {
+                Ok(q) => slots[i] = Some(q),
+                Err(e) => {
+                    eprintln!("批量行情: 港股 {} 失败: {}", codes[i], e);
+                    failed.push(codes[i].clone());
+                }
+            }
         }
     }
 
     // A 股批量（每批最多 50 只，避免 URL 过长）
-    let a_codes: Vec<&String> = codes.iter().filter(|c| !is_hk_stock(c)).collect();
+    let a_codes: Vec<(usize, &String)> = codes
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| !is_hk_stock(c))
+        .collect();
+    // 代码 → 请求下标（同一代码重复出现时也要全部回填）
+    let mut pos_map: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    for (i, c) in &a_codes {
+        pos_map.entry(normalize_code(c)).or_default().push(*i);
+    }
+
     let line_re = Regex::new(r#"v_[a-z0-9]+="([^"]*)""#).expect("正则编译失败");
     for chunk in a_codes.chunks(50) {
-        let t_codes: Vec<String> = chunk.iter().map(|c| to_tencent_code(c)).collect();
+        let t_codes: Vec<String> = chunk.iter().map(|(_, c)| to_tencent_code(c)).collect();
         let url = format!("https://qt.gtimg.cn/q={}", t_codes.join(","));
-        let resp = client
+        let resp = match client
             .get(&url)
             .header("Referer", "https://qt.gtimg.cn/")
             .send()
             .await
-            .map_err(|e| format!("批量请求腾讯行情失败: {}", e))?;
-        let bytes = resp.bytes().await.map_err(|e| format!("读取响应失败: {}", e))?;
+        {
+            Ok(r) => r,
+            Err(e) => {
+                // 单批请求失败不影响其它批次
+                eprintln!("批量行情: 本批 {} 只请求失败: {}", chunk.len(), e);
+                failed.extend(chunk.iter().map(|(_, c)| (*c).clone()));
+                continue;
+            }
+        };
+        let bytes = match resp.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("批量行情: 本批 {} 只读取响应失败: {}", chunk.len(), e);
+                failed.extend(chunk.iter().map(|(_, c)| (*c).clone()));
+                continue;
+            }
+        };
         let (text, _, _) = encoding_rs::GBK.decode(&bytes);
         let text = text.to_string();
 
         // 每行格式: v_sh600519="1~贵州茅台~600519~...";
+        let mut returned: std::collections::HashSet<String> = std::collections::HashSet::new();
         for caps in line_re.captures_iter(&text) {
             let fields: Vec<String> = caps[1].split('~').map(|s| s.to_string()).collect();
             // 失败行（v_pv_none_match）字段过少，跳过
@@ -165,10 +212,49 @@ pub async fn fetch_stock_quotes_batch(codes: &[String]) -> Result<Vec<StockQuote
             if code.is_empty() {
                 continue;
             }
-            results.push(parse_a_quote_fields(&code, &fields));
+            let norm = normalize_code(&code);
+            let Some(positions) = pos_map.get(&norm) else {
+                // 接口混入未请求的代码：忽略
+                continue;
+            };
+            let quote = parse_a_quote_fields(&code, &fields);
+            for &pos in positions {
+                slots[pos] = Some(quote.clone());
+            }
+            returned.insert(norm);
+        }
+
+        // 本批里没返回行的代码记为失败（接口偶发漏行）
+        for (_, c) in chunk {
+            if !returned.contains(&normalize_code(c)) {
+                eprintln!("批量行情: A 股 {} 未返回数据", c);
+                failed.push((*c).clone());
+            }
         }
     }
-    Ok(results)
+
+    let quotes = collect_in_request_order(slots);
+    if quotes.is_empty() {
+        return Err(format!(
+            "批量行情全部失败（请求 {} 只，失败 {} 只），详见日志",
+            codes.len(),
+            failed.len()
+        ));
+    }
+    if !failed.is_empty() {
+        eprintln!(
+            "[tencent] 批量行情部分失败: {}/{} 只（{}）",
+            failed.len(),
+            codes.len(),
+            failed.join(",")
+        );
+    }
+    Ok(quotes)
+}
+
+/// 按请求顺序收集批量结果（None = 该位置失败，直接跳过）
+fn collect_in_request_order(slots: Vec<Option<StockQuote>>) -> Vec<StockQuote> {
+    slots.into_iter().flatten().collect()
 }
 
 /// 获取大盘指数实时行情
@@ -235,33 +321,41 @@ pub async fn fetch_money_flow(code: &str) -> Result<MoneyFlow, String> {
     }
 
     // 金额可能带「亿/万」后缀（如 1.23亿），统一转为万元；占比为纯数字
-    let parse_money = |idx: usize| -> f64 {
-        let raw = fields.get(idx).unwrap_or(&"0").trim();
-        if raw.is_empty() { return 0.0; }
-        if raw.ends_with('亿') {
-            raw.trim_end_matches('亿').parse::<f64>().unwrap_or(0.0) * 10000.0
-        } else if raw.ends_with('万') {
-            raw.trim_end_matches('万').parse::<f64>().unwrap_or(0.0)
-        } else {
-            raw.parse::<f64>().unwrap_or(0.0)
-        }
-    };
-    let pct = |idx: usize| -> f64 {
-        fields.get(idx).unwrap_or(&"0").trim().parse::<f64>().unwrap_or(0.0)
-    };
+    let money_at = |idx: usize| -> f64 { parse_money(fields.get(idx).unwrap_or(&"0")) };
+    let pct_at = |idx: usize| -> f64 { parse_pct(fields.get(idx).unwrap_or(&"0")) };
 
     Ok(MoneyFlow {
-        main_net_inflow: parse_money(6),
-        main_net_pct: pct(8),
-        super_large_net: parse_money(14),
-        super_large_pct: pct(16),
-        large_net: parse_money(22),
-        large_pct: pct(24),
-        medium_net: parse_money(30),
-        medium_pct: pct(32),
-        small_net: parse_money(38),
-        small_pct: pct(40),
+        main_net_inflow: money_at(6),
+        main_net_pct: pct_at(8),
+        super_large_net: money_at(14),
+        super_large_pct: pct_at(16),
+        large_net: money_at(22),
+        large_pct: pct_at(24),
+        medium_net: money_at(30),
+        medium_pct: pct_at(32),
+        small_net: money_at(38),
+        small_pct: pct_at(40),
     })
+}
+
+/// 腾讯资金流向金额字段：可能带「亿/万」后缀，统一换算为万元
+fn parse_money(raw: &str) -> f64 {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return 0.0;
+    }
+    if let Some(v) = raw.strip_suffix('亿') {
+        v.parse::<f64>().unwrap_or(0.0) * 10000.0
+    } else if let Some(v) = raw.strip_suffix('万') {
+        v.parse::<f64>().unwrap_or(0.0)
+    } else {
+        raw.parse::<f64>().unwrap_or(0.0)
+    }
+}
+
+/// 腾讯资金流向占比字段：纯数字（缺失按 0 处理）
+fn parse_pct(raw: &str) -> f64 {
+    raw.trim().parse::<f64>().unwrap_or(0.0)
 }
 
 /// 将 `\uXXXX` 转义序列还原为 Unicode 字符
@@ -278,10 +372,11 @@ fn unescape_unicode(s: &str) -> String {
 /// 搜索股票（来自腾讯智能搜索）
 pub async fn fetch_search_results(keyword: &str) -> Result<Vec<SearchResult>, String> {
     let client = super::build_http_client()?;
-    let url = format!("https://smartbox.gtimg.cn/s3/?q={}&t=all", keyword);
 
     let resp = client
-        .get(&url)
+        .get("https://smartbox.gtimg.cn/s3/")
+        // 关键词可能是中文或含 & = 空格 等字符，交给 reqwest 做 URL 编码
+        .query(&[("q", keyword), ("t", "all")])
         .header("Referer", "https://smartbox.gtimg.cn/")
         .send()
         .await
@@ -314,14 +409,44 @@ pub async fn fetch_search_results(keyword: &str) -> Result<Vec<SearchResult>, St
     Ok(results)
 }
 
+/// 校验 K 线周期（白名单）。未知周期此前会被静默当成日 K（qfqday），
+/// 这里显式报错，避免调用方以为自己拿到的是 5 分钟/周线数据。
+pub(crate) fn normalize_period(period: &str) -> Result<&'static str, String> {
+    match period.trim().to_ascii_lowercase().as_str() {
+        "m5" => Ok("m5"),
+        "m15" => Ok("m15"),
+        "m30" => Ok("m30"),
+        "m60" => Ok("m60"),
+        "day" => Ok("day"),
+        "week" => Ok("week"),
+        "month" => Ok("month"),
+        other => Err(format!(
+            "不支持的 K 线周期: {}（可选 m5/m15/m30/m60/day/week/month）",
+            other
+        )),
+    }
+}
+
+/// K 线根数上限保护：缺省 120，最少 1 根，最多 1000 根（防止一次拉爆内存/接口）
+fn clamp_kline_limit(limit: Option<u32>) -> u32 {
+    limit.unwrap_or(120).clamp(1, 1000)
+}
+
 /// 获取个股 K 线数据（来自腾讯财经）
-/// period: "day" | "week" | "month" | "m5" | "m15" | "m30" | "m60"
+/// period: "day" | "week" | "month" | "m5" | "m15" | "m30" | "m60"（白名单，未知周期直接报错）
+/// limit: 单次根数，缺省 120，上限 1000（分钟 K 接口自身最多约 320 根）
 ///
 /// 分钟级周期（m5/m15/m30/m60）走 mkline 接口（无复权概念，数据键 = period 本身）；
 /// 日/周/月走 fqkline 接口（前复权，数据键 qfqday/qfqweek/qfqmonth）。
-pub async fn fetch_kline_data(code: &str, period: &str) -> Result<Vec<KlineItem>, String> {
+pub async fn fetch_kline_data(
+    code: &str,
+    period: &str,
+    limit: Option<u32>,
+) -> Result<Vec<KlineItem>, String> {
     use crate::helpers::parse_json_f64;
 
+    let period = normalize_period(period)?;
+    let limit = clamp_kline_limit(limit);
     let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
     let is_minute = matches!(period, "m5" | "m15" | "m30" | "m60");
@@ -333,14 +458,15 @@ pub async fn fetch_kline_data(code: &str, period: &str) -> Result<Vec<KlineItem>
 
     let url = if is_minute {
         // 分钟 K：mkline 接口，单次最多约 320 根（5分≈6.7 交易日，60分≈2.5 个月）
+        let minute_limit = limit.min(320);
         format!(
-            "https://ifzq.gtimg.cn/appstock/app/kline/mkline?param={},{},,320",
-            t_code, period
+            "https://ifzq.gtimg.cn/appstock/app/kline/mkline?param={},{},,{}",
+            t_code, period, minute_limit
         )
     } else {
         format!(
-            "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={},{},,,120,qfq",
-            t_code, period
+            "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={},{},,,{},qfq",
+            t_code, period, limit
         )
     };
 
@@ -598,4 +724,119 @@ pub async fn fetch_fx_rate() -> Result<f64, String> {
         return Err("汇率解析为零".to_string());
     }
     Ok(rate)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fake_fields() -> Vec<String> {
+        let mut fields = vec!["0".to_string(); 47];
+        fields[1] = "贵州茅台".to_string();
+        fields[2] = "600519".to_string();
+        fields[3] = "1700.00".to_string();
+        fields[4] = "1680.00".to_string();
+        fields[5] = "1690.00".to_string();
+        fields[6] = "1200".to_string();
+        fields[31] = "20.00".to_string();
+        fields[32] = "1.19".to_string();
+        fields[33] = "1710.00".to_string();
+        fields[34] = "1685.00".to_string();
+        fields[37] = "2040000".to_string();
+        fields[38] = "0.10".to_string();
+        fields[39] = "30.50".to_string();
+        fields[43] = "1.49".to_string();
+        fields
+    }
+
+    #[test]
+    fn parse_a_quote_fields_reads_expected_indices() {
+        let q = parse_a_quote_fields("600519", &fake_fields());
+        assert_eq!(q.code, "600519");
+        assert_eq!(q.name, "贵州茅台");
+        assert_eq!(q.price, 1700.0);
+        assert_eq!(q.prev_close, 1680.0);
+        assert_eq!(q.open, 1690.0);
+        assert_eq!(q.change, 20.0);
+        assert_eq!(q.change_pct, 1.19);
+        assert_eq!(q.high, 1710.0);
+        assert_eq!(q.low, 1685.0);
+        assert_eq!(q.turnover, 2_040_000.0);
+        assert_eq!(q.turnover_rate, 0.10);
+        assert_eq!(q.pe, 30.50);
+        assert_eq!(q.amplitude, 1.49);
+    }
+
+    #[test]
+    fn parse_a_quote_fields_tolerates_short_fields() {
+        // 失败行（如 v_pv_none_match）字段不足时不应 panic，默认 0
+        let q = parse_a_quote_fields("600519", &["1".to_string()]);
+        assert_eq!(q.price, 0.0);
+        assert_eq!(q.name, "");
+    }
+
+    #[test]
+    fn parse_money_handles_suffixes() {
+        assert_eq!(parse_money("1.23亿"), 12300.0);
+        assert_eq!(parse_money("-0.5万"), -0.5);
+        assert_eq!(parse_money(" 88.8 "), 88.8);
+        assert_eq!(parse_money(""), 0.0);
+        assert_eq!(parse_money("--"), 0.0);
+    }
+
+    #[test]
+    fn parse_pct_handles_garbage() {
+        assert_eq!(parse_pct("3.21"), 3.21);
+        assert_eq!(parse_pct(" -1.5 "), -1.5);
+        assert_eq!(parse_pct("abc"), 0.0);
+        assert_eq!(parse_pct(""), 0.0);
+    }
+
+    #[test]
+    fn normalize_period_accepts_whitelist_only() {
+        for p in ["day", "week", "month", "m5", "m15", "m30", "m60", " DAY ", "M5"] {
+            assert!(normalize_period(p).is_ok(), "应接受周期 {}", p);
+        }
+        for p in ["", "d1", "min", "year", "m1", "1d"] {
+            assert!(normalize_period(p).is_err(), "应拒绝周期 {}", p);
+        }
+        // 错误信息带可选值提示，便于前端直接展示
+        let msg = normalize_period("d1").unwrap_err();
+        assert!(msg.contains("d1") && msg.contains("m5"), "错误信息不完整: {msg}");
+    }
+
+    #[test]
+    fn clamp_kline_limit_bounds() {
+        assert_eq!(clamp_kline_limit(None), 120);
+        assert_eq!(clamp_kline_limit(Some(0)), 1);
+        assert_eq!(clamp_kline_limit(Some(1)), 1);
+        assert_eq!(clamp_kline_limit(Some(320)), 320);
+        assert_eq!(clamp_kline_limit(Some(1000)), 1000);
+        assert_eq!(clamp_kline_limit(Some(5000)), 1000);
+    }
+
+    #[test]
+    fn collect_in_request_order_skips_failed_slots() {
+        let quote = |code: &str| StockQuote {
+            code: code.to_string(),
+            name: code.to_string(),
+            price: 1.0,
+            prev_close: 1.0,
+            open: 1.0,
+            volume: 0.0,
+            turnover: 0.0,
+            change: 0.0,
+            change_pct: 0.0,
+            high: 1.0,
+            low: 1.0,
+            turnover_rate: 0.0,
+            pe: 0.0,
+            amplitude: 0.0,
+        };
+        let slots = vec![Some(quote("600519")), None, Some(quote("00700"))];
+        let out = collect_in_request_order(slots);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].code, "600519");
+        assert_eq!(out[1].code, "00700");
+    }
 }

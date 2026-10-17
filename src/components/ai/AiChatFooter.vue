@@ -13,6 +13,9 @@ defineProps({
 const emit = defineEmits(["send", "update:inputText", "keydown-catch", "remove-context"]);
 
 function onKeydown(e) {
+  // IME 组词中（如中文拼音候选未上屏）不发送、也不阻止默认行为：
+  // 否则 Enter 会被吞掉，候选词无法上屏
+  if (e.isComposing || e.keyCode === 229) return;
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     emit("send");

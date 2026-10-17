@@ -6,11 +6,20 @@ import SettingsTabRefresh from "./settings/SettingsTabRefresh.vue";
 import SettingsTabChart from "./settings/SettingsTabChart.vue";
 import SettingsTabAi from "./settings/SettingsTabAi.vue";
 import SettingsTabAbout from "./settings/SettingsTabAbout.vue";
+import ConfirmDialog from "./ConfirmDialog.vue";
 
 defineProps({ show: { type: Boolean, default: false } });
 const emit = defineEmits(["close"]);
 
 const { resetAll } = useSettings();
+
+/** 恢复默认二次确认（避免一键清空全部设置） */
+const showResetConfirm = ref(false);
+
+function confirmReset() {
+  resetAll();
+  showResetConfirm.value = false;
+}
 
 const tabs = [
   { key: "notify", label: "通知", icon: "🔔" },
@@ -77,12 +86,22 @@ function closeModal() { emit("close"); }
 
         <!-- 底部操作 -->
         <div class="modal-footer">
-          <button class="btn-reset" @click="resetAll">恢复默认</button>
+          <button class="btn-reset" @click="showResetConfirm = true">恢复默认</button>
           <button class="btn-close" @click="closeModal">完成</button>
         </div>
       </div>
     </div>
   </Teleport>
+
+  <ConfirmDialog
+    :show="showResetConfirm"
+    title="恢复默认设置"
+    message="将清除全部自定义设置并恢复默认值，确定继续？"
+    confirm-text="恢复默认"
+    danger
+    @confirm="confirmReset"
+    @cancel="showResetConfirm = false"
+  />
 </template>
 
 <style>
@@ -267,7 +286,24 @@ function closeModal() { emit("close"); }
   background: var(--ink);
   color: #fff;
 }
-.hidden-check { display: none; }
+/* 视觉隐藏但保留键盘可达/读屏可读（原 display:none 会让 checkbox 无法聚焦） */
+.hidden-check {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 键盘聚焦到隐藏 checkbox 时，让外层 chip 显示焦点环 */
+.ma-chip:has(.hidden-check:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
 </style>
 
 <style scoped>

@@ -31,8 +31,8 @@ export const HOLD_PERIODS = [1, 3, 5, 10];
  */
 export function inferDirection(dir, name) {
   const d = String(dir || "").trim().toLowerCase();
-  if (d === "bull" || d === "看涨" || d === "多") return "bull";
-  if (d === "bear" || d === "看跌" || d === "空") return "bear";
+  if (d === "bull" || d === "up" || d === "看涨" || d === "多") return "bull";
+  if (d === "bear" || d === "down" || d === "看跌" || d === "空") return "bear";
 
   const n = String(name || "");
   // 名称中含明确看跌词（陷阱/背离顶/破位/诱多 等）判为 bear
@@ -87,6 +87,9 @@ export function forwardReturn(signal, bars, holdDays) {
  * 方向 unknown 的样本不计入胜率（无法判断对错），但计入 `unknownDir` 单独披露，
  * 避免它们悄悄拉低或抬高胜率。
  *
+ * 平盘（方向对齐后收益恰为 0）单独计入 `flats`，**不进退分母**：否则 4 胜 4 负 2 平
+ * 会被摊成 40% 胜率，把真实五五开读成劣势。
+ *
  * @param {Array<{dir:string, retPct:number}>} samples
  */
 export function summarizeSamples(samples) {
@@ -95,33 +98,37 @@ export function summarizeSamples(samples) {
 
   if (judged.length === 0) {
     return {
-      samples: samples.length, judged: 0, wins: 0, losses: 0,
+      samples: samples.length, judged: 0, decided: 0, wins: 0, losses: 0, flats: 0,
       winRatePct: null, avgRetPct: null, avgWinPct: null, avgLossPct: null,
       profitFactor: null, bestPct: null, worstPct: null, unknownDir,
     };
   }
 
-  let wins = 0, sum = 0, winSum = 0, lossSum = 0, best = -Infinity, worst = Infinity;
+  let wins = 0, losses = 0, flats = 0, sum = 0, winSum = 0, lossSum = 0, best = -Infinity, worst = Infinity;
   for (const s of judged) {
     // 方向对齐后的收益：bear 信号跌了才是赚
     const aligned = s.dir === "bear" ? -s.retPct : s.retPct;
     sum += aligned;
-    if (aligned > 0) { wins++; winSum += aligned; } else { lossSum += -aligned; }
+    if (aligned > 0) { wins++; winSum += aligned; }
+    else if (aligned < 0) { losses++; lossSum += -aligned; }
+    else { flats++; } // 平盘：单独统计，不进退分母
     if (aligned > best) best = aligned;
     if (aligned < worst) worst = aligned;
   }
 
   const n = judged.length;
+  const decided = wins + losses;
   return {
     samples: samples.length,
     judged: n,
+    decided, // 真正参与胜率计算的条数（= 胜 + 负，不含平盘）
     wins,
-    // 平盘（aligned == 0）既不算胜也不算负，故 losses 用减法保证 wins+losses <= judged
-    losses: n - wins,
-    winRatePct: (wins / n) * 100,
+    losses,
+    flats,
+    winRatePct: decided > 0 ? (wins / decided) * 100 : null,
     avgRetPct: sum / n,
     avgWinPct: wins > 0 ? winSum / wins : null,
-    avgLossPct: lossSum > 0 ? lossSum / (n - wins) : null,
+    avgLossPct: losses > 0 ? lossSum / losses : null,
     // 盈亏比 = 总盈利 / 总亏损。无亏损时不可为 Infinity，无盈利时为 0（全是亏损，不是"不亏不赚"）。
     // 两者都用 null 表示"该比值无意义"，避免 UI 把 Infinity/0 当成真实比率展示。
     profitFactor: winSum > 0 && lossSum > 0 ? winSum / lossSum : null,
@@ -140,11 +147,16 @@ export function useSignalHistory() {
   const barsFailed = ref([]);    // 取不到日K的代码（如实披露，不静默丢弃）
   const scopedCode = ref("");    // 当前查看的股票（空 = 全库汇总）
 
+  /** 请求序号：切「全部↔单只」/ 连点刷新时只让最新一次响应落地（旧响应一律丢弃） */
+  let loadSeq = 0;
+
   /**
    * 拉取历史信号。`code` 为空则取全库（跨股票汇总）。
    * 失败时保留旧数据并置 error（PROJECT.md §7.16：刷新失败不清空）。
+   * @returns {Promise<boolean>} 本次结果是否落地（被更新请求取代时返回 false）
    */
   async function loadSignals({ code = "", kind = "", limit = 500 } = {}) {
+    const mySeq = ++loadSeq;
     loading.value = true;
     error.value = "";
     try {
@@ -153,13 +165,17 @@ export function useSignalHistory() {
         kind: kind || null,
         limit,
       });
+      if (mySeq !== loadSeq) return false; // 已有更新的请求，旧响应丢弃
       events.value = Array.isArray(rows) ? rows : [];
       scopedCode.value = code || "";
       loadedAt.value = Date.now();
+      return true;
     } catch (e) {
+      if (mySeq !== loadSeq) return false;
       error.value = String(e?.message || e || "读取历史信号失败");
+      return false;
     } finally {
-      loading.value = false;
+      if (mySeq === loadSeq) loading.value = false;
     }
   }
 

@@ -13,6 +13,19 @@ use crate::db;
 use std::fs;
 use tauri::Manager;
 
+/// 把同步的本地库/文件读写挪到阻塞线程池执行。
+/// db.rs 的 record_* / query_* 内部是 `Mutex<Connection>` + 同步 SQLite 调用，
+/// 直接在 async 命令里跑会占住 tokio worker 线程（落库慢时其它命令一起卡）。
+async fn blocking<T, F>(what: &'static str, f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("{}任务执行失败: {}", what, e))?
+}
+
 /// 用户画像持久化路径（app data dir 下的 user-profile.md）
 
 /// 获取个股行业数据（行业名称 + 行业分析）
@@ -35,18 +48,41 @@ pub async fn get_stock_industry(code: String) -> Result<IndustryData, String> {
         fetch_industry_analysis(&em_code),
     );
 
-    let industry_name = name_result?;
+    // 行业名称单独失败不阻断整条命令：行业分析本身可用，名称降级为空串由前端兜底
+    let industry_name = match name_result {
+        Ok(name) => name,
+        Err(e) => {
+            eprintln!("获取行业名称失败（降级为空）: {}", e);
+            String::new()
+        }
+    };
     let analysis = analysis_result?;
     let mut data = parse_industry_analysis(&code, &analysis);
-    data.industry_name = industry_name;
+    if !industry_name.is_empty() {
+        data.industry_name = industry_name;
+    }
     Ok(data)
 }
 
-/// 获取个股 K 线数据（日/周/月）
+/// 获取个股 K 线数据（日/周/月/分钟）
 #[tauri::command]
-pub async fn get_stock_kline(code: String, period: String) -> Result<Vec<KlineItem>, String> {
-    let items = fetch_kline_data(&code, &period).await?;
-    db::record_kline(&code, &period, &items);
+pub async fn get_stock_kline(
+    code: String,
+    period: String,
+    limit: Option<u32>,
+) -> Result<Vec<KlineItem>, String> {
+    // 周期先归一化（白名单），落库也统一用规范值，避免 "DAY"/"day" 混成两份历史
+    let period = crate::api::tencent::normalize_period(&period)?;
+    let items = fetch_kline_data(&code, period, limit).await?;
+    // 历史库是旁路：落库失败只记日志，不影响本次返回
+    let code_for_db = code.clone();
+    let period_for_db = period.to_string();
+    let items_for_db = items.clone();
+    blocking("K 线落库", move || {
+        db::record_kline(&code_for_db, &period_for_db, &items_for_db);
+        Ok(())
+    })
+    .await?;
     Ok(items)
 }
 
@@ -60,7 +96,12 @@ pub async fn get_stock_intraday(code: String) -> Result<IntradayData, String> {
 #[tauri::command]
 pub async fn get_stock_quote(code: String) -> Result<StockQuote, String> {
     let quote = fetch_stock_quote(&code).await?;
-    db::record_quotes(std::slice::from_ref(&quote));
+    let quote_for_db = quote.clone();
+    blocking("行情落库", move || {
+        db::record_quotes(std::slice::from_ref(&quote_for_db));
+        Ok(())
+    })
+    .await?;
     Ok(quote)
 }
 
@@ -181,7 +222,12 @@ pub async fn get_market_indices() -> Result<Vec<MarketIndex>, String> {
 #[tauri::command]
 pub async fn get_stock_quotes_batch(codes: Vec<String>) -> Result<Vec<StockQuote>, String> {
     let quotes = fetch_stock_quotes_batch(&codes).await?;
-    db::record_quotes(&quotes);
+    let quotes_for_db = quotes.clone();
+    blocking("批量行情落库", move || {
+        db::record_quotes(&quotes_for_db);
+        Ok(())
+    })
+    .await?;
     Ok(quotes)
 }
 
@@ -198,18 +244,30 @@ pub async fn get_stock_money_flow(code: String) -> Result<MoneyFlow, String> {
     // 先尝试腾讯 API
     match fetch_money_flow(&code).await {
         Ok(flow) => {
-            db::record_money_flow(&code, &flow);
+            record_money_flow_blocking(code, flow.clone()).await;
             return Ok(flow);
         }
         Err(e) => {
             // 如果腾讯返回 NO_DATA，尝试东方财富
             if e == "NO_DATA" {
                 let flow = fetch_money_flow_eastmoney(&code).await?;
-                db::record_money_flow(&code, &flow);
+                record_money_flow_blocking(code, flow.clone()).await;
                 return Ok(flow);
             }
             return Err(e);
         }
+    }
+}
+
+/// 资金流向落库是旁路：失败只打日志，不影响命令返回
+async fn record_money_flow_blocking(code: String, flow: MoneyFlow) {
+    if let Err(e) = blocking("资金流向落库", move || {
+        db::record_money_flow(&code, &flow);
+        Ok(())
+    })
+    .await
+    {
+        eprintln!("资金流向落库失败: {}", e);
     }
 }
 
@@ -220,7 +278,12 @@ pub async fn get_stock_money_flow_history(
     limit: Option<u32>,
 ) -> Result<Vec<MoneyFlowHistoryItem>, String> {
     let items = fetch_money_flow_history(&code, limit.unwrap_or(30)).await?;
-    db::record_money_flow_history(&code, &items);
+    let items_for_db = items.clone();
+    blocking("资金流向历史落库", move || {
+        db::record_money_flow_history(&code, &items_for_db);
+        Ok(())
+    })
+    .await?;
     Ok(items)
 }
 
@@ -250,10 +313,11 @@ pub async fn call_llm(
     tools: serde_json::Value,
     reasoning_effort: Option<String>,
     thinking_enabled: Option<bool>,
+    max_tokens: Option<u32>,
 ) -> Result<serde_json::Value, String> {
     let re = reasoning_effort.as_deref().unwrap_or("high");
     let te = thinking_enabled.unwrap_or(true);
-    call_llm_api(&api_key, &model, &messages, &tools, re, te).await
+    call_llm_api(&api_key, &model, &messages, &tools, re, te, max_tokens).await
 }
 
 /// 流式调用 LLM（通过 Tauri 事件推送结果）
@@ -267,6 +331,7 @@ pub async fn call_llm_stream(
     tools: serde_json::Value,
     reasoning_effort: Option<String>,
     thinking_enabled: Option<bool>,
+    max_tokens: Option<u32>,
 ) -> Result<(), String> {
     let re = reasoning_effort.as_deref().unwrap_or("high");
     let te = thinking_enabled.unwrap_or(true);
@@ -279,6 +344,7 @@ pub async fn call_llm_stream(
         &tools,
         re,
         te,
+        max_tokens,
     ).await
 }
 
@@ -299,20 +365,30 @@ fn profile_path(app_handle: &tauri::AppHandle) -> Result<std::path::PathBuf, Str
 
 /// 读取用户画像（返回 md 原文，不存在则返回空字符串）
 #[tauri::command]
-pub fn read_user_profile(app_handle: tauri::AppHandle) -> Result<String, String> {
-    let path = profile_path(&app_handle)?;
-    if path.exists() {
-        fs::read_to_string(&path).map_err(|e| format!("读取画像文件失败: {}", e))
-    } else {
-        Ok(String::new())
-    }
+pub async fn read_user_profile(app_handle: tauri::AppHandle) -> Result<String, String> {
+    // 文件 IO 走阻塞线程池，避免同步读盘卡住 async 命令
+    blocking("读取用户画像", move || {
+        let path = profile_path(&app_handle)?;
+        if path.exists() {
+            fs::read_to_string(&path).map_err(|e| format!("读取画像文件失败: {}", e))
+        } else {
+            Ok(String::new())
+        }
+    })
+    .await
 }
 
 /// 保存用户画像（覆盖写入 md 文件）
 #[tauri::command]
-pub fn save_user_profile(app_handle: tauri::AppHandle, content: String) -> Result<(), String> {
-    let path = profile_path(&app_handle)?;
-    fs::write(&path, &content).map_err(|e| format!("写入画像文件失败: {}", e))
+pub async fn save_user_profile(
+    app_handle: tauri::AppHandle,
+    content: String,
+) -> Result<(), String> {
+    blocking("保存用户画像", move || {
+        let path = profile_path(&app_handle)?;
+        fs::write(&path, &content).map_err(|e| format!("写入画像文件失败: {}", e))
+    })
+    .await
 }
 
 // ──────────────────────────────────────────
@@ -372,13 +448,13 @@ pub async fn get_iwencai_robot(
 /// 落信号事件（前端信号计算完成后回传；同 code/日期/类型/名称/时间锚点 自动去重）
 #[tauri::command]
 pub async fn record_signal_events(events: Vec<SignalEventInput>) -> Result<usize, String> {
-    db::record_signal_events(&events)
+    blocking("信号事件落库", move || db::record_signal_events(&events)).await
 }
 
 /// 落提醒事件（通知成功发送后回传，不去重：同一提醒多次触发是有效信息）
 #[tauri::command]
 pub async fn record_alert_events(events: Vec<AlertEventInput>) -> Result<usize, String> {
-    db::record_alert_events(&events)
+    blocking("提醒事件落库", move || db::record_alert_events(&events)).await
 }
 
 /// 落自选变更（action: add / remove）
@@ -388,7 +464,10 @@ pub async fn record_watchlist_change(
     code: String,
     name: String,
 ) -> Result<(), String> {
-    db::record_watchlist_change(&action, &code, &name)
+    blocking("自选变更落库", move || {
+        db::record_watchlist_change(&action, &code, &name)
+    })
+    .await
 }
 
 /// 读取本地历史 K 线（由 get_stock_kline 落库；本地不足时返回已有部分，由前端决定是否补拉）
@@ -398,13 +477,16 @@ pub async fn get_kline_history(
     period: String,
     limit: Option<u32>,
 ) -> Result<Vec<KlineItem>, String> {
-    db::query_kline(&code, &period, limit.unwrap_or(500))
+    blocking("读取历史 K 线", move || {
+        db::query_kline(&code, &period, limit.unwrap_or(500))
+    })
+    .await
 }
 
 /// 本地历史库概况（行数 / 日期范围 / 文件大小）
 #[tauri::command]
 pub async fn get_db_stats() -> Result<DbStats, String> {
-    db::stats()
+    blocking("读取库概况", db::stats).await
 }
 
 /// 读取历史信号事件（`code` / `kind` 为空串表示不过滤），供「实盘信号胜率」统计。
@@ -415,10 +497,45 @@ pub async fn get_signal_events(
     kind: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<SignalEventRow>, String> {
-    db::query_signal_events(
-        code.as_deref().filter(|s| !s.is_empty()),
-        kind.as_deref().filter(|s| !s.is_empty()),
-        limit.unwrap_or(500),
-    )
+    blocking("读取历史信号", move || {
+        db::query_signal_events(
+            code.as_deref().filter(|s| !s.is_empty()),
+            kind.as_deref().filter(|s| !s.is_empty()),
+            limit.unwrap_or(500),
+        )
+    })
+    .await
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compare_versions_orders_numerically() {
+        assert_eq!(compare_versions("0.1.4", "0.1.3"), 1);
+        assert_eq!(compare_versions("0.1.3", "0.1.4"), -1);
+        assert_eq!(compare_versions("1.0.0", "1.0.0"), 0);
+        // 长度不同按缺位补 0 比较
+        assert_eq!(compare_versions("1.2", "1.2.0"), 0);
+        assert_eq!(compare_versions("1.2.1", "1.2"), 1);
+        // 非数字段被忽略，不 panic
+        assert_eq!(compare_versions("1.0.0-beta", "1.0.0"), 0);
+        assert_eq!(compare_versions("", "0.0.1"), -1);
+    }
+
+    #[test]
+    fn index_name_covers_known_indices() {
+        assert_eq!(index_name("000001"), "上证指数");
+        assert_eq!(index_name("399006"), "创业板指");
+        assert_eq!(index_name("999999"), "未知指数");
+    }
+
+    #[test]
+    fn index_names_are_all_non_empty() {
+        for code in ["000001", "399001", "399006", "000300", "000688", "000905"] {
+            assert!(!index_name(code).is_empty(), "{} 名称不应为空", code);
+        }
+    }
+}

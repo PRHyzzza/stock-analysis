@@ -28,6 +28,7 @@
  */
 import { ref, computed, watch } from "vue";
 import { useSignalHistory, HOLD_PERIODS } from "../composables/useSignalHistory.js";
+import { trendClass } from "../utils/format.js";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -93,7 +94,10 @@ function openDetail(code) {
 
 /** 安全的统计对象取值（防御 stats 缺失） */
 function statOf(stats) {
-  return stats || { judged: 0, samples: 0, winRatePct: null, avgRetPct: null, profitFactor: null, unknownDir: 0 };
+  return stats || {
+    judged: 0, decided: 0, samples: 0, wins: 0, losses: 0, flats: 0,
+    winRatePct: null, avgRetPct: null, profitFactor: null, unknownDir: 0,
+  };
 }
 
 /** 百分比：null / NaN / Infinity → "--"（`Infinity` 必须显式拦掉，否则会渲染成 "Infinity%"） */
@@ -151,14 +155,6 @@ function kindLabel(kind) {
   if (kind === "trap") return "陷阱";
   if (kind === "volume") return "放量";
   return kind ? String(kind) : "未知";
-}
-
-/** 收益/平均收益 class（A 股习惯：涨红跌绿）；null 与 0 保持中性 */
-function trendClass(v) {
-  if (v == null) return "";
-  const n = Number(v);
-  if (!Number.isFinite(n) || n === 0) return "";
-  return n > 0 ? "up" : "down";
 }
 
 /** 统计行的最小样本判定 */
@@ -298,11 +294,15 @@ const noEvaluable = computed(() => totalEvents.value > 0 && evaluable.value === 
                         <span v-if="num(statOf(sh.statsByPeriod.value[p]).unknownDir) > 0" class="tag-unknown">
                           {{ num(statOf(sh.statsByPeriod.value[p]).unknownDir) }} 条方向未知未计入
                         </span>
+                        <span v-if="num(statOf(sh.statsByPeriod.value[p]).flats) > 0" class="tag-unknown">
+                          {{ num(statOf(sh.statsByPeriod.value[p]).flats) }} 条平盘未进退分母
+                        </span>
                       </span>
                     </div>
                   </div>
                   <p class="foot-note">
-                    样本数 = 可判定方向的条数 / 实际算出收益的条数；盈亏比 = 总盈利 ÷ 总亏损，
+                    样本数 = 可判定方向的条数 / 实际算出收益的条数；胜率 = 胜 ÷（胜 + 负），
+                    平盘（0 收益）不进退分母、单独标注；盈亏比 = 总盈利 ÷ 总亏损，
                     无亏损样本时显示 --。样本少于 {{ MIN_SAMPLE }} 笔仅供参考。
                   </p>
                 </section>

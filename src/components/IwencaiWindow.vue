@@ -123,6 +123,13 @@ onMounted(() => {
   });
 });
 
+/** 回车查询：IME 组词中（如拼音候选未上屏）不触发，避免吞掉候选词 */
+function onEnterSearch(e) {
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  doSearch();
+}
+
 /** 执行搜索（第 1 页）；同时把本次查询记入历史（快捷选股区） */
 function doSearch() {
   const q = question.value.trim();
@@ -196,6 +203,8 @@ async function optimizeQuery() {
       tools: [],
       reasoningEffort: "low",
       thinkingEnabled: false,
+      // 问财改写只需一句 JSON，256 tokens 足够（后端缺省 393216 太浪费）
+      maxTokens: 256,
     });
 
     const optimized = cleanOptimizedQuery(result?.choices?.[0]?.message?.content || "");
@@ -320,7 +329,7 @@ function cellText(v, col) {
           class="query-input"
           rows="4"
           placeholder="输入选股条件，如：非ST，市值大于50亿，量比大于1…"
-          @keydown.enter.exact.prevent="doSearch"
+          @keydown.enter.exact="onEnterSearch"
         ></textarea>
         <div class="query-actions">
           <!-- 预置示例（点击填充输入框） -->

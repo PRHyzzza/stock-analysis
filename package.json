@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "node --test \"scripts/*.test.mjs\"",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -22,9 +25,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.3",
     "@vitejs/plugin-vue": "^6.0.10",
-    "esbuild": "^0.28.2",
     "lightningcss": "^1.33.0",
-    "sharp": "^0.35.5",
     "vite": "^8.3.4"
   }
 }

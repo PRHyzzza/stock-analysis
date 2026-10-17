@@ -16,6 +16,10 @@ const props = defineProps({
   t0Summary: { type: Object, default: null },
   /** 当前图表模式（仅分时模式显示 T+0 徽标） */
   chartMode: { type: String, default: "intraday" },
+  /** 快照刷新失败但保留了旧数据（PROJECT.md §7.16） */
+  stale: { type: Boolean, default: false },
+  /** 历史柱状图刷新失败但保留了旧数据 */
+  historyStale: { type: Boolean, default: false },
 });
 
 /** 资金流向分档明细（超大单/大单/中单/小单） */
@@ -50,10 +54,10 @@ function t0DirectionTooltip(summary) {
     <div class="flow-header">
       <span class="flow-title">主力资金</span>
       <template v-if="moneyFlow">
-        <span class="flow-text" :class="(moneyFlow.mainNetInflow ?? 0) >= 0 ? 'inflow' : 'outflow'">
+        <span class="flow-text" :class="(moneyFlow.mainNetInflow ?? 0) > 0 ? 'inflow' : (moneyFlow.mainNetInflow ?? 0) < 0 ? 'outflow' : ''">
           {{ fmtMoney(moneyFlow.mainNetInflow) }}
         </span>
-        <span class="flow-pct-text" :class="(moneyFlow.mainNetInflow ?? 0) >= 0 ? 'inflow' : 'outflow'">
+        <span class="flow-pct-text" :class="(moneyFlow.mainNetInflow ?? 0) > 0 ? 'inflow' : (moneyFlow.mainNetInflow ?? 0) < 0 ? 'outflow' : ''">
           {{ fmtPct(moneyFlow.mainNetPct) }}
         </span>
       </template>
@@ -61,6 +65,7 @@ function t0DirectionTooltip(summary) {
         <span class="flow-text">--</span>
       </template>
       <span v-if="moneyFlowLoading" class="flow-loading">加载中...</span>
+      <span v-else-if="stale" class="flow-stale" title="本次刷新失败，展示的是上一次成功的数据">旧数据</span>
 
       <!-- T+0 信号 -->
       <template v-if="chartMode === 'intraday' && t0Summary && t0Summary.hasSignal">
@@ -87,16 +92,17 @@ function t0DirectionTooltip(summary) {
     <div v-if="moneyFlow" class="flow-tiers">
       <div class="flow-tier" v-for="tier in flowTiers" :key="tier.key">
         <span class="tier-name">{{ tier.label }}</span>
-        <span class="tier-value" :class="tier.net >= 0 ? 'inflow' : 'outflow'">
+        <span class="tier-value" :class="tier.net > 0 ? 'inflow' : tier.net < 0 ? 'outflow' : ''">
           {{ fmtMoney(tier.net) }}
         </span>
-        <span class="tier-pct" :class="tier.net >= 0 ? 'inflow' : 'outflow'">
+        <span class="tier-pct" :class="tier.net > 0 ? 'inflow' : tier.net < 0 ? 'outflow' : ''">
           {{ fmtPct(tier.pct) }}
         </span>
       </div>
     </div>
 
     <!-- 近 30 日主力净流入历史柱状图 -->
+    <div v-if="historyStale && !moneyFlowHistoryLoading" class="flow-stale flow-stale-history">历史数据刷新失败，展示上次结果</div>
     <MoneyFlowChart
       :data="moneyFlowHistory || []"
       :loading="moneyFlowHistoryLoading"
@@ -129,6 +135,22 @@ function t0DirectionTooltip(summary) {
 .flow-loading {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* 旧数据标注（PROJECT.md §7.16：刷新失败保留旧数据时必须标注） */
+.flow-stale {
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 0 5px;
+  line-height: 16px;
+  flex-shrink: 0;
+}
+
+.flow-stale-history {
+  display: inline-block;
+  margin: 4px 0 0;
 }
 
 /* T+0 信号内联 */

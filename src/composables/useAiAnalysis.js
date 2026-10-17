@@ -1,13 +1,16 @@
 import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { getMergedTools, getMergedToolImpl, getToolImpl, getMergedSystemPrompt } from "../skills/index.js";
+import { getMergedTools, getMergedToolImpl, getToolImpl } from "../skills/index.js";
 import { PICKS_MARKER } from "../skills/StockPicks.js";
-import { buildSystemPrompt, serializeContext, MARKET_RULES } from "./aiContext.js";
+import { buildSystemPrompt, serializeContext, MARKET_RULES, getSkillsPromptCached } from "./aiContext.js";
 import { callLlmStream } from "./llmClient.js";
 import { useUserProfileSingleton } from "./useUserProfile.js";
 import { useSettings } from "./useSettings.js";
 import { loadStockMessages, saveStockMessages, isStockInWatchlist } from "./aiMessageStore.js";
 
+// ⚠️ P2 已知风险：API Key 与对话历史均以明文存储在 WebView localStorage 中，
+// 仅依赖本机文件系统权限保护；共享账号/远程调试场景请自行评估。
+// 修复方向（未实现）：改用系统钥匙串（tauri-plugin-stronghold / keyring）存 Key。
 const API_KEY_KEY = "stock-analysis-ai-api-key";
 const MODEL_KEY = "stock-analysis-ai-model";
 const THINKING_ENABLED_KEY = "stock-analysis-ai-thinking";
@@ -29,12 +32,11 @@ function safeSetItem(key, value) {
   } catch { /* ignore quota errors */ }
 }
 
-/** 可用模型列表（value → label） */
+/** 可用模型列表（value → label）；默认值与 useSettings.DEFAULTS.aiModel 保持一致，避免首屏模型名空 */
 const AVAILABLE_MODELS = [
-  { value: "deepseek-flash", label: "DeepSeek Flash" },
+  { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
   // { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
 ];
-const DEFAULT_MODEL = "deepseek-flash";
 
 // ============ 从 Skills 架构加载工具 ============
 
@@ -63,6 +65,59 @@ function trimMessagesToBudget(messages, maxChars = 6000) {
   return result;
 }
 
+/** 各场景 max_tokens（后端缺省 393216，前端按场景收紧以控制成本与延迟） */
+const MAX_TOKENS_MAIN = 8192;    // 主对话 / Agent 循环
+const MAX_TOKENS_PROFILE = 512;  // 用户画像增量更新（固定三行输出）
+
+/**
+ * 单个工具结果的字符上限：分时一次约 3 万字符、K 线上万字符，
+ * 10 轮 Agent 循环全量重发会让上下文迅速膨胀，按工具类型截断
+ */
+const TOOL_RESULT_MAX_CHARS = {
+  get_stock_intraday: 6000,   // 分时约 240 点 → 约 60 点
+  get_stock_kline: 8000,      // K 线约 120 根 → 约 60 根
+  get_stock_money_flow: 3000,
+  get_hot_list: 6000,
+  web_fetch: 8000,
+  stock_screener: 8000,
+  get_stock_financial: 4000,
+};
+const DEFAULT_TOOL_MAX_CHARS = 6000;
+const OMIT_MARK = "\n…（内容过长，已省略；如需完整数据请缩小范围后重查）";
+
+/** 按工具名截断工具结果（保留头部关键字段，截断处显式标注「已省略」） */
+function truncateToolResult(fnName, result) {
+  const text = typeof result === "string" ? result : JSON.stringify(result ?? "");
+  const max = TOOL_RESULT_MAX_CHARS[fnName] ?? DEFAULT_TOOL_MAX_CHARS;
+  if (!text || text.length <= max) return text;
+  return text.slice(0, max) + OMIT_MARK;
+}
+
+/** 单次请求总字符预算（system + 历史 + 工具结果合计） */
+const CONTEXT_CHAR_BUDGET = 48000;
+const STUB_TOOL_CONTENT = "[已省略：较早的工具结果，超出上下文预算]";
+
+function contextChars(list) {
+  return list.reduce((n, m) => n + (typeof m.content === "string" ? m.content.length : 0), 0);
+}
+
+/**
+ * 上下文总预算裁剪：超限时把最旧的工具结果替换为占位文本。
+ * 不直接删除 tool 消息——tool_calls 与 role:tool 必须成对，删除会导致 API 报错
+ */
+function stubOldToolResults(list, maxChars = CONTEXT_CHAR_BUDGET) {
+  while (contextChars(list) > maxChars) {
+    // 用内容比对判断「已占位」，不给消息对象加内部字段——避免把 _stubbed 之类的
+    // 私有字段一起发到 API（部分实现会因未知字段 400）并写进本地会话存档
+    const idx = list.findIndex(
+      (m, i) => i > 0 && m.role === "tool" && m.content !== STUB_TOOL_CONTENT,
+    );
+    if (idx < 0) break;
+    list[idx] = { ...list[idx], content: STUB_TOOL_CONTENT };
+  }
+  return list;
+}
+
 /**
  * 构建全局 AI 对话的系统提示词（无股票上下文）
  * @param {string} userProfile - 用户画像 markdown
@@ -71,7 +126,7 @@ function trimMessagesToBudget(messages, maxChars = 6000) {
  * @param {boolean} webSearchEnabled - 联网搜索是否开启
  */
 function buildGlobalSystemPrompt(userProfile, currentStock = null, contextData = null, webSearchEnabled = true) {
-  const skillsPrompt = (() => { try { return getMergedSystemPrompt({ excludeSkills: webSearchEnabled ? [] : ["web-search"] }); } catch { return ""; } })();
+  const skillsPrompt = (() => { try { return getSkillsPromptCached(webSearchEnabled); } catch { return ""; } })();
   const preloaded = contextData ? serializeContext(contextData) : "";
   // 全局 AI 同样注入北京时间（模型需要知道"今天"才能判断新闻新旧）
   const beijingTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
@@ -89,7 +144,7 @@ function buildGlobalSystemPrompt(userProfile, currentStock = null, contextData =
 ${skillsPrompt}
 
 ## 联网搜索${webSearchEnabled ? `
-联网搜索已开启。遵循下方《联网搜索能力》规则：先拆实词关键词搜索、再叠加本地工具数据、最后综合回答（标注来源）；关键词只用实词，禁用泛词。搜不到就明确告知，不要编造新闻内容。` : `
+联网搜索已开启，但不是每次回答都要搜索：需要政策/公告/新闻等时效信息、用户明确要求查最新、或个股异动需要外部原因时才搜索；概念解释、交易规则等通用知识直接回答。需要搜索时先拆实词关键词（如「600519 一季报」），再叠加本地工具数据，回答标注来源；搜不到就明确告知，不要编造新闻内容。` : `
 联网搜索已关闭，不要尝试调用搜索工具，直接使用本地工具与已有知识回答。`}
 
 ## 用户画像
@@ -156,19 +211,30 @@ export function useAiAnalysis(globalMode = false) {
   watch(() => settings.aiWebSearchEnabled, (v) => { webSearchEnabled.value = v !== false; });
 
   // 自动持久化当前股票的消息（仅自选股才保存；全局模式始终保存）。
-  // 带 _injected 标记的外部注入消息（如问财选股结果解读）不持久化，避免污染对话历史
-  watch(messages, (val) => {
-    const persistable = val.filter((m) => !m._injected);
+  // 带 _injected 标记的外部注入消息（如问财选股结果解读）不持久化，避免污染对话历史。
+  // 流式生成期间每 token 都会触发 deep watch：此时只更新内存不落盘，
+  // 结束时统一落盘一次，避免数千次全量 JSON 序列化写 localStorage
+  let persistTimer = 0;
+  function persistNow() {
+    if (persistTimer) { clearTimeout(persistTimer); persistTimer = 0; }
+    const persistable = messages.value.filter((m) => !m._injected);
     if (globalMode && currentStockCode.value) {
       saveStockMessages(currentStockCode.value, persistable);
     } else if (currentStockCode.value && isStockInWatchlist(currentStockCode.value)) {
       saveStockMessages(currentStockCode.value, persistable);
     }
+  }
+  watch(messages, () => {
+    if (loading.value) return; // 流式期间只更新内存
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => { persistTimer = 0; persistNow(); }, 300);
   }, { deep: true });
 
   /** 切换到指定股票的对话 */
   function switchStock(code) {
     streamGeneration++; // 使在途流式请求失效（其回调/写入将被丢弃）
+    // 放开 loading：旧流虽仍在后台收尾，但代际已失效，不能阻塞新股票提问
+    loading.value = false;
     currentStockCode.value = code;
     messages.value = loadStockMessages(code);
     error.value = "";
@@ -229,6 +295,7 @@ AI: ${aiResponse}`;
           tools: [],
           reasoningEffort: "low",
           thinkingEnabled: false,
+          maxTokens: MAX_TOKENS_PROFILE,
         });
 
         const newContent = result?.choices?.[0]?.message?.content?.trim();
@@ -283,7 +350,8 @@ AI: ${aiResponse}`;
         ...recentMessages,
       ];
 
-      let currentMessages = [...allMessages];
+      // 总预算：system + 历史 + 工具结果合计超限时，从最旧的工具结果开始省略
+      let currentMessages = stubOldToolResults([...allMessages]);
       let finalContent = "";
       let emptySearchCount = 0;  // 连续空搜索计数
       let pendingPicks = null;   // render_stock_picks 拦截的卡片数据（附到最终回答）
@@ -296,8 +364,10 @@ AI: ${aiResponse}`;
         if (gen !== streamGeneration) return ""; // 已切换股票：静默放弃在途请求
 
         if (round === MAX_ROUNDS) {
+          // 用 role:"user" 而非 role:"system"：中途插入 system 消息在部分
+          // OpenAI 兼容实现里会被拒绝（只允许开头一条），user 消息是安全的
           currentMessages.push({
-            role: "system",
+            role: "user",
             content: "[系统提示] 已达到最大工具调用轮数(10)，请立即停止调用工具，直接基于已有信息给出最终回答。",
           });
         }
@@ -387,11 +457,11 @@ AI: ${aiResponse}`;
               currentMessages.push({
                 role: "tool",
                 tool_call_id: tc.id,
-                content: toolResult,
+                content: truncateToolResult(fnName, toolResult),
               });
               if (emptySearchCount >= 2) {
                 currentMessages.push({
-                  role: "system",
+                  role: "user",  // 中途插 system 部分兼容实现会拒绝，见 MAX_ROUNDS 处说明
                   content: "[系统提示] 已连续 2 次搜索无结果，请不要再尝试搜索。直接用已有数据或知识回答用户，告知「暂未找到相关信息」即可。",
                 });
               }
@@ -404,9 +474,12 @@ AI: ${aiResponse}`;
             currentMessages.push({
               role: "tool",
               tool_call_id: tc.id,
-              content: toolResult,
+              content: truncateToolResult(fnName, toolResult),
             });
           }
+
+          // 工具结果每轮全量重发会撑爆上下文：按总预算把最旧的工具结果替换为占位
+          stubOldToolResults(currentMessages);
 
           // 新一轮：重新清空流式占位（带守卫）
           const ph2 = messages.value[streamMsgIdx];
@@ -415,6 +488,12 @@ AI: ${aiResponse}`;
           // 没有工具调用（或已达轮数上限）→ 最终回答已在流式回调中填入
           if (gen !== streamGeneration) return "";
           finalContent = result.content || "";
+          // 后端流被上游中断（llm-done + warning）：内容是半截的，显式标注并提示可重试
+          if (result.interrupted) {
+            finalContent += `\n\n> ⚠️ 已中断（内容可能不完整）：${result.warning || "流式响应中断"}。可重试以获取完整回答。`;
+            const phInterrupted = messages.value[streamMsgIdx];
+            if (phInterrupted) phInterrupted.content = finalContent;
+          }
           break;
         }
       }
@@ -464,6 +543,8 @@ AI: ${aiResponse}`;
       throw e;
     } finally {
       loading.value = false;
+      // 流结束后统一落盘（流式期间 deep watch 跳过了持久化）；切股后不写旧对话
+      if (gen === streamGeneration) persistNow();
     }
   }
 
@@ -540,6 +621,7 @@ AI: ${aiResponse}`;
       reasoningEffort: reasoningEffort.value,
       messages: messagesList,
       tools,
+      maxTokens: MAX_TOKENS_MAIN,
       onDelta: onContentDelta,
     });
   }

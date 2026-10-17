@@ -5,7 +5,7 @@ import MoneyFlowModal from "./MoneyFlowModal.vue";
 import AlertsModal from "./AlertsModal.vue";
 import DetailActionBar from "./DetailActionBar.vue";
 import DataFreshness from "./DataFreshness.vue";
-import { signChar } from "../utils/format";
+import { signChar, fmtNum, fmtSignedNum, fmtPctOrDash, trendClass } from "../utils/format";
 import { isDayPeriod } from "../utils/klinePeriod.js";
 import { recordSignalEvents } from "../utils/history.js";
 import { useT0Signals } from "../composables/useT0Signals.js";
@@ -25,6 +25,9 @@ const props = defineProps({
   moneyFlowLoading: { type: Boolean, default: false },
   moneyFlowHistory: { type: Array, default: null },
   moneyFlowHistoryLoading: { type: Boolean, default: false },
+  // 刷新失败但保留旧资金流数据时置 true（§7.16）
+  moneyFlowStale: { type: Boolean, default: false },
+  moneyFlowHistoryStale: { type: Boolean, default: false },
   watchlistMarkers: { type: Array, default: () => [] },
   // 数据新鲜度：最近一次成功时间（ms，0=未获取）与最近一次刷新是否失败（展示旧数据）
   quoteFetchedAt: { type: Number, default: 0 },
@@ -181,14 +184,14 @@ const sinceAddedPct = computed(() => {
 
       <div class="price-area">
         <div class="price-main" :class="{ 'is-stale': quoteStale }">
-          <span class="price" :class="selectedStock.change >= 0 ? 'up' : 'down'">
-            {{ currencySymbol }}{{ selectedStock.price.toFixed(2) }}
+          <span class="price" :class="trendClass(selectedStock.change)">
+            {{ currencySymbol }}{{ fmtNum(selectedStock.price) }}
           </span>
-          <span class="price-change" :class="selectedStock.change >= 0 ? 'up' : 'down'">
-            {{ signChar(selectedStock.change) }}{{ selectedStock.change.toFixed(2) }}
+          <span class="price-change" :class="trendClass(selectedStock.change)">
+            {{ fmtSignedNum(selectedStock.change) }}
           </span>
-          <span class="price-pct" :class="selectedStock.change >= 0 ? 'up' : 'down'">
-            {{ signChar(selectedStock.changePct) }}{{ selectedStock.changePct.toFixed(2) }}%
+          <span class="price-pct" :class="trendClass(selectedStock.change)">
+            {{ fmtPctOrDash(selectedStock.changePct) }}
           </span>
           <DataFreshness
             class="price-fresh"
@@ -304,6 +307,8 @@ const sinceAddedPct = computed(() => {
       :money-flow-loading="moneyFlowLoading"
       :money-flow-history="moneyFlowHistory"
       :money-flow-history-loading="moneyFlowHistoryLoading"
+      :stale="moneyFlowStale"
+      :history-stale="moneyFlowHistoryStale"
       :t0-summary="t0Summary"
       :chart-mode="chartMode"
       @close="showMoneyFlowModal = false"

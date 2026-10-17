@@ -10,6 +10,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
 import { useWatchlist } from "../composables/useWatchlist";
 import { useQuoteLoader } from "../composables/useQuoteLoader";
+import { effectiveInterval, onIntervalModeChange } from "../utils/refreshInterval";
+
+/** 迷你窗行情轮询间隔（窗口不可见时由 effectiveInterval 降频） */
+const POLL_MS = 10000;
 
 const appWindow = getCurrentWindow();
 const { watchlist } = useWatchlist();
@@ -72,12 +76,27 @@ function closeMini() {
 }
 
 let timer = null;
+let unsubscribeIntervalMode = null;
+
+function stopTimer() {
+  if (timer) clearInterval(timer);
+  timer = null;
+}
+
+/** 按当前可见性重建定时器（先清旧定时器，保证只有一份） */
+function startTimer() {
+  stopTimer();
+  timer = setInterval(refresh, effectiveInterval(POLL_MS));
+}
+
 onMounted(() => {
   refresh();
-  timer = setInterval(refresh, 10000);
+  startTimer();
+  unsubscribeIntervalMode = onIntervalModeChange(startTimer);
 });
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
+  stopTimer();
+  if (unsubscribeIntervalMode) unsubscribeIntervalMode();
 });
 </script>
 

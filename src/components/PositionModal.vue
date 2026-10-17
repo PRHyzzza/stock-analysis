@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from "vue";
-import { signChar, fmtPct } from "../utils/format";
+import { signChar, fmtPct, trendClass } from "../utils/format";
 import { usePositions } from "../composables/usePositions.js";
 import ConfirmDialog from "./ConfirmDialog.vue";
 import PositionForm from "./PositionForm.vue";
@@ -131,7 +131,17 @@ function handleCancelRemove() {
           </div>
 
           <div v-else class="position-list">
-            <div v-for="p in positionStats" :key="p.code" class="position-row" @click="openEditForm(p)" title="点击修改持仓">
+            <div
+              v-for="p in positionStats"
+              :key="p.code"
+              class="position-row"
+              role="button"
+              tabindex="0"
+              :aria-label="`编辑持仓 ${p.name}`"
+              @click="openEditForm(p)"
+              @keydown.enter.self="openEditForm(p)"
+              title="点击修改持仓"
+            >
               <div class="position-info">
                 <span class="position-name">{{ p.name }}</span>
                 <span class="position-code">{{ p.code }}</span>
@@ -142,7 +152,7 @@ function handleCancelRemove() {
                 <span class="position-detail">现价 {{ p.currency }}{{ (p.currentPrice || 0).toFixed(2) }}</span>
                 <span class="position-detail">{{ p.quantity || 0 }} 股</span>
               </div>
-              <div class="position-profit" :class="p.profit >= 0 ? 'up' : 'down'">
+              <div class="position-profit" :class="trendClass(p.profit)">
                 <span class="profit-amount">{{ signChar(p.profit) }}{{ p.currency }}{{ Math.abs(p.profit).toFixed(2) }}</span>
                 <span class="profit-pct">{{ fmtPct(p.profitPct) }}</span>
               </div>
@@ -344,6 +354,7 @@ function handleCancelRemove() {
 
 .position-profit.up { color: var(--red); }
 .position-profit.down { color: var(--green); }
+.position-profit.flat { color: var(--text-secondary); }
 
 .position-remove {
   width: 24px;

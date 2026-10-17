@@ -21,7 +21,8 @@ use crate::types::{
 };
 
 const DB_FILENAME: &str = "stock-analysis.db";
-const SCHEMA_VERSION: i64 = 1;
+/// v2：为各表的 ts 列补索引（prune 的 `DELETE ... WHERE ts < ?` 走全表扫描）
+const SCHEMA_VERSION: i64 = 2;
 /// 同一只股票的行情快照最小写入间隔（秒）
 const QUOTE_MIN_INTERVAL_SECS: i64 = 60;
 /// 行情快照保留天数
@@ -70,11 +71,16 @@ where
 }
 
 /// 需要向调用方报告错误的落库/查询入口（新命令用）
+/// 区分「库未初始化」与「连接锁中毒」两种情况，便于前端提示具体原因
+/// （旧实现两者都报「未初始化」，锁中毒时用户完全看不出真实故障）
 fn fallible<F, T>(what: &str, f: F) -> Result<T, String>
 where
     F: FnOnce(&Connection) -> rusqlite::Result<T>,
 {
-    let conn = lock_db().ok_or_else(|| "本地历史库未初始化".to_string())?;
+    let mutex = DB.get().ok_or_else(|| "本地历史库未初始化".to_string())?;
+    let conn = mutex
+        .lock()
+        .map_err(|e| format!("本地历史库连接锁中毒: {e}"))?;
     f(&conn).map_err(|e| format!("{what}: {e}"))
 }
 
@@ -159,6 +165,13 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             action TEXT NOT NULL DEFAULT '', code TEXT NOT NULL, name TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_watchlist_change_code ON watchlist_change(code, ts);
+
+        -- v2：清理任务按 ts 范围删除，主键 (code, ts) 与 (code, date) 索引都用不上 ts，
+        -- 旧库升级到 v2 时在这里补建（CREATE INDEX IF NOT EXISTS 保证可重复执行）
+        CREATE INDEX IF NOT EXISTS idx_quote_snapshot_ts ON quote_snapshot(ts);
+        CREATE INDEX IF NOT EXISTS idx_signal_event_ts ON signal_event(ts);
+        CREATE INDEX IF NOT EXISTS idx_alert_event_ts ON alert_event(ts);
+        CREATE INDEX IF NOT EXISTS idx_watchlist_change_ts ON watchlist_change(ts);
         "#,
     )?;
 
@@ -321,6 +334,18 @@ pub fn record_money_flow(code: &str, flow: &MoneyFlow) {
     });
 }
 
+/// 资金流向历史 upsert：历史接口没有「主力占比」，写入值固定 0；
+/// 因此冲突时**不更新 main_pct**，保留实时接口（record_money_flow）写入的真实占比。
+/// 旧实现用 INSERT OR REPLACE，整行被替换后 main_pct 被冲成 0。
+const SQL_MONEY_FLOW_HISTORY_UPSERT: &str =
+    "INSERT INTO money_flow
+     (code, date, ts, main_net, main_pct, super_large_net, large_net, medium_net, small_net)
+     VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8)
+     ON CONFLICT(code, date) DO UPDATE SET
+        ts = excluded.ts, main_net = excluded.main_net,
+        super_large_net = excluded.super_large_net, large_net = excluded.large_net,
+        medium_net = excluded.medium_net, small_net = excluded.small_net";
+
 /// 落资金流向历史（按 item.date 写入）
 pub fn record_money_flow_history(code: &str, items: &[MoneyFlowHistoryItem]) {
     if code.is_empty() || items.is_empty() {
@@ -330,11 +355,7 @@ pub fn record_money_flow_history(code: &str, items: &[MoneyFlowHistoryItem]) {
     silent("资金流向历史", |conn| {
         let tx = conn.unchecked_transaction()?;
         {
-            let mut stmt = tx.prepare_cached(
-                "INSERT OR REPLACE INTO money_flow
-                 (code, date, ts, main_net, main_pct, super_large_net, large_net, medium_net, small_net)
-                 VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8)",
-            )?;
+            let mut stmt = tx.prepare_cached(SQL_MONEY_FLOW_HISTORY_UPSERT)?;
             for item in items {
                 if item.date.is_empty() {
                     continue;
@@ -558,4 +579,124 @@ pub fn stats() -> Result<DbStats, String> {
         out.size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 内存库 + 完整迁移（不触碰全局 DB，避免测试互相干扰）
+    fn mem_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("打开内存库失败");
+        migrate(&conn).expect("迁移失败");
+        conn
+    }
+
+    #[test]
+    fn migrate_sets_schema_version_and_ts_indexes() {
+        let conn = mem_conn();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("读取 user_version 失败");
+        assert_eq!(version, SCHEMA_VERSION, "user_version 应等于 SCHEMA_VERSION");
+
+        for index in [
+            "idx_quote_snapshot_ts",
+            "idx_signal_event_ts",
+            "idx_alert_event_ts",
+            "idx_watchlist_change_ts",
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                    params![index],
+                    |row| row.get(0),
+                )
+                .expect("查询索引失败");
+            assert_eq!(count, 1, "缺少 ts 索引 {index}");
+        }
+    }
+
+    #[test]
+    fn migrate_is_idempotent() {
+        let conn = mem_conn();
+        // 二次迁移应早退，不报错、版本不变
+        migrate(&conn).expect("重复迁移不应失败");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("读取 user_version 失败");
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migrate_creates_all_event_tables() {
+        let conn = mem_conn();
+        for table in [
+            "quote_snapshot",
+            "kline",
+            "money_flow",
+            "signal_event",
+            "alert_event",
+            "watchlist_change",
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get(0),
+                )
+                .expect("查询表失败");
+            assert_eq!(count, 1, "缺少表 {table}");
+        }
+    }
+
+    #[test]
+    fn money_flow_history_upsert_preserves_main_pct() {
+        let conn = mem_conn();
+        // 实时接口先写入当日真实占比
+        conn.execute(
+            "INSERT INTO money_flow
+             (code, date, ts, main_net, main_pct, super_large_net, large_net, medium_net, small_net)
+             VALUES ('600519', '2026-10-16', 1, 100.0, 7.5, 10.0, 20.0, 30.0, 40.0)",
+            [],
+        )
+        .expect("插入实时资金流向失败");
+
+        // 历史接口随后补写同一天（无占比，SQL 里 main_pct 固定 0）
+        conn.execute(
+            SQL_MONEY_FLOW_HISTORY_UPSERT,
+            params!["600519", "2026-10-16", 2, 200.0, 21.0, 31.0, 41.0, 51.0],
+        )
+        .expect("历史资金流向 upsert 失败");
+
+        let (main_net, main_pct, super_large): (f64, f64, f64) = conn
+            .query_row(
+                "SELECT main_net, main_pct, super_large_net FROM money_flow WHERE code = '600519'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("读取资金流向失败");
+        // 历史接口的新数值生效，但 main_pct 保留实时接口的真实占比
+        assert_eq!(main_net, 200.0);
+        assert_eq!(super_large, 21.0);
+        assert_eq!(main_pct, 7.5, "main_pct 不应被历史接口冲成 0");
+    }
+
+    #[test]
+    fn money_flow_history_upsert_inserts_when_absent() {
+        let conn = mem_conn();
+        conn.execute(
+            SQL_MONEY_FLOW_HISTORY_UPSERT,
+            params!["000001", "2026-10-16", 3, 50.0, 5.0, 6.0, 7.0, 8.0],
+        )
+        .expect("历史资金流向首次插入失败");
+        let main_pct: f64 = conn
+            .query_row(
+                "SELECT main_pct FROM money_flow WHERE code = '000001'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("读取资金流向失败");
+        assert_eq!(main_pct, 0.0);
+    }
 }

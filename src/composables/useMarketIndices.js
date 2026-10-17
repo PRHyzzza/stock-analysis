@@ -14,6 +14,8 @@ export function useMarketIndices() {
     { code: "000905", name: "中证500", price: 0, change: 0, changePct: 0 },
   ]);
   const loading = ref(false);
+  // 刷新失败但保留旧指数时为 true（§7.16）
+  const indicesStale = ref(false);
 
   async function loadIndices() {
     loading.value = true;
@@ -27,12 +29,14 @@ export function useMarketIndices() {
           }
         });
       }
+      indicesStale.value = false;
     } catch (e) {
+      indicesStale.value = true; // 保留旧数据并标注过期
       console.error("获取指数失败:", e);
     } finally {
       loading.value = false;
     }
   }
 
-  return { indices, loading, loadIndices };
+  return { indices, loading, indicesStale, loadIndices };
 }

@@ -40,9 +40,10 @@ watch(() => props.show, (val) => {
 });
 
 watch(() => props.selectedStock?.code, (newCode) => {
-  // 流式生成中不切换对话（useAiAnalysis 内部有代际守卫保证不崩溃，
-  // 但主动跳过可避免在途回答被静默丢弃）
-  if (props.show && newCode && !loading.value) {
+  // 切股立即加载新股票对话：switchStock 内部自增 streamGeneration 代际号，
+  // 在途旧回答的增量写入会被丢弃（旧流不污染新股票的消息列表），
+  // 同时放开 loading 允许对新股票立即提问。
+  if (props.show && newCode) {
     switchStock(newCode);
   }
 });

@@ -34,12 +34,49 @@ const DEFAULTS = {
   aiWebSearchEnabled: true,   // 联网搜索（东方财富新闻库，免费）
 };
 
+/**
+ * 校验并修正外部可写存储（localStorage 可能被旧版本、手工编辑或其它窗口写坏）
+ *
+ * 不做校验的后果：`quotesRefreshMs: "abc"` 会让 setInterval 拿到非法间隔（退化为 0ms 忙轮询），
+ * `klineMaPeriods` 非数组会让图表计算抛错。这里以 DEFAULTS 为 schema，类型不符一律回退默认值。
+ */
+function sanitize(raw) {
+  const out = { ...DEFAULTS };
+  if (!raw || typeof raw !== "object") return out;
+  for (const [key, def] of Object.entries(DEFAULTS)) {
+    const val = raw[key];
+    if (val === undefined || val === null) continue;
+    if (Array.isArray(def)) {
+      if (Array.isArray(val)) {
+        const nums = val.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+        if (nums.length > 0) out[key] = nums;
+      }
+      continue;
+    }
+    if (typeof def === "number") {
+      const n = Number(val);
+      // 刷新间隔合法区间：[0, 1h]；0 表示关闭该轮询
+      if (Number.isFinite(n) && n >= 0 && n <= 60 * 60 * 1000) out[key] = n;
+      continue;
+    }
+    if (typeof def === "boolean") {
+      if (typeof val === "boolean") out[key] = val;
+      continue;
+    }
+    if (typeof def === "string") {
+      if (typeof val === "string" && val !== "") out[key] = val;
+      continue;
+    }
+  }
+  return out;
+}
+
 /** 加载持久化设置 */
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    return sanitize(JSON.parse(raw));
   } catch {
     return { ...DEFAULTS };
   }

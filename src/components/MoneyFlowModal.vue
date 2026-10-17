@@ -13,6 +13,9 @@ defineProps({
   moneyFlowLoading: { type: Boolean, default: false },
   moneyFlowHistory: { type: Array, default: null },
   moneyFlowHistoryLoading: { type: Boolean, default: false },
+  /** 刷新失败但保留了旧数据（PROJECT.md §7.16），由父组件标注 */
+  stale: { type: Boolean, default: false },
+  historyStale: { type: Boolean, default: false },
   /** T+0 信号摘要（父组件计算，与分时图标记共用一份信号数据） */
   t0Summary: { type: Object, default: null },
   /** 当前图表模式（仅分时模式显示 T+0 徽标） */
@@ -50,6 +53,8 @@ const emit = defineEmits(["close"]);
             :money-flow-loading="moneyFlowLoading"
             :money-flow-history="moneyFlowHistory"
             :money-flow-history-loading="moneyFlowHistoryLoading"
+            :stale="stale"
+            :history-stale="historyStale"
             :t0-summary="t0Summary"
             :chart-mode="chartMode"
           />

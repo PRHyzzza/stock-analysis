@@ -54,14 +54,14 @@ function compute() {
   chipResult.value = calcChipDistribution(props.klineData, chipOptions.value);
 }
 
+// 浅监听：只盯 K 线数组引用、周期与换手率（chipOptions 的全部依赖），避免行情刷新时深遍历整根 K 线
 watch(
-  () => [props.klineData, chipOptions.value],
+  [() => props.klineData, () => props.klinePeriod, () => props.stock?.turnoverRate],
   () => {
     if (props.show) {
       nextTick(compute);
     }
-  },
-  { deep: true }
+  }
 );
 
 watch(() => props.show, (val) => {
