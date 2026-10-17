@@ -14,9 +14,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(23, 25, 28, 0.45);
+  background: var(--overlay-bg);
   animation: fadeIn 0.15s ease;
-  backdrop-filter: blur(2px);
+  backdrop-filter: var(--overlay-blur);
 }
 
 /* ===== 容器 ===== */
@@ -31,6 +31,7 @@
   box-shadow: var(--shadow-modal);
   overflow: hidden;
   animation: slideUp 0.2s ease;
+  will-change: transform, opacity;
 }
 
 /* ===== 头部（左标题 + 右操作） ===== */
@@ -84,14 +85,21 @@
   color: var(--text-muted);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
 }
 
 .btn-close:hover,
 .modal-close:hover,
 .modal-close-btn:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
   color: var(--text-primary);
+}
+
+.btn-close:active,
+.modal-close:active,
+.modal-close-btn:active {
+  background: var(--active-bg);
+  transform: scale(0.96);
 }
 
 /* ===== AI Badge 标签 ===== */
@@ -133,7 +141,7 @@
 
 .error-text {
   font-size: 13px;
-  color: #dc2626;
+  color: var(--danger-ink);
   line-height: 1.4;
 }
 

@@ -472,8 +472,8 @@ function removeQuickStock() {
 
 /* GlobalAiModal 特有样式：覆盖宽高（与 AiAnalysisModal 保持一致） */
 .modal-container {
-  width: 900px;
-  height: 680px;
+  width: min(900px, 94vw);
+  height: min(680px, 88vh);
 }
 
 /* 热榜选股按钮 */
@@ -491,7 +491,11 @@ function removeQuickStock() {
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.15s;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -499,6 +503,10 @@ function removeQuickStock() {
   border-color: var(--rust);
   background: var(--apricot-wash);
   color: var(--rust);
+}
+
+.hot-scan-btn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .hot-scan-btn:disabled {

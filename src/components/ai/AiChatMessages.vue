@@ -234,10 +234,12 @@ defineExpose({ scrollToBottom });
 .messages-list {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 24px 24px 28px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  /* 滚动条不挤占内容宽度，长回答滚动时气泡不抖 */
+  scrollbar-gutter: stable;
 }
 
 .welcome {
@@ -286,14 +288,19 @@ defineExpose({ scrollToBottom });
   font-size: 13px;
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
 .suggestion-chip:hover {
   border-color: var(--ink);
   color: var(--ink);
-  background: var(--fog);
+  background: var(--hover-bg);
+}
+
+.suggestion-chip:active {
+  transform: scale(0.98);
+  background: var(--active-bg);
 }
 
 .message {
@@ -309,15 +316,16 @@ defineExpose({ scrollToBottom });
 .user-msg .msg-content {
   background: var(--apricot-wash);
   color: var(--ink);
-  border-radius: 16px 4px 16px 16px;
-  padding: 10px 16px;
-  max-width: 80%;
+  border-radius: var(--radius-md) var(--radius-xs) var(--radius-md) var(--radius-md);
+  padding: 12px 16px;
+  max-width: 78%;
 }
 
 .user-msg .msg-text {
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.65;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .ai-msg {
@@ -342,14 +350,15 @@ defineExpose({ scrollToBottom });
 .ai-msg .msg-content {
   background: var(--fog);
   border: 1px solid var(--border-light);
-  border-radius: 4px 16px 16px 16px;
-  padding: 12px 16px;
-  max-width: 80%;
+  border-radius: var(--radius-xs) var(--radius-md) var(--radius-md) var(--radius-md);
+  padding: 14px 18px;
+  max-width: 82%;
+  min-width: 0;
 }
 
 .ai-msg .msg-text {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--text-primary);
 }
 
@@ -360,21 +369,22 @@ defineExpose({ scrollToBottom });
 }
 
 .ai-msg .msg-text :deep(pre) {
-  background: rgba(23, 25, 28, 0.04);
-  border-radius: 8px;
-  padding: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
   overflow-x: auto;
-  margin: 8px 0;
-  font-size: 12px;
-  line-height: 1.5;
+  margin: 10px 0;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .ai-msg .msg-text :deep(code) {
-  background: rgba(23, 25, 28, 0.06);
+  background: var(--hover-bg-strong);
   padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-family: "SF Mono", "Fira Code", monospace;
+  border-radius: var(--radius-xs);
+  font-size: 12.5px;
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
 }
 
 .ai-msg .msg-text :deep(pre code) {
@@ -388,28 +398,35 @@ defineExpose({ scrollToBottom });
 
 .ai-msg .msg-text :deep(ul),
 .ai-msg .msg-text :deep(ol) {
-  margin: 0.75rem 0;
+  margin: 10px 0;
   padding-left: 20px;
 }
 
 .ai-msg .msg-text :deep(li) {
-  margin: 0.3rem 0;
+  margin: 4px 0;
+}
+
+.ai-msg .msg-text :deep(li)::marker {
+  color: var(--text-muted);
 }
 
 .ai-msg .msg-text :deep(blockquote) {
-  border-left: 3px solid rgba(39, 174, 96, 0.4);
-  padding-left: 12px;
-  margin: 0.75rem 0;
-  color: var(--text-muted);
+  border-left: 3px solid var(--border);
+  background: var(--hover-bg);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  padding: 8px 12px;
+  margin: 10px 0;
+  color: var(--text-secondary);
 }
 
 .ai-msg .msg-text :deep(h1),
 .ai-msg .msg-text :deep(h2),
 .ai-msg .msg-text :deep(h3),
 .ai-msg .msg-text :deep(h4) {
-  margin: 1rem 0 0.5rem;
+  margin: 14px 0 8px;
   font-weight: 600;
   line-height: 1.4;
+  color: var(--ink);
 }
 
 .ai-msg .msg-text :deep(h1) { font-size: 1.25rem; }
@@ -418,7 +435,7 @@ defineExpose({ scrollToBottom });
 .ai-msg .msg-text :deep(h4) { font-size: 1rem; }
 
 .ai-msg .msg-text :deep(p) {
-  margin: 0.5rem 0;
+  margin: 8px 0;
 }
 
 .ai-msg .msg-text :deep(p:first-child) {
@@ -438,22 +455,25 @@ defineExpose({ scrollToBottom });
 .ai-msg .msg-text :deep(table) {
   width: 100%;
   border-collapse: collapse;
-  margin: 0.75rem 0;
+  margin: 10px 0;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .ai-msg .msg-text :deep(th),
 .ai-msg .msg-text :deep(td) {
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-light);
   text-align: left;
+  vertical-align: top;
 }
 
 .ai-msg .msg-text :deep(th) {
   font-weight: 600;
-  background: var(--fog);
+  background: var(--hover-bg);
   color: var(--text-secondary);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .ai-msg .msg-text :deep(td) {
@@ -461,7 +481,7 @@ defineExpose({ scrollToBottom });
 }
 
 .ai-msg .msg-text :deep(tbody tr:hover) {
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--hover-bg);
 }
 
 .ai-msg .msg-text :deep(a) {
@@ -505,11 +525,12 @@ defineExpose({ scrollToBottom });
 .thinking-reasoning {
   margin-top: 10px;
   padding: 10px 12px;
-  background: rgba(23, 25, 28, 0.03);
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
   border-left: 2px solid var(--border);
-  border-radius: 0 6px 6px 0;
+  border-radius: var(--radius-xs);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--text-muted);
   white-space: pre-wrap;
   word-break: break-word;
@@ -553,13 +574,14 @@ defineExpose({ scrollToBottom });
 
 .pick-card {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   padding: 10px 14px;
   background: var(--card-bg);
-  transition: box-shadow 0.15s;
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
 }
 .pick-card:hover {
   box-shadow: var(--shadow-card);
+  border-color: var(--border);
 }
 
 .pick-head {
@@ -623,12 +645,15 @@ defineExpose({ scrollToBottom });
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .pick-btn:hover {
   border-color: var(--rust);
   color: var(--rust);
   background: var(--apricot-wash);
+}
+.pick-btn:active {
+  transform: scale(0.98);
 }
 .pick-btn-primary {
   border-color: var(--ink);
@@ -639,6 +664,10 @@ defineExpose({ scrollToBottom });
   border-color: var(--ink);
   background: #2a2d31;
   color: #fff;
+}
+.pick-btn-primary:active {
+  transform: scale(0.98);
+  background: var(--ink);
 }
 
 @keyframes fadeIn {

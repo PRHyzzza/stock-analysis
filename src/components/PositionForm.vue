@@ -177,7 +177,7 @@ function submitForm() {
   flex-direction: column;
   gap: 10px;
   padding: 16px;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   background: var(--fog);
   border: 1px solid var(--border);
 }
@@ -213,8 +213,8 @@ function submitForm() {
   margin-top: 4px;
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-dropdown);
   max-height: 360px;
   overflow-y: auto;
   z-index: 10;
@@ -226,11 +226,14 @@ function submitForm() {
   justify-content: space-between;
   padding: 8px 14px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background var(--transition-fast);
 }
 .search-dropdown-item:hover,
 .search-dropdown-item.highlighted {
-  background: var(--fog);
+  background: var(--hover-bg);
+}
+.search-dropdown-item:active {
+  background: var(--active-bg);
 }
 
 .search-dropdown-hint {
@@ -259,13 +262,13 @@ function submitForm() {
   font-size: 11px;
   color: var(--text-muted);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--fog);
 }
 
 /* 搜索匹配高亮 */
 :deep(.search-highlight) {
-  background: rgba(251, 225, 209, 0.6);
+  background: var(--apricot-wash);
   color: var(--rust);
   border-radius: 2px;
   padding: 0 1px;
@@ -277,7 +280,7 @@ function submitForm() {
   height: 14px;
   border: 2px solid var(--border);
   border-top-color: var(--text-muted);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 0.6s linear infinite;
   margin-right: 6px;
 }
@@ -288,7 +291,7 @@ function submitForm() {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: var(--card-bg);
   border: 1px solid var(--border);
 }
@@ -308,7 +311,7 @@ function submitForm() {
   width: 20px;
   height: 20px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-muted);
   font-size: 11px;
@@ -316,10 +319,14 @@ function submitForm() {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all var(--transition-fast);
 }
 .selected-stock-clear:hover {
-  background: rgba(231, 76, 60, 0.1);
+  background: var(--red-bg);
   color: var(--red);
+}
+.selected-stock-clear:active {
+  transform: scale(0.92);
 }
 
 /* ===== 表单字段 ===== */
@@ -332,16 +339,16 @@ function submitForm() {
   flex: 1;
   padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   font-size: 13px;
   font-family: inherit;
   background: var(--card-bg);
   color: var(--text-primary);
-  transition: border-color 0.15s;
+  transition: border-color var(--transition-fast);
 }
 .form-input:focus {
-  outline: none;
-  border-color: var(--ink);
+  border-color: var(--rust);
+  box-shadow: var(--focus-glow);
 }
 
 .form-error {
@@ -363,7 +370,14 @@ function submitForm() {
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
+}
+.btn-form:active {
+  transform: scale(0.98);
+}
+.btn-form:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-form-cancel {
@@ -378,9 +392,9 @@ function submitForm() {
 
 .btn-form-submit {
   background: var(--rust);
-  color: #fff;
+  color: var(--white);
 }
 .btn-form-submit:hover {
-  background: #4a2215;
+  background: var(--ink);
 }
 </style>

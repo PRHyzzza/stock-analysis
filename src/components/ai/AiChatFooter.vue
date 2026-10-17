@@ -46,6 +46,7 @@ function onKeydown(e) {
       ></textarea>
       <button
         class="btn-send"
+        :class="{ 'is-loading': loading }"
         :disabled="!inputText.trim() || disabled"
         @click="emit('send')"
       >
@@ -60,12 +61,12 @@ function onKeydown(e) {
 <style scoped>
 .modal-footer {
   flex-shrink: 0;
-  padding: 12px 20px 16px;
+  padding: 14px 24px 20px;
   border-top: 1px solid var(--border);
 }
 
 .stock-context {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .context-tag {
@@ -89,21 +90,29 @@ function onKeydown(e) {
   line-height: 1;
   cursor: pointer;
   padding: 0 2px;
+  border-radius: var(--radius-full);
   opacity: 0.6;
+  transition: opacity var(--transition-fast), background-color var(--transition-fast);
 }
 
 .context-remove:hover {
   opacity: 1;
+  background: var(--hover-bg);
+}
+
+.context-remove:active {
+  transform: scale(0.94);
 }
 
 .input-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-end;
 }
 
 .msg-input {
   flex: 1;
+  min-height: 40px;
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -111,15 +120,19 @@ function onKeydown(e) {
   font-family: inherit;
   background: var(--fog);
   color: var(--text-primary);
-  outline: none;
   resize: none;
   line-height: 1.5;
-  max-height: 100px;
-  transition: border-color 0.15s;
+  max-height: 120px;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .msg-input:focus {
-  border-color: var(--ink);
+  border-color: var(--rust);
+  background: var(--card-bg);
+  box-shadow: var(--focus-glow);
 }
 
 .msg-input:disabled {
@@ -142,16 +155,34 @@ function onKeydown(e) {
   background: var(--ink);
   color: var(--white);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   flex-shrink: 0;
 }
 
-.btn-send:hover {
-  opacity: 0.85;
+.btn-send:hover:not(:disabled) {
+  background: #2a2d31;
+}
+
+.btn-send:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .btn-send:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* 生成中：图标缓慢旋转提示「回答正在输出」 */
+.btn-send.is-loading svg {
+  animation: sendSpin 1.2s linear infinite;
+}
+
+@keyframes sendSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

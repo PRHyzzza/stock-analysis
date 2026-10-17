@@ -187,7 +187,24 @@ init(app_data_dir)  → create_dir_all → migrate(PRAGMA user_version) → prun
 
 ## 5. 设计系统
 
-调色板 Rust `#5d2a1a` / Apricot `#fbe1d1` / Sky `#d3e3fc` / Ink `#17191c`；圆角 cards 24 / inputs 16 / images 12 / pills 9999px；字体 Signifier + Sohne 已本地化；**禁止**饱和蓝/绿/红框架色、边框 >1px、渐变背景；弹窗统一 `modal.css`。
+调色板 Rust `#5d2a1a` / Apricot `#fbe1d1` / Sky `#d3e3fc` / Ink `#17191c`；圆角 cards 24 / inputs 16 / images 12 / pills 9999px；字体为**系统字体栈**（`-apple-system, Segoe UI, PingFang SC, Microsoft YaHei`…，**项目内无自定义字体文件，不要写 `Signifier`/`Sohne` 这类不存在的 font-family**）；**禁止**饱和蓝/绿/红框架色、边框 >1px、渐变背景；弹窗统一 `modal.css`。
+
+**令牌唯一真源 = `src/assets/main.css` 的 `:root`**。组件样式只能用令牌，不得硬编码色值/圆角/过渡时长：
+
+- 语义色：`--ink/--ash/--graphite/--slate/--dove/--fog/--white`、`--bg/--card-bg`、`--text-primary/--text-secondary/--text-muted`、`--border/--border-light`
+- 涨跌：`--red/--red-bg`（涨）、`--green/--green-bg`（跌）——**只用于涨跌，0 与缺失走 `--text-muted`**
+- 状态：`--warn-ink/--warn-bg`（持仓、警示、港股角标等琥珀语义，**禁止再写 `#b45309`/`#fef3c7`**）、`--danger-ink/--danger-bg`（**错误/失败**，注意与「涨」的 `--red` 语义区分）、`--accent-violet/--accent-amber/--accent-cyan`（指标卡强调色）
+- 遮罩：`--overlay-bg` / `--overlay-blur`（`.modal-overlay` 已统一，**弹窗不要再各自写遮罩色**，差异只允许 width/height/z-index）
+- 交互：`--hover-bg`（行/卡片 hover）、`--hover-bg-strong`、`--active-bg`（按下）、`--focus-ring-color`
+- 过渡：`--transition-fast`(120ms) / `--transition-base`(180ms)
+- 圆角：`--radius-xs`(6, 角标/小按钮) / `--radius-sm`(12) / `--radius-md`(16) / `--radius-lg`(24) / `--radius-full`
+- 阴影：`--shadow-card / --shadow-elevated / --shadow-modal / --shadow-dropdown`
+
+**全局已生效（不要覆盖、不要 `outline: none`）**：`body { font-variant-numeric: tabular-nums }`（数字等宽防跳动）、`:focus-visible` 焦点环（键盘可达性）、`::selection`、6px 滚动条、`@media (prefers-reduced-motion: reduce)` 关闭全部动画。
+
+**交互约定**：所有可点元素必须有 `:hover` + `:active` 反馈；可点 `<div>` 必须补 `role="button"` + `tabindex="0"` + `@keydown.enter`（参考 `StockList.vue` 的自选行）；不得用 `display:none` 隐藏可聚焦控件（用 sr-only 保持可聚焦）。**输入类控件（input/select/textarea）的焦点态统一为「边框转 `--rust` + `box-shadow: var(--focus-glow)`」，其中 `--focus-glow` 是 `inset 0 0 0 2px` 的内嵌环（画在元素内部，`overflow:hidden` 的父容器裁不到）；全局 `:focus-visible` 也一律 `outline-offset: -2px`，禁止写正数外扩 outline**——父级 `overflow:hidden`/滚动容器会把外扩环裁成半截（历史 bug：搜索框点击后焦点环只亮一半）；按钮/行类元素才用外扩 `outline`，位于滚动容器内时改 `outline-offset: -2px` 内缩。**loading / 空 / 错误三态**统一：垂直居中 + `min-height` 防塌陷 + 13px 主文案 + 12px `--text-muted` 辅助。
+
+分时图参考线 = 昨收灰虚线 + 今开蓝虚线 + 最高红点线 + 最低绿点线 + 涨跌停红/绿虚线（按板块阈值，港股不画涨跌停）；信号标记按**形状分层配色**（橙圆点=预警⚠、红绿箭头=方向/偏离、方块=陷阱确认/背离）——细节见 KlineChart/IntradayChart 注释。
 
 分时图参考线 = 昨收灰虚线 + 今开蓝虚线 + 最高红点线 + 最低绿点线 + 涨跌停红/绿虚线（按板块阈值，港股不画涨跌停）；信号标记按**形状分层配色**（橙圆点=预警⚠、红绿箭头=方向/偏离、方块=陷阱确认/背离）——细节见 KlineChart/IntradayChart 注释。
 

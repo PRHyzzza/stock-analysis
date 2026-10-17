@@ -105,7 +105,7 @@ watch(
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   background: var(--apricot-wash);
   color: var(--rust);
 }
@@ -131,22 +131,27 @@ watch(
 .alerts-tab {
   padding: 8px 18px;
   border: none;
-  border-radius: 8px 8px 0 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
 .alerts-tab:hover {
   color: var(--text-primary);
+  background: var(--hover-bg);
+}
+.alerts-tab:active {
+  transform: scale(0.98);
 }
 .alerts-tab.active {
   color: var(--rust);
   border-bottom-color: var(--rust);
+  background: transparent;
 }
 </style>

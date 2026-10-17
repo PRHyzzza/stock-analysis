@@ -182,12 +182,17 @@ defineEmits(["refresh", "open-positions", "open-portfolio", "open-signal-history
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-ai:hover {
   border-color: var(--rust);
   color: var(--rust);
-  background: rgba(93, 42, 26, 0.04);
+  background: var(--hover-bg);
+}
+.btn-ai:active,
+.btn-positions:active,
+.btn-refresh:active {
+  transform: scale(0.98);
 }
 
 .btn-positions {
@@ -203,12 +208,12 @@ defineEmits(["refresh", "open-positions", "open-portfolio", "open-signal-history
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-positions:hover {
   border-color: var(--rust);
   color: var(--rust);
-  background: rgba(93, 42, 26, 0.04);
+  background: var(--hover-bg);
 }
 
 .btn-refresh {
@@ -224,7 +229,7 @@ defineEmits(["refresh", "open-positions", "open-portfolio", "open-signal-history
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-refresh:hover {
   border-color: var(--ink);

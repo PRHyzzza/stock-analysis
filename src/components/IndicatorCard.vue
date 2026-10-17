@@ -103,8 +103,8 @@ defineProps({
 /* ── 卡片 ── */
 .tech-card {
   background: var(--fog);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: var(--radius-xs);
+  padding: 16px;
   border: 1px solid var(--border-light);
 }
 
@@ -116,8 +116,8 @@ defineProps({
 }
 .tech-item {
   display: flex; flex-direction: column; gap: 2px;
-  padding: 8px 10px;
-  background: var(--card-bg); border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--card-bg); border-radius: var(--radius-xs);
 }
 .tech-label { font-size: 10px; color: var(--text-muted); font-weight: 500; }
 .tech-value {
@@ -134,8 +134,8 @@ defineProps({
 }
 .tech-chip {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 6px 10px;
-  background: var(--card-bg); border-radius: 8px;
+  padding: 6px 12px;
+  background: var(--card-bg); border-radius: var(--radius-xs);
   min-width: 52px;
 }
 .tech-chip-label { font-size: 10px; color: var(--text-muted); font-weight: 500; }
@@ -158,8 +158,8 @@ defineProps({
 
 /* ── 描述文字 ── */
 .tech-detail {
-  margin-top: 10px; padding: 8px 12px;
-  background: var(--card-bg); border-radius: 8px;
+  margin-top: 12px; padding: 8px 12px;
+  background: var(--card-bg); border-radius: var(--radius-xs);
   font-size: 11px; color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   line-height: 1.6;

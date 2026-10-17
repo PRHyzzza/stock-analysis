@@ -207,7 +207,10 @@ function isIndustryLoading() {
                   v-for="r in pf.rowsByProfit.value"
                   :key="'w-' + r.code"
                   class="weight-row"
+                  role="button"
+                  tabindex="0"
                   @click="openDetail(r)"
+                  @keydown.enter.self="openDetail(r)"
                   :title="`查看 ${r.name}`"
                 >
                   <div class="weight-head">
@@ -407,12 +410,6 @@ function isIndustryLoading() {
 
 <style scoped>
 /* ===== 容器：比 PositionModal 宽，容纳 8 列明细表 ===== */
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-  animation: none;
-}
-
 .portfolio-container {
   width: 860px;
   max-height: 86vh;
@@ -438,7 +435,7 @@ function isIndustryLoading() {
 }
 
 .modal-close {
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
 }
 
 .modal-body {
@@ -620,6 +617,9 @@ function isIndustryLoading() {
 .ext-link:hover {
   text-decoration: underline;
 }
+.ext-link:active {
+  opacity: 0.7;
+}
 
 /* ===== 2. 仓位分布 ===== */
 .weight-list {
@@ -633,6 +633,17 @@ function isIndustryLoading() {
   flex-direction: column;
   gap: 5px;
   cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: opacity var(--transition-fast);
+}
+.weight-row:hover .w-name {
+  color: var(--rust);
+}
+.weight-row:hover .weight-track {
+  background: var(--hover-bg);
+}
+.weight-row:active {
+  opacity: 0.75;
 }
 
 .weight-head {
@@ -825,10 +836,17 @@ function isIndustryLoading() {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition-fast), transform var(--transition-fast);
 }
 .btn-retry:hover {
   background: var(--apricot-wash);
+}
+.btn-retry:active {
+  transform: scale(0.98);
+}
+.btn-retry:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ===== 5. 资产类别 ===== */
@@ -902,6 +920,8 @@ function isIndustryLoading() {
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
+  min-height: 36px;
+  box-sizing: border-box;
 }
 
 .dt-head {
@@ -920,11 +940,14 @@ function isIndustryLoading() {
   color: var(--ink);
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
   width: 100%;
 }
 .dt-row:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
+}
+.dt-row:active {
+  background: var(--active-bg);
 }
 
 .dt-c-num {

@@ -116,7 +116,7 @@ function closeModal() { emit("close"); }
 
 .setting-group { margin-bottom: 20px; }
 .setting-group:last-child { margin-bottom: 0; }
-.setting-group.disabled { opacity: 0.4; pointer-events: none; }
+.setting-group.disabled { opacity: 0.5; pointer-events: none; }
 
 .setting-group-title {
   font-size: 11px;
@@ -133,7 +133,7 @@ function closeModal() { emit("close"); }
   align-items: center;
   justify-content: space-between;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(163, 166, 175, 0.15);
+  border-bottom: 1px solid var(--border-light);
   font-size: 14px;
   color: var(--text-primary);
   cursor: pointer;
@@ -145,21 +145,32 @@ function closeModal() { emit("close"); }
 /* 设置项下的补充说明 */
 .setting-desc {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+/* 行内补充说明（标签与开关之间） */
+.setting-hint {
+  flex: 1;
+  min-width: 0;
+  margin: 0 12px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-align: right;
 }
 
 /* ── Toggle Switch ── */
 .toggle {
   appearance: none;
   width: 40px; height: 22px;
-  border-radius: 11px;
+  border-radius: var(--radius-full);
   background: var(--border);
   position: relative;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--transition-fast);
   flex-shrink: 0;
 }
 .toggle::after {
@@ -167,26 +178,26 @@ function closeModal() { emit("close"); }
   position: absolute;
   top: 2px; left: 2px;
   width: 18px; height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.2s;
+  border-radius: var(--radius-full);
+  background: var(--white);
+  transition: transform var(--transition-fast);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 .toggle:checked { background: var(--ink); }
 .toggle:checked::after { transform: translateX(18px); }
-.toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+.toggle:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Select ── */
 .select {
   padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: var(--card-bg);
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  outline: none;
+  transition: border-color var(--transition-fast);
   min-width: 120px;
 }
 .select:focus { border-color: var(--ink); }
@@ -195,18 +206,18 @@ function closeModal() { emit("close"); }
 .key-input {
   padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: var(--fog);
   color: var(--text-primary);
   font-size: 13px;
   font-family: monospace;
-  outline: none;
+  transition: border-color var(--transition-fast);
   width: 180px;
   flex-shrink: 0;
   /* 覆盖 .setting-row 的 user-select: none，保证输入框内可选中/粘贴 */
   user-select: text;
 }
-.key-input:focus { border-color: var(--ink); }
+.key-input:focus { border-color: var(--rust); box-shadow: var(--focus-glow); }
 
 .key-status {
   flex: 1;
@@ -229,17 +240,18 @@ function closeModal() { emit("close"); }
 .btn-key {
   padding: 5px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: var(--card-bg);
   color: var(--text-primary);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  transition: opacity 0.15s;
+  transition: all var(--transition-fast);
 }
-.btn-key:hover { opacity: 0.75; }
-.btn-key:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-key:hover { background: var(--hover-bg); border-color: var(--ink); }
+.btn-key:active { transform: scale(0.98); }
+.btn-key:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .key-hint { margin: 8px 0 0; }
 
@@ -277,14 +289,15 @@ function closeModal() { emit("close"); }
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   user-select: none;
 }
 .ma-chip:hover { border-color: var(--ink); color: var(--ink); }
+.ma-chip:active { transform: scale(0.98); }
 .ma-chip.active {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--white);
 }
 /* 视觉隐藏但保留键盘可达/读屏可读（原 display:none 会让 checkbox 无法聚焦） */
 .hidden-check {
@@ -301,8 +314,8 @@ function closeModal() { emit("close"); }
 
 /* 键盘聚焦到隐藏 checkbox 时，让外层 chip 显示焦点环 */
 .ma-chip:has(.hidden-check:focus-visible) {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px; /* 内缩：弹窗 body 会滚动，外扩环会被裁 */
 }
 </style>
 
@@ -310,15 +323,13 @@ function closeModal() { emit("close"); }
 
 /* ── Overlay ── */
 .modal-overlay {
-  background: rgba(23, 25, 28, 0.35);
-  backdrop-filter: none;
   z-index: 2000;
 }
 
 .modal-container {
   width: 480px;
   max-height: 80vh;
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   box-shadow:
     0 1px 0 var(--ink),
     0 20px 25px rgba(23, 25, 28, 0.06),
@@ -337,13 +348,12 @@ function closeModal() { emit("close"); }
 .modal-title {
   font-size: 17px;
   font-weight: 700;
-  font-family: 'Signifier', 'Noto Serif SC', 'Noto Serif SC', serif;
   letter-spacing: -0.01em;
 }
 .modal-close-btn {
   border-radius: var(--radius-full);
 }
-.modal-close-btn:hover { background: var(--border); color: var(--ink); }
+.modal-close-btn:hover { background: var(--hover-bg); color: var(--ink); }
 
 /* ── Tab bar ── */
 .tab-bar {
@@ -364,15 +374,17 @@ function closeModal() { emit("close"); }
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.tab-btn:hover { color: var(--text-secondary); }
+.tab-btn:hover { color: var(--ink); background: var(--hover-bg); }
+.tab-btn:active { transform: scale(0.98); }
 .tab-btn.active {
   color: var(--ink);
   border-bottom-color: var(--ink);
+  background: transparent;
 }
 .tab-icon { font-size: 14px; }
 
@@ -393,9 +405,10 @@ function closeModal() { emit("close"); }
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-reset:hover { border-color: var(--rust); color: var(--rust); }
+.btn-reset:active { transform: scale(0.98); }
 .btn-close {
   width: auto;
   height: auto;
@@ -403,12 +416,13 @@ function closeModal() { emit("close"); }
   border: none;
   border-radius: var(--radius-full);
   background: var(--ink);
-  color: #fff;
+  color: var(--white);
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-close:hover { opacity: 0.85; }
+.btn-close:active { transform: scale(0.98); }
 </style>

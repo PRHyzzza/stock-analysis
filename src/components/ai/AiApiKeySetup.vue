@@ -38,21 +38,32 @@ const emit = defineEmits(["save", "update:apiKeyInput"]);
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 40px;
+  min-height: 260px;
+  padding: 44px 40px;
   text-align: center;
   gap: 12px;
   flex: 1;
 }
 
 .api-key-icon {
-  font-size: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
   margin-bottom: 8px;
+  font-size: 30px;
+  line-height: 1;
+  border-radius: var(--radius-full);
+  background: var(--fog);
+  border: 1px solid var(--border-light);
 }
 
 .api-key-desc {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.6;
+  max-width: 420px;
 }
 
 .api-key-hint {
@@ -70,19 +81,24 @@ const emit = defineEmits(["save", "update:apiKeyInput"]);
 
 .api-key-input {
   flex: 1;
+  min-width: 0;
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-size: 13px;
-  font-family: monospace;
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
   background: var(--fog);
   color: var(--text-primary);
-  outline: none;
-  transition: border-color 0.15s;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .api-key-input:focus {
-  border-color: var(--ink);
+  border-color: var(--rust);
+  background: var(--card-bg);
+  box-shadow: var(--focus-glow);
 }
 
 .btn-save-key {
@@ -95,12 +111,16 @@ const emit = defineEmits(["save", "update:apiKeyInput"]);
   font-weight: 500;
   cursor: pointer;
   font-family: inherit;
-  transition: opacity 0.15s;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
-.btn-save-key:hover {
-  opacity: 0.85;
+.btn-save-key:hover:not(:disabled) {
+  background: #2a2d31;
+}
+
+.btn-save-key:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .btn-save-key:disabled {

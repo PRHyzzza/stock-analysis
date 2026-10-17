@@ -220,7 +220,7 @@ const rsiDetail = computed(() => {
               />
               <IndicatorCard
                 title="KDJ"
-                accent="#8b5cf6"
+                accent="var(--accent-violet)"
                 :rows="kdjRows"
                 :signal="indicators.kdjCross ? fmtSignal(indicators.kdjCross) : null"
                 :status="{ label:'超买/超卖', text:indicators.kdjStatus||'--', cls: kdjStatusCls }"
@@ -231,14 +231,14 @@ const rsiDetail = computed(() => {
             <div class="indicator-grid">
               <IndicatorCard
                 title="WR"
-                accent="#f59e0b"
+                accent="var(--accent-amber)"
                 layout="single"
                 :rows="wrRows"
                 detail="超买 ≥ -20 | 超卖 ≤ -80"
               />
               <IndicatorCard
                 title="RSI"
-                accent="#06b6d4"
+                accent="var(--accent-cyan)"
                 layout="single"
                 :rows="rsiRows"
                 :detail="rsiDetail"
@@ -258,11 +258,6 @@ const rsiDetail = computed(() => {
 <style scoped>
 
 /* TechAnalysisModal 特有覆盖 */
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: none;
-}
-
 .modal-container {
   width: 600px;
   max-width: 94vw;
@@ -295,7 +290,7 @@ const rsiDetail = computed(() => {
 }
 
 .modal-close {
-  border-radius: 50%;
+  border-radius: var(--radius-full);
 }
 
 .modal-body {
@@ -314,10 +309,13 @@ const rsiDetail = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 14px;
+  min-height: 180px;
   padding: 60px 0;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
+  text-align: center;
 }
 .kline-icon {
   font-size: 36px;

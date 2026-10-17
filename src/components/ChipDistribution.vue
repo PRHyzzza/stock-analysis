@@ -283,7 +283,7 @@ function formatPrice(v) {
   font-size: 12px;
   font-weight: 600;
   padding: 2px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--fog);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
@@ -332,21 +332,26 @@ function formatPrice(v) {
 }
 
 .state-msg {
-  padding: 48px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 24px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .state-title {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
 .state-hint {
   font-size: 12px;
-  color: var(--dove);
+  color: var(--text-muted);
 }
 
 /* ===== 条形图 ===== */
@@ -377,6 +382,7 @@ function formatPrice(v) {
   flex: 1;
   height: 14px;
   background: var(--fog);
+  /* 条形图内条特例：跟随 14px 轨道高度收窄 */
   border-radius: 3px;
   overflow: visible;
   position: relative;
@@ -416,7 +422,7 @@ function formatPrice(v) {
   color: #7c3aed;
   background: rgba(124, 58, 237, 0.1);
   padding: 0 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   line-height: 16px;
 }
 

@@ -102,7 +102,7 @@ const emit = defineEmits([
 /* ===== Steep: 操作按钮 ===== */
 .action-bar {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -114,8 +114,12 @@ const emit = defineEmits([
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   letter-spacing: -0.009em;
+}
+
+.btn:active {
+  transform: scale(0.98);
 }
 
 /* Steep: Primary CTA — Rust fill, full round */
@@ -124,7 +128,7 @@ const emit = defineEmits([
   align-items: center;
   gap: 6px;
   background: var(--rust);
-  color: #fff;
+  color: var(--white);
   box-shadow: var(--shadow-card);
 }
 .btn-industry:hover {
@@ -138,7 +142,7 @@ const emit = defineEmits([
   align-items: center;
   gap: 6px;
   background: var(--ink);
-  color: #fff;
+  color: var(--white);
   box-shadow: var(--shadow-card);
 }
 .btn-tech:hover {
@@ -151,7 +155,7 @@ const emit = defineEmits([
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid var(--border);
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-ghost:hover {
   border-color: var(--ink);
@@ -171,7 +175,7 @@ const emit = defineEmits([
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid var(--border);
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -198,7 +202,7 @@ const emit = defineEmits([
 }
 .btn-chip:hover {
   background: #7c3aed;
-  color: #fff;
+  color: var(--white);
   border-color: #7c3aed;
   box-shadow: var(--shadow-elevated);
 }
@@ -215,7 +219,7 @@ const emit = defineEmits([
 }
 .btn-ai:hover {
   background: var(--rust);
-  color: #fff;
+  color: var(--white);
   box-shadow: var(--shadow-elevated);
 }
 
@@ -227,7 +231,7 @@ const emit = defineEmits([
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid var(--border);
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   position: relative;
 }
 .btn-money:hover {
@@ -243,7 +247,7 @@ const emit = defineEmits([
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid var(--border);
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-backtest:hover {
   background: var(--sky-wash);
@@ -252,13 +256,14 @@ const emit = defineEmits([
 }
 
 /* Steep: 提醒按钮（均线+价格合并）— 铃铛图标 + Ghost 风格，启用时橙色高亮 */
-.btn-alerts {  display: flex;
+.btn-alerts {
+  display: flex;
   align-items: center;
   gap: 6px;
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid var(--border);
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   position: relative;
 }
 .btn-alerts:hover {
@@ -281,7 +286,7 @@ const emit = defineEmits([
   padding: 0 5px;
   border-radius: var(--radius-full);
   background: var(--rust);
-  color: #fff;
+  color: var(--white);
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
@@ -290,10 +295,10 @@ const emit = defineEmits([
 /* 宽窗口（>1200px）：按钮放大、间距更舒展（窄窗口保持紧凑） */
 @media (min-width: 1201px) {
   .action-bar {
-    gap: 14px;
+    gap: 16px;
   }
   .btn {
-    padding: 12px 30px;
+    padding: 12px 24px;
     font-size: 14px;
   }
 }

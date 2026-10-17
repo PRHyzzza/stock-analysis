@@ -426,12 +426,6 @@ const noEvaluable = computed(() => totalEvents.value > 0 && evaluable.value === 
 
 <style scoped>
 /* ===== 容器：比默认弹窗宽，容纳多列统计表 ===== */
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-  animation: none;
-}
-
 .sh-container {
   width: 900px;
   max-height: 86vh;
@@ -463,7 +457,7 @@ const noEvaluable = computed(() => totalEvents.value > 0 && evaluable.value === 
 }
 
 .modal-close {
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
 }
 
 .modal-body {
@@ -601,6 +595,8 @@ const noEvaluable = computed(() => totalEvents.value > 0 && evaluable.value === 
   font-weight: 600;
   color: var(--text-muted);
   background: var(--fog);
+  min-height: 36px;
+  box-sizing: border-box;
 }
 
 .stat-row {
@@ -610,7 +606,8 @@ const noEvaluable = computed(() => totalEvents.value > 0 && evaluable.value === 
   font-size: 12px;
   color: var(--ink);
   text-align: left;
-  min-height: 34px;
+  min-height: 36px;
+  box-sizing: border-box;
 }
 
 .row-btn {
@@ -619,10 +616,13 @@ const noEvaluable = computed(() => totalEvents.value > 0 && evaluable.value === 
   border-right: none;
   border-bottom: none;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
 }
 .row-btn:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
+}
+.row-btn:active {
+  background: var(--active-bg);
 }
 
 /* 持有期表：6 列 */
@@ -797,7 +797,7 @@ const noEvaluable = computed(() => totalEvents.value > 0 && evaluable.value === 
 }
 
 .state-main {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
@@ -845,9 +845,16 @@ const noEvaluable = computed(() => totalEvents.value > 0 && evaluable.value === 
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition-fast), transform var(--transition-fast);
 }
 .btn-retry:hover {
   background: var(--apricot-wash);
+}
+.btn-retry:active {
+  transform: scale(0.98);
+}
+.btn-retry:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

@@ -1,6 +1,6 @@
 [package]
 name = "stock-analysis"
-version = "0.1.3"
+version = "0.2.0"
 description = "A 股/港股桌面行情分析工具：行情聚合、资金流向、AI 投研助手"
 authors = ["stock-analysis contributors"]
 edition = "2021"

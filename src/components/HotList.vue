@@ -119,7 +119,7 @@ onUnmounted(() => {
   <div class="hotlist-section">
     <div class="list-header">
       <span class="list-title">热榜</span>
-      <span v-if="selectedTag" class="tag-filter-indicator" @click="selectTag(selectedTag)">「{{ selectedTag }}」✕</span>
+      <span v-if="selectedTag" class="tag-filter-indicator" role="button" tabindex="0" @click="selectTag(selectedTag)" @keydown.enter="selectTag(selectedTag)">「{{ selectedTag }}」✕</span>
       <button class="hot-refresh-btn" :class="{ loading }" @click="loadHotList" :disabled="loading">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M2 8a6 6 0 0 1 10.47-4M14 8a6 6 0 0 1-10.47 4" stroke="currentColor" stroke-width="1.5"
@@ -144,7 +144,7 @@ onUnmounted(() => {
         <div v-for="item in filteredHotList" :key="item.code" class="stock-item" :class="{
           active: selectedCode === item.code,
           'in-watchlist': isInWatchlist(item.code),
-        }" @click="selectStock(item)">
+        }" role="button" tabindex="0" @click="selectStock(item)" @keydown.enter="selectStock(item)">
           <div class="hot-rank-col">
             <span class="hot-rank-num" :class="{ 'rank-top': item.order <= 3 }">{{ item.order }}</span>
           </div>
@@ -156,7 +156,8 @@ onUnmounted(() => {
                 marketLabel(item) }}</span>
             </div>
             <div class="hot-tags" v-if="item.tags?.length">
-              <span class="hot-tag" v-for="tag in item.tags.slice(0, 2)" :key="tag" @click.stop="selectTag(tag)">{{ tag
+              <span class="hot-tag" v-for="tag in item.tags.slice(0, 2)" :key="tag" role="button" tabindex="0"
+                @click.stop="selectTag(tag)" @keydown.enter.stop="selectTag(tag)">{{ tag
                 }}</span>
               <span v-if="item.popularity_tag" class="hot-pop-tag">{{ item.popularity_tag }}</span>
             </div>
@@ -198,14 +199,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px 12px;
+  padding: 16px 20px 12px;
   border-bottom: 1px solid var(--border-light);
 }
 
 /* 窗口较小时压缩热榜列表 */
 @media (max-width: 1200px) {
   .list-header {
-    padding: 14px 14px 10px;
+    padding: 12px 14px;
   }
   .stock-item {
     padding: 10px 14px;
@@ -243,19 +244,24 @@ onUnmounted(() => {
   width: 28px;
   height: 28px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 
 .hot-refresh-btn:hover {
   color: var(--ink);
   border-color: var(--ink);
+  background: var(--hover-bg);
+}
+
+.hot-refresh-btn:active {
+  transform: scale(0.96);
 }
 
 .hot-refresh-btn:disabled {
@@ -273,15 +279,19 @@ onUnmounted(() => {
   color: var(--rust);
   background: var(--apricot-wash);
   padding: 2px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   white-space: nowrap;
   margin-left: auto;
   margin-right: 8px;
+  transition: all var(--transition-fast);
 }
 .tag-filter-indicator:hover {
   background: var(--rust);
-  color: #fff;
+  color: var(--white);
+}
+.tag-filter-indicator:active {
+  transform: scale(0.96);
 }
 
 .stock-list {
@@ -298,12 +308,17 @@ onUnmounted(() => {
   gap: 8px;
   padding: 12px 20px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--transition-fast);
   position: relative;
+  outline-offset: -2px;
 }
 
 .stock-item:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
+}
+
+.stock-item:active {
+  background: var(--hover-bg-strong);
 }
 
 .stock-item.active {
@@ -311,7 +326,7 @@ onUnmounted(() => {
 }
 
 .stock-item.in-watchlist {
-  background: rgba(93, 42, 26, 0.04);
+  background: var(--hover-bg);
 }
 
 .stock-item.in-watchlist .item-name {
@@ -396,13 +411,13 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 600;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   flex-shrink: 0;
 }
 
 .market-sh {
   background: var(--sky-wash);
-  color: #2563eb;
+  color: var(--ink);
 }
 
 .market-sz {
@@ -411,13 +426,13 @@ onUnmounted(() => {
 }
 
 .market-bj {
-  background: var(--sage-wash);
-  color: var(--sage);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
 }
 
 .market-hk {
-  background: var(--violet-wash, var(--sky-wash));
-  color: var(--violet, #7c3aed);
+  background: var(--fog);
+  color: var(--text-secondary);
 }
 
 /* 标签行 */
@@ -431,24 +446,28 @@ onUnmounted(() => {
 .hot-tag {
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--fog);
   color: var(--text-secondary);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--transition-fast);
 }
 
 .hot-tag:hover {
-  background: var(--border);
+  background: var(--hover-bg-strong);
   color: var(--text-primary);
+}
+
+.hot-tag:active {
+  background: var(--active-bg);
 }
 
 .hot-pop-tag {
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--apricot-wash);
   color: var(--rust);
   font-weight: 500;
@@ -467,7 +486,7 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 700;
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   min-width: 58px;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -504,22 +523,35 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
-/* 加载 & 错误 & 空状态 */
+/* 加载 & 错误 & 空状态：统一垂直居中、min-height 防塌陷 */
 .hot-loading,
-.hot-error {
+.hot-error,
+.empty-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 40px 20px;
+  min-height: 200px;
+  padding: 24px 20px;
+  text-align: center;
   color: var(--text-muted);
   font-size: 13px;
 }
 
+.hot-loading {
+  flex-direction: row;
+}
+
 .hot-error {
   color: var(--red);
-  text-align: center;
   word-break: break-all;
+}
+
+.hot-error::before {
+  content: "⚠";
+  font-size: 18px;
+  line-height: 1;
 }
 
 .hot-spinner {
@@ -533,9 +565,6 @@ onUnmounted(() => {
 }
 
 .empty-state {
-  padding: 40px 20px;
-  text-align: center;
-  color: var(--text-muted);
   font-size: 13px;
 }
 </style>

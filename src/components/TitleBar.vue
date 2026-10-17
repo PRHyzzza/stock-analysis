@@ -77,15 +77,22 @@ const emit = defineEmits(["open-mini"]);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--transition-fast);
   -webkit-app-region: no-drag;
 }
 .win-btn:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
   color: var(--text-primary);
 }
+.win-btn:active {
+  background: var(--active-bg);
+}
+/* 关闭键沿用 Windows 品牌红 */
 .win-close:hover {
   background: #e81123;
-  color: #fff;
+  color: var(--white);
+}
+.win-close:active {
+  background: #c50f1f;
 }
 </style>

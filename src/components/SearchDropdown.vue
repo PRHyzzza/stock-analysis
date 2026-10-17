@@ -48,7 +48,10 @@ defineExpose({ focus: () => inputRef.value?.focus() });
           :key="result.market + result.code"
           class="search-dropdown-item"
           :class="{ 'already-in': watchlist.some(s => s.code === result.code) }"
+          role="button"
+          tabindex="0"
           @mousedown.prevent="emit('add-stock', result)"
+          @keydown.enter.prevent="emit('add-stock', result)"
         >
           <div class="search-result-left">
             <span class="search-result-name">{{ result.name }}</span>
@@ -94,17 +97,18 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   letter-spacing: -0.009em;
   background: var(--card-bg);
   color: var(--text-primary);
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .search-input::placeholder {
   color: var(--dove);
 }
 
+/* 焦点反馈：边框转 rust + 3px 柔光。
+   不要用 outline-offset 正数 —— 父容器 overflow:hidden 会把外扩的焦点环裁掉一半 */
 .search-input:focus {
-  border-color: var(--ink);
-  box-shadow: 0 0 0 2px rgba(23, 25, 28, 0.06);
+  border-color: var(--rust);
+  box-shadow: var(--focus-glow);
 }
 
 /* ===== Steep: 搜索建议下拉 ===== */
@@ -128,11 +132,15 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   justify-content: space-between;
   padding: 10px 16px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background var(--transition-fast);
 }
 
 .search-dropdown-item:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
+}
+
+.search-dropdown-item:active {
+  background: var(--active-bg);
 }
 
 .search-dropdown-item.already-in {
@@ -178,9 +186,9 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
-  background: var(--border);
+  background: var(--fog);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .search-result-hint {

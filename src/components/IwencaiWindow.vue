@@ -290,9 +290,9 @@ function cellText(v, col) {
 
 <template>
   <div class="iwencai-window">
-    <!-- 顶部工具条 -->
-    <header class="toolbar">
-      <div class="toolbar-left">
+    <!-- 顶部工具条（无系统标题栏，整条可拖动窗口） -->
+    <header class="toolbar" data-tauri-drag-region>
+      <div class="toolbar-left" data-tauri-drag-region>
         <span class="toolbar-badge">问财</span>
         <span class="toolbar-title">智能选股</span>
       </div>
@@ -497,11 +497,15 @@ function cellText(v, col) {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  font-family: inherit;
+  transition:
+    background-color var(--transition-fast),
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .search-btn:hover:not(:disabled) {
-  opacity: 0.85;
+  background: #2a2d31;
 }
 
 .search-btn:active:not(:disabled) {
@@ -533,12 +537,15 @@ function cellText(v, col) {
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 .ai-optimize-btn:hover:not(:disabled) {
   background: var(--rust);
   color: #fff;
+}
+.ai-optimize-btn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .ai-optimize-btn:disabled {
   opacity: 0.4;
@@ -563,10 +570,10 @@ function cellText(v, col) {
 .ai-hint {
   margin-top: 10px;
   padding: 7px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: rgba(220, 38, 38, 0.06);
   border: 1px solid rgba(220, 38, 38, 0.18);
-  color: #dc2626;
+  color: var(--danger-ink);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -617,13 +624,16 @@ function cellText(v, col) {
   line-height: 1.6;
   font-family: inherit;
   letter-spacing: -0.009em;
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .query-input:focus {
-  border-color: var(--dove);
-  box-shadow: 0 0 0 3px rgba(163, 166, 175, 0.15);
+  border-color: var(--rust);
+  background: var(--card-bg);
+  box-shadow: var(--focus-glow);
 }
 
 .query-input::placeholder {
@@ -654,13 +664,18 @@ function cellText(v, col) {
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 
 .example-chip:hover {
   border-color: var(--rust);
   color: var(--rust);
-  background: rgba(93, 42, 26, 0.04);
+  background: var(--apricot-wash);
+}
+
+.example-chip:active {
+  transform: scale(0.98);
+  background: var(--apricot-wash);
 }
 
 /* ── 最近查询历史 ── */
@@ -691,12 +706,15 @@ function cellText(v, col) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .history-chip-btn:hover {
   border-color: var(--rust);
   color: var(--rust);
-  background: rgba(93, 42, 26, 0.04);
+  background: var(--apricot-wash);
+}
+.history-chip-btn:active {
+  transform: scale(0.98);
 }
 
 .history-chip-del {
@@ -713,11 +731,11 @@ function cellText(v, col) {
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .history-chip-del:hover {
   border-color: rgba(220, 38, 38, 0.4);
-  color: #dc2626;
+  color: var(--danger-ink);
   background: rgba(220, 38, 38, 0.06);
 }
 
@@ -730,10 +748,10 @@ function cellText(v, col) {
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .history-clear:hover {
-  color: #dc2626;
+  color: var(--danger-ink);
   background: rgba(220, 38, 38, 0.06);
 }
 
@@ -755,7 +773,7 @@ function cellText(v, col) {
 
 .error-text {
   font-size: 13px;
-  color: #dc2626;
+  color: var(--danger-ink);
   line-height: 1.4;
 }
 
@@ -773,8 +791,9 @@ function cellText(v, col) {
 
 .result-meta {
   display: flex;
-  align-items: baseline;
-  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
   margin-bottom: 12px;
   flex-shrink: 0;
   font-size: 12px;
@@ -807,11 +826,14 @@ function cellText(v, col) {
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .ai-analyze-btn:hover:not(:disabled) {
   background: var(--rust);
   color: #fff;
+}
+.ai-analyze-btn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .ai-analyze-btn:disabled {
   opacity: 0.4;
@@ -849,6 +871,8 @@ function cellText(v, col) {
   background: var(--fog);
   color: var(--text-secondary);
   font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.01em;
   text-align: left;
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
@@ -860,6 +884,7 @@ function cellText(v, col) {
   border-bottom: 1px solid var(--border-light);
   white-space: nowrap;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .result-table tbody tr:last-child td {
@@ -868,11 +893,15 @@ function cellText(v, col) {
 
 .result-row {
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background-color var(--transition-fast);
 }
 
 .result-row:hover {
   background: rgba(93, 42, 26, 0.05);
+}
+
+.result-row:active {
+  background: rgba(93, 42, 26, 0.08);
 }
 
 /* ===== 固定操作列（加入自选） ===== */
@@ -897,6 +926,10 @@ function cellText(v, col) {
   background: rgba(93, 42, 26, 0.05);
 }
 
+.result-row:active .td-sticky {
+  background: rgba(93, 42, 26, 0.08);
+}
+
 .star-btn {
   padding: 3px 12px;
   border-radius: var(--radius-full);
@@ -906,13 +939,17 @@ function cellText(v, col) {
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 
 .star-btn:hover {
   border-color: var(--rust);
   color: var(--rust);
-  background: rgba(93, 42, 26, 0.04);
+  background: var(--apricot-wash);
+}
+
+.star-btn:active {
+  transform: scale(0.96);
 }
 
 .star-btn.added {
@@ -940,13 +977,17 @@ function cellText(v, col) {
   color: var(--text-primary);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 
 .page-btn:hover:not(:disabled) {
   border-color: var(--rust);
   color: var(--rust);
-  background: rgba(93, 42, 26, 0.04);
+  background: var(--apricot-wash);
+}
+
+.page-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .page-btn:disabled {
@@ -967,18 +1008,20 @@ function cellText(v, col) {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  min-height: 240px;
   background: var(--card-bg);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
 }
 
 .empty-icon {
-  font-size: 32px;
+  font-size: 30px;
   margin-bottom: 6px;
+  opacity: 0.85;
 }
 
 .empty-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }

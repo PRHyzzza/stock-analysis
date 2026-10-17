@@ -85,7 +85,7 @@ const emit = defineEmits(["close"]);
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   background: var(--apricot-wash);
   color: var(--rust);
 }

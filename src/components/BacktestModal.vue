@@ -328,7 +328,7 @@ function switchHold(h) {
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   background: var(--sky-wash);
   color: var(--ink);
 }
@@ -405,7 +405,7 @@ function switchHold(h) {
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 
 .bt-hold:hover {
@@ -413,10 +413,14 @@ function switchHold(h) {
   color: var(--ink);
 }
 
+.bt-hold:active {
+  transform: scale(0.98);
+}
+
 .bt-hold.active {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--white);
 }
 
 .bt-sync {
@@ -428,7 +432,7 @@ function switchHold(h) {
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 
 .bt-sync:hover:not(:disabled) {
@@ -437,9 +441,13 @@ function switchHold(h) {
   color: var(--rust);
 }
 
+.bt-sync:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
 .bt-sync:disabled {
-  opacity: 0.55;
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .bt-error {
@@ -475,8 +483,13 @@ function switchHold(h) {
 
 .bt-table td {
   padding: 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-light);
   vertical-align: middle;
+  transition: background var(--transition-fast);
+}
+
+.bt-table tbody tr:hover td {
+  background: var(--hover-bg);
 }
 
 .bt-table tr:last-child td {
@@ -540,6 +553,12 @@ function switchHold(h) {
 }
 
 .bt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 140px;
   padding: 32px 0;
   text-align: center;
   color: var(--text-muted);

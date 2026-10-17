@@ -34,8 +34,7 @@ function safeSetItem(key, value) {
 
 /** 可用模型列表（value → label）；默认值与 useSettings.DEFAULTS.aiModel 保持一致，避免首屏模型名空 */
 const AVAILABLE_MODELS = [
-  { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
-  // { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+  { value: "deepseek-flash", label: "DeepSeek Flash" }
 ];
 
 // ============ 从 Skills 架构加载工具 ============

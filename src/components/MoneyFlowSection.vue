@@ -113,13 +113,13 @@ function t0DirectionTooltip(summary) {
 <style scoped>
 /* ===== 主力资金流向 ===== */
 .flow-section {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .flow-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 0;
   flex-wrap: wrap;
 }
@@ -142,7 +142,7 @@ function t0DirectionTooltip(summary) {
   font-size: 11px;
   color: var(--text-muted);
   border: 1px solid var(--border-light);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   padding: 0 5px;
   line-height: 16px;
   flex-shrink: 0;
@@ -155,7 +155,7 @@ function t0DirectionTooltip(summary) {
 
 /* T+0 信号内联 */
 .flow-sep {
-  color: var(--border-light);
+  color: var(--border);
   font-size: 16px;
   margin: 0 6px;
   user-select: none;
@@ -165,34 +165,34 @@ function t0DirectionTooltip(summary) {
   font-size: 13px;
   font-weight: 700;
   padding: 2px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   letter-spacing: -0.009em;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: help;
 }
 .t0-badge-inline.dir-up {
   color: var(--red);
-  background: rgba(231, 76, 60, 0.1);
+  background: var(--red-bg);
 }
 .t0-badge-inline.dir-down {
   color: var(--green);
-  background: rgba(39, 174, 96, 0.1);
+  background: var(--green-bg);
 }
 .t0-badge-inline.dir-wait {
   color: var(--text-secondary);
-  background: rgba(163, 166, 175, 0.12);
+  background: var(--fog);
 }
 
 .t0-chip-inline {
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   color: var(--rust);
-  background: rgba(201, 94, 54, 0.1);
+  background: var(--apricot-wash);
   white-space: nowrap;
   letter-spacing: -0.005em;
-  cursor: pointer;
+  cursor: help;
 }
 
 .flow-text {
@@ -217,9 +217,9 @@ function t0DirectionTooltip(summary) {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 6px 24px;
-  margin-top: 14px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
   background: var(--fog);
 }
 

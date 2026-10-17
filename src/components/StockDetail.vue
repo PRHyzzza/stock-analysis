@@ -367,7 +367,7 @@ const sinceAddedPct = computed(() => {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   flex-wrap: wrap;
 }
 
@@ -423,8 +423,8 @@ const sinceAddedPct = computed(() => {
   border-radius: var(--radius-full);
 }
 .market-badge.market-hk {
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
 }
 
 /* 自选以来涨跌幅徽标 */
@@ -457,7 +457,7 @@ const sinceAddedPct = computed(() => {
 .price-main {
   display: flex;
   align-items: baseline;
-  gap: 14px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
@@ -485,6 +485,7 @@ const sinceAddedPct = computed(() => {
 .price-change {
   font-size: 18px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .price-change.up { color: var(--red); }
@@ -495,6 +496,7 @@ const sinceAddedPct = computed(() => {
   font-weight: 600;
   padding: 3px 14px;
   border-radius: var(--radius-full);
+  font-variant-numeric: tabular-nums;
 }
 
 .price-pct.up {
@@ -511,7 +513,7 @@ const sinceAddedPct = computed(() => {
 .meta-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 24px;
 }
 
@@ -532,8 +534,8 @@ const sinceAddedPct = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
   background: var(--fog);
 }
 
@@ -575,18 +577,23 @@ const sinceAddedPct = computed(() => {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   letter-spacing: -0.01em;
 }
 
 .chart-tab.active {
   background: var(--card-bg);
   color: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-card);
 }
 
 .chart-tab:hover:not(.active) {
   color: var(--text-secondary);
+  background: var(--hover-bg);
+}
+
+.chart-tab:active {
+  transform: scale(0.98);
 }
 
 /* ===== K 线弹性填充 ===== */

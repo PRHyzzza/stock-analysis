@@ -187,9 +187,9 @@ onUnmounted(() => {
         </span>
       </template>
       <span v-if="!isEmpty" class="mf-legend">
-        <span class="mf-legend-dot" style="background: #e74c3c"></span>净流入
-        <span class="mf-legend-dot" style="background: #27ae60"></span>净流出
-        <span class="mf-legend-dot" style="background: #7c3aed"></span>5日均线
+        <span class="mf-legend-dot inflow-dot"></span>净流入
+        <span class="mf-legend-dot outflow-dot"></span>净流出
+        <span class="mf-legend-dot ma-dot"></span>5日均线
       </span>
     </div>
     <div class="mf-chart" ref="chartContainer"></div>
@@ -200,7 +200,7 @@ onUnmounted(() => {
 
 <style scoped>
 .mf-wrap {
-  margin-top: 18px;
+  margin-top: 16px;
   border-top: 1px dashed var(--border);
   padding-top: 16px;
   position: relative;
@@ -211,7 +211,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .mf-title {
@@ -246,6 +246,10 @@ onUnmounted(() => {
   border-radius: 2px;
   margin-left: 6px;
 }
+/* 与 chart 内 series 颜色保持一致（见脚本顶部 UP/DOWN/MA_COLOR） */
+.inflow-dot { background: #e74c3c; }
+.outflow-dot { background: #27ae60; }
+.ma-dot { background: #7c3aed; }
 
 .mf-chart {
   width: 100%;
@@ -258,8 +262,10 @@ onUnmounted(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--text-muted);
+  text-align: center;
   padding: 20px;
 }
 </style>

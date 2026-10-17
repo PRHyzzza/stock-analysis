@@ -143,7 +143,10 @@ onUnmounted(() => {
           :key="stock.code"
           class="mini-item"
           :title="`双击在主窗口打开 ${stock.name}`"
+          role="button"
+          tabindex="0"
           @dblclick="selectStock(stock)"
+          @keydown.enter="selectStock(stock)"
         >
           <div class="mini-item-left">
             <span class="mini-name">{{ stock.name }}</span>
@@ -223,15 +226,18 @@ onUnmounted(() => {
   width: 24px;
   height: 24px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--transition-fast);
 }
 .mini-btn:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
   color: var(--text-primary);
+}
+.mini-btn:active {
+  transform: scale(0.96);
 }
 .mini-btn.active {
   color: var(--red);
@@ -242,7 +248,7 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px;
+  padding: 12px;
 }
 
 .mini-list-header {
@@ -261,23 +267,29 @@ onUnmounted(() => {
 .mini-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .mini-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: var(--card-bg);
   border: 1px solid var(--border-light);
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: border-color 0.12s, transform 0.12s;
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+    transform var(--transition-fast);
 }
 .mini-item:hover {
+  background: var(--hover-bg);
   border-color: var(--border);
   transform: translateY(-1px);
+}
+.mini-item:active {
+  background: var(--hover-bg-strong);
+  transform: scale(0.98);
 }
 
 .mini-item-left {
@@ -308,9 +320,9 @@ onUnmounted(() => {
 .mini-hk {
   font-size: 9px;
   padding: 0 4px;
-  border-radius: 4px;
-  background: rgba(124, 58, 237, 0.1);
-  color: #7c3aed;
+  border-radius: var(--radius-xs);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
 }
 
 .mini-item-right {
@@ -341,13 +353,15 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  min-height: 120px;
   height: 100%;
-  gap: 6px;
+  gap: 8px;
+  text-align: center;
   color: var(--text-muted);
   font-size: 13px;
 }
 .mini-empty-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   opacity: 0.7;
 }
@@ -355,7 +369,7 @@ onUnmounted(() => {
 /* ── 底部 ── */
 .mini-footer {
   flex-shrink: 0;
-  padding: 6px 10px;
+  padding: 8px 12px;
   font-size: 10px;
   color: var(--text-muted);
   text-align: center;

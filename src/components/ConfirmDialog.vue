@@ -74,16 +74,16 @@ const emit = defineEmits(["confirm", "cancel"]);
 .confirm-icon {
   width: 48px;
   height: 48px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--rust);
-  background: rgba(93, 42, 26, 0.08);
+  background: var(--apricot-wash);
 }
 .confirm-icon.danger {
   color: var(--red);
-  background: rgba(231, 76, 60, 0.08);
+  background: var(--red-bg);
 }
 
 .confirm-body {
@@ -122,7 +122,14 @@ const emit = defineEmits(["confirm", "cancel"]);
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
+}
+.confirm-btn:active {
+  transform: scale(0.98);
+}
+.confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .confirm-btn-cancel {
@@ -130,23 +137,23 @@ const emit = defineEmits(["confirm", "cancel"]);
   color: var(--text-secondary);
 }
 .confirm-btn-cancel:hover {
-  background: var(--border);
+  background: var(--hover-bg-strong);
   color: var(--text-primary);
 }
 
 .confirm-btn-primary {
   background: var(--rust);
-  color: #fff;
+  color: var(--white);
 }
 .confirm-btn-primary:hover {
-  background: #4a2215;
+  background: var(--ink);
 }
 
 .confirm-btn-danger {
   background: var(--red);
-  color: #fff;
+  color: var(--white);
 }
 .confirm-btn-danger:hover {
-  background: #c0392b;
+  filter: brightness(0.92);
 }
 </style>

@@ -526,47 +526,47 @@ onUnmounted(() => {
       </div>
       <div class="intraday-legend">
         <span class="legend-item price-legend">
-          <span class="legend-dot" style="background: #e74c3c"></span>
+          <span class="legend-dot price-dot"></span>
           价格
         </span>
         <span class="legend-item avg-legend">
-          <span class="legend-dot" style="background: #9c27b0"></span>
+          <span class="legend-dot avg-dot"></span>
           均价
         </span>
         <span class="legend-item vwap-legend">
-          <span class="legend-dot" style="background: #2196F3"></span>
+          <span class="legend-dot vwap-dot"></span>
           VWAP
         </span>
         <span class="legend-sep">|</span>
         <span class="legend-item ref-legend">
-          <span class="legend-line" style="background: rgba(52, 152, 219, 0.7)"></span>
+          <span class="legend-line open-line"></span>
           今开
         </span>
         <span class="legend-item ref-legend">
-          <span class="legend-line" style="background: rgba(231, 76, 60, 0.7)"></span>
+          <span class="legend-line high-line"></span>
           最高
         </span>
         <span class="legend-item ref-legend">
-          <span class="legend-line" style="background: rgba(39, 174, 96, 0.7)"></span>
+          <span class="legend-line low-line"></span>
           最低
         </span>
         <template v-if="signalMarkers.length > 0">
           <span class="legend-sep">|</span>
           <!-- 前瞻预警（橙点） -->
           <span class="legend-item signal-legend" title="前瞻预警：放量急拉/急跌/无量拉升（当下可判，追高/杀跌前先看量能）">
-            <span class="legend-dot" style="background: #f39c12"></span>
+            <span class="legend-dot alert-dot"></span>
             预警
           </span>
           <!-- 陷阱确认（红/绿方块） -->
           <span class="legend-item signal-legend" title="疑似诱多?/疑似诱空?：跌破/收复关键位的警报确认（需 confirm 走势验证）">
-            <span class="legend-square" style="background: #e74c3c"></span>
-            <span class="legend-square" style="background: #27ae60"></span>
+            <span class="legend-square up-square"></span>
+            <span class="legend-square down-square"></span>
             陷阱
           </span>
           <!-- 方向事件（深色箭头：突破/破位） -->
           <span class="legend-item signal-legend" title="突破↑/破位↓：放量越过 30 分钟前高/前低；偏离>3% 等 T+0 信号见红绿箭头">
-            <span class="legend-dot" style="background: #c0392b"></span>
-            <span class="legend-dot" style="background: #1e8449"></span>
+            <span class="legend-dot break-dot"></span>
+            <span class="legend-dot breakdown-dot"></span>
             突破/破位
           </span>
         </template>
@@ -622,6 +622,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+  font-size: 11px;
 }
 
 /* 窗口较窄时压缩图例间距 */
@@ -663,6 +664,19 @@ onUnmounted(() => {
   margin-right: 2px;
 }
 
+/* 图例色与 chart 内 series 颜色保持一致（见脚本顶部常量与 createSeries 调用） */
+.price-dot { background: #e74c3c; }
+.avg-dot { background: #9c27b0; }
+.vwap-dot { background: #2196F3; }
+.alert-dot { background: #f39c12; }
+.break-dot { background: #c0392b; }
+.breakdown-dot { background: #1e8449; }
+.up-square { background: #e74c3c; }
+.down-square { background: #27ae60; }
+.open-line { background: rgba(52, 152, 219, 0.7); }
+.high-line { background: rgba(231, 76, 60, 0.7); }
+.low-line { background: rgba(39, 174, 96, 0.7); }
+
 .intraday-chart-wrap {
   flex: 1;
   min-height: 0;
@@ -693,6 +707,11 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.85);
   z-index: 10;
   font-size: 13px;
+  text-align: center;
+}
+
+.intraday-empty {
+  min-height: 200px;
 }
 
 .intraday-loading-icon {
@@ -718,7 +737,7 @@ onUnmounted(() => {
 
 /* 信号图例 */
 .legend-sep {
-  color: var(--border-light);
+  color: var(--border);
   font-size: 12px;
   margin: 0 2px;
   user-select: none;

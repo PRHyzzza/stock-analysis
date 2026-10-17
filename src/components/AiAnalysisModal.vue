@@ -219,8 +219,13 @@ function doSuggestion(text) {
 
 /* AiAnalysisModal 特有样式：覆盖宽高（与 GlobalAiModal 保持一致） */
 .modal-container {
-  width: 900px;
-  height: 680px;
+  width: min(900px, 94vw);
+  height: min(680px, 88vh);
+}
+
+/* 个股分析弹窗没有热榜入口，头部右侧更紧凑 */
+.modal-header-actions {
+  gap: 2px;
 }
 
 </style>

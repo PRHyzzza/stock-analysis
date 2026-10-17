@@ -156,17 +156,20 @@ const directionLabel = computed(
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   user-select: none;
 }
 .ma-chip:hover {
   border-color: var(--ink);
   color: var(--ink);
 }
+.ma-chip:active {
+  transform: scale(0.98);
+}
 .ma-chip.active {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--white);
 }
 /* 视觉隐藏但保留键盘可达/读屏可读（原 display:none 会让 checkbox 无法聚焦） */
 .hidden-check {
@@ -183,8 +186,8 @@ const directionLabel = computed(
 
 /* 键盘聚焦到隐藏 checkbox 时，让外层 chip 显示焦点环 */
 .ma-chip:has(.hidden-check:focus-visible) {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px; /* 内缩：弹窗 body 会滚动，外扩环会被裁 */
 }
 
 /* 均线参考值：线上红色 / 线下绿色（A 股惯例） */
@@ -196,7 +199,7 @@ const directionLabel = computed(
 .ma-chip-val.below { color: var(--green); }
 .ma-chip.active .ma-chip-val.above,
 .ma-chip.active .ma-chip-val.below {
-  color: #fff;
+  color: var(--white);
 }
 
 .ma-hint {
@@ -220,19 +223,22 @@ const directionLabel = computed(
   font-family: inherit;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .ma-dir-btn:hover:not(:disabled) {
   border-color: var(--ink);
   color: var(--ink);
 }
+.ma-dir-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
 .ma-dir-btn.active {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--white);
 }
 .ma-dir-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -242,7 +248,7 @@ const directionLabel = computed(
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   background: var(--green-bg);
   color: var(--green);
   font-size: 12px;
@@ -255,7 +261,7 @@ const directionLabel = computed(
 .ma-status-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: currentColor;
   flex-shrink: 0;
 }

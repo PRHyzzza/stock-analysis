@@ -103,7 +103,7 @@ async function goDownload() {
   color: var(--text-muted);
 }
 .about-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   opacity: 0.8;
 }
@@ -117,33 +117,35 @@ async function goDownload() {
 .btn-check-update {
   padding: 6px 16px;
   border: none;
-  border-radius: 8px;
-  background: var(--ink, #1d2129);
-  color: #fff;
+  border-radius: var(--radius-xs);
+  background: var(--ink);
+  color: var(--white);
   font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-check-update:hover { opacity: 0.85; }
+.btn-check-update:active { transform: scale(0.98); }
 .btn-check-update:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .update-result {
   margin-top: 8px;
   padding: 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   font-size: 12px;
 }
 .has-update {
-  background: rgba(231, 76, 60, 0.08);
-  border: 1px solid rgba(231, 76, 60, 0.25);
+  background: var(--red-bg);
+  border: 1px solid var(--red-bg);
 }
 .up-to-date {
-  background: rgba(39, 174, 96, 0.08);
-  border: 1px solid rgba(39, 174, 96, 0.25);
+  background: var(--green-bg);
+  border: 1px solid var(--green-bg);
 }
 .check-failed {
-  background: rgba(241, 196, 15, 0.08);
-  border: 1px solid rgba(241, 196, 15, 0.25);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-bg);
 }
 .update-title {
   font-weight: 600;
@@ -151,7 +153,7 @@ async function goDownload() {
   margin-bottom: 4px;
 }
 .update-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   word-break: break-all;
 }
@@ -159,13 +161,16 @@ async function goDownload() {
   margin-top: 8px;
   padding: 6px 16px;
   border: none;
-  border-radius: 8px;
-  background: var(--red, #e74c3c);
-  color: #fff;
+  border-radius: var(--radius-xs);
+  background: var(--red);
+  color: var(--white);
   font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
+  transition: all var(--transition-fast);
 }
 .btn-download:hover { opacity: 0.85; }
+.btn-download:active { transform: scale(0.98); }
 
 .link-row {
   display: flex;
@@ -173,8 +178,9 @@ async function goDownload() {
   font-size: 12px;
 }
 .link-row a {
-  color: var(--red, #e74c3c);
+  color: var(--rust);
   text-decoration: none;
 }
 .link-row a:hover { text-decoration: underline; }
+.link-row a:active { opacity: 0.7; }
 </style>

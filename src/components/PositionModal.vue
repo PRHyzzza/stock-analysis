@@ -188,12 +188,6 @@ function handleCancelRemove() {
 <style scoped>
 
 /* PositionModal 特有覆盖 */
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-  animation: none;
-}
-
 .modal-container {
   width: 520px;
   max-height: 80vh;
@@ -211,7 +205,7 @@ function handleCancelRemove() {
 }
 
 .modal-close {
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
 }
 
 .modal-body {
@@ -228,7 +222,7 @@ function handleCancelRemove() {
   grid-template-columns: repeat(4, 1fr);
   gap: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   overflow: hidden;
 }
 
@@ -269,9 +263,11 @@ function handleCancelRemove() {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  min-height: 120px;
   padding: 40px 0;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
   gap: 6px;
 }
 .empty-hint {
@@ -291,14 +287,18 @@ function handleCancelRemove() {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   background: var(--fog);
   gap: 12px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition-fast), transform var(--transition-fast);
 }
 .position-row:hover {
-  background: var(--border);
+  background: var(--hover-bg);
+}
+.position-row:active {
+  transform: scale(0.995);
+  background: var(--active-bg);
 }
 
 .position-info {
@@ -360,7 +360,7 @@ function handleCancelRemove() {
   width: 24px;
   height: 24px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
@@ -368,12 +368,15 @@ function handleCancelRemove() {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   flex-shrink: 0;
 }
 .position-remove:hover {
-  background: rgba(231, 76, 60, 0.1);
+  background: var(--red-bg);
   color: var(--red);
+}
+.position-remove:active {
+  transform: scale(0.92);
 }
 
 /* ===== 添加按钮 ===== */
@@ -385,18 +388,21 @@ function handleCancelRemove() {
   width: 100%;
   padding: 12px;
   border: 1px dashed var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-add-position:hover {
   border-color: var(--rust);
   color: var(--rust);
-  background: rgba(93, 42, 26, 0.04);
+  background: var(--apricot-wash);
+}
+.btn-add-position:active {
+  transform: scale(0.995);
 }
 </style>
