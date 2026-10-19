@@ -12,8 +12,13 @@ dist
 dist-ssr
 *.local
 
-# Local scripts (proxy helpers, etc.)
-scripts/
+# Local scripts (proxy helpers, etc.) — 但测试脚本必须入库（CI 依赖）
+scripts/*
+!scripts/*.test.mjs
+
+# 临时构建产物（各审查/修复分支的 outDir）
+.vite-check/
+dist-check/
 
 # Editor directories and files
 .vscode/*

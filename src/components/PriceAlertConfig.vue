@@ -263,7 +263,7 @@ function fmtPrice(v) {
   align-items: baseline;
   gap: 8px;
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   background: var(--fog);
   margin-bottom: 18px;
   flex-wrap: wrap;
@@ -302,8 +302,8 @@ function fmtPrice(v) {
   gap: 10px;
   padding: 10px 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  transition: opacity 0.15s;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--transition-fast);
 }
 .pa-alert-row.paused {
   opacity: 0.55;
@@ -368,8 +368,11 @@ function fmtPrice(v) {
   background: var(--border);
   cursor: pointer;
   position: relative;
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
   padding: 0;
+}
+.pa-toggle:active .pa-toggle-dot {
+  width: 16px;
 }
 .pa-toggle.on {
   background: var(--rust);
@@ -380,9 +383,9 @@ function fmtPrice(v) {
   left: 3px;
   width: 14px;
   height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  transition: left 0.15s;
+  border-radius: var(--radius-full);
+  background: var(--white);
+  transition: left var(--transition-fast), width var(--transition-fast);
 }
 .pa-toggle.on .pa-toggle-dot {
   left: 17px;
@@ -395,15 +398,18 @@ function fmtPrice(v) {
   width: 26px;
   height: 26px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .pa-del:hover {
-  background: var(--fog);
+  background: var(--red-bg);
   color: var(--red);
+}
+.pa-del:active {
+  transform: scale(0.92);
 }
 
 /* ── 新建表单 ── */
@@ -435,16 +441,19 @@ function fmtPrice(v) {
   font-family: inherit;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .pa-dir-btn:hover {
   border-color: var(--ink);
   color: var(--ink);
 }
+.pa-dir-btn:active {
+  transform: scale(0.98);
+}
 .pa-dir-btn.active {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--white);
 }
 
 .pa-price-input-wrap {
@@ -457,17 +466,17 @@ function fmtPrice(v) {
   width: 140px;
   padding: 7px 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   background: var(--card-bg);
   font-size: 13px;
   font-family: inherit;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
-  outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--transition-fast);
 }
 .pa-input:focus {
-  border-color: var(--ink);
+  border-color: var(--rust);
+  box-shadow: var(--focus-glow);
 }
 .pa-input-sm {
   width: 72px;
@@ -483,20 +492,32 @@ function fmtPrice(v) {
 
 .pa-warn {
   font-size: 11px;
-  color: #b45309;
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  border-radius: 8px;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-ink);
+  border-radius: var(--radius-xs);
   padding: 6px 10px;
   margin: -4px 0 12px 74px;
   line-height: 1.5;
 }
 
 .pa-vol-toggle {
+  position: relative;
   cursor: pointer;
 }
+.pa-vol-toggle:focus-within .pa-vol-chip {
+  box-shadow: var(--focus-glow);
+}
 .hidden-check {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 .pa-vol-chip {
   display: inline-flex;
@@ -507,11 +528,14 @@ function fmtPrice(v) {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 .pa-vol-chip:hover {
   border-color: var(--ink);
   color: var(--ink);
+}
+.pa-vol-chip:active {
+  transform: scale(0.98);
 }
 .pa-vol-chip.active {
   border-color: var(--rust);
@@ -541,20 +565,23 @@ function fmtPrice(v) {
   border: none;
   border-radius: var(--radius-full);
   background: var(--rust);
-  color: #fff;
+  color: var(--white);
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   box-shadow: var(--shadow-card);
 }
 .pa-add-btn:hover:not(:disabled) {
-  background: #4a2215;
+  background: var(--ink);
   box-shadow: var(--shadow-elevated);
 }
+.pa-add-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
 .pa-add-btn:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -564,7 +591,7 @@ function fmtPrice(v) {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   background: var(--green-bg);
   color: var(--green);
   font-size: 12px;
@@ -577,7 +604,7 @@ function fmtPrice(v) {
 .pa-status-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: currentColor;
   flex-shrink: 0;
 }

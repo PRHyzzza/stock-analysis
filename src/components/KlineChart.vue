@@ -683,7 +683,7 @@ onUnmounted(() => {
 .kline-header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -697,7 +697,7 @@ onUnmounted(() => {
 .kline-header-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
@@ -727,18 +727,23 @@ onUnmounted(() => {
   cursor: pointer;
   background: transparent;
   color: var(--text-muted);
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   letter-spacing: -0.009em;
 }
 
 .period-btn:hover {
   color: var(--text-secondary);
+  background: var(--hover-bg);
+}
+
+.period-btn:active {
+  transform: scale(0.98);
 }
 
 .period-btn.active {
   background: var(--card-bg);
   color: var(--ink);
-  box-shadow: 0 0 0 1px rgba(23, 25, 28, 0.04), 0 1px 3px rgba(23, 25, 28, 0.06);
+  box-shadow: var(--shadow-card);
 }
 
 /* 分钟周期与日/周/月之间的分隔线 */
@@ -757,7 +762,7 @@ onUnmounted(() => {
 
 .legend-item {
   font-size: 11px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -805,7 +810,7 @@ onUnmounted(() => {
   gap: 8px;
   background: var(--card-bg);
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .kline-loading-icon {

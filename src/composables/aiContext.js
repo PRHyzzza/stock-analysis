@@ -33,11 +33,32 @@ function buildSearchPolicy(webSearchEnabled) {
   return webSearchEnabled
     ? `
 ## 联网搜索
-联网搜索已开启。遵循下方《联网搜索能力》规则执行：先拆实词关键词搜索、再叠加本地工具数据、最后综合回答（标注来源）；关键词只用实词，禁用「最新消息/怎么样」等泛词。`
+联网搜索已开启，但**不是每次回答都要搜索**——只在需要外部时效信息时搜索：
+- 需要搜索：政策/公告/新闻/突发事件等时效性信息；用户明确要求「查最新消息」；个股异动需外部原因（涨停、大跌、传闻）。
+- 不必搜索：概念解释、交易规则、指标含义等通用知识问题，直接用已有知识回答。
+需要搜索时：先拆实词关键词（如「600519 一季报」），再叠加本地工具数据，回答时标注来源；关键词只用实词，禁用「最新消息/怎么样」等泛词。`
     : `
 ## 联网搜索
 联网搜索已关闭，不要尝试调用搜索工具，直接使用本地工具与已有知识回答。`;
 }
+
+/**
+ * 不随股票/行情变化的提示词段落做模块级缓存（skills 提示词只与「联网开关」有关）。
+ * 注意：预加载数据（K 线 / 行情 / 热榜 / 筹码）每轮都在刷新，绝不能缓存，
+ * 否则会把陈旧行情喂给模型，违反「AI 数据必须来自工具返回」的约定。
+ */
+const skillsPromptCache = new Map();
+export function getSkillsPromptCached(webSearchEnabled) {
+  const key = webSearchEnabled ? "search-on" : "search-off";
+  if (!skillsPromptCache.has(key)) {
+    const exclude = webSearchEnabled ? [] : ["web-search"];
+    skillsPromptCache.set(key, getMergedSystemPrompt({ excludeSkills: exclude }));
+  }
+  return skillsPromptCache.get(key);
+}
+
+/** 热榜注入上限：热榜接口可达上百只，全量注入会让 system prompt 涨到数万字符 */
+export const HOT_STOCK_LIMIT = 30;
 
 /**
  * 计算移动平均线
@@ -107,8 +128,11 @@ export function serializeContext(contextData) {
   }
 
   // 预加载热榜股票数据（热榜选股功能：排名 + 行情要点 + 主力资金 + K线摘要）
+  // 全量注入（可达上百只）会把上下文撑到数万字符，只注入前 N 名并注明总数与截断
   if (contextData.hotStocks && Array.isArray(contextData.hotStocks) && contextData.hotStocks.length > 0) {
-    const hotSummary = contextData.hotStocks.map((s) => {
+    const total = contextData.hotStocks.length;
+    const shown = contextData.hotStocks.slice(0, HOT_STOCK_LIMIT);
+    const hotSummary = shown.map((s) => {
       const row = {
         排名: s.rank,
         代码: s.code,
@@ -132,7 +156,7 @@ export function serializeContext(contextData) {
       }
       return row;
     });
-    parts.push(`## 预加载热榜股票数据（${hotSummary.length} 只，含实时行情 + 主力资金流向 + 日K线摘要，已包含在上下文中无需重新调用工具）\n${JSON.stringify(hotSummary, null, 2)}`);
+    parts.push(`## 预加载热榜股票数据（共 ${total} 只，此处仅注入排名前 ${hotSummary.length} 只；含实时行情 + 主力资金流向 + 日K线摘要，已包含在上下文中无需重新调用工具）\n${JSON.stringify(hotSummary, null, 2)}`);
   }
 
   if (contextData.positions && Array.isArray(contextData.positions) && contextData.positions.length > 0) {
@@ -192,8 +216,8 @@ export function serializeContext(contextData) {
  * @returns {string}
  */
 export function buildSystemPrompt(currentStock, contextData, userProfile, webSearchEnabled = true) {
-  const exclude = webSearchEnabled ? [] : ["web-search"];
-  const skillsPrompt = getMergedSystemPrompt({ excludeSkills: exclude });
+  // skills 提示词是静态文案（只随联网开关变化），走模块级缓存，避免每轮重复拼接
+  const skillsPrompt = getSkillsPromptCached(webSearchEnabled);
 
   // 联网搜索策略（完整流程在 WebSearch skill 内，此处为指引指针，避免重复）
   const searchPolicy = buildSearchPolicy(webSearchEnabled);

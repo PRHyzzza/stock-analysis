@@ -1,5 +1,5 @@
 <script setup>
-import { signChar } from "../utils/format";
+import { signChar, trendClass } from "../utils/format";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -48,7 +48,15 @@ function retryLoad() {
             <span class="kline-icon">⟳</span>
             <span>加载行业数据中...</span>
           </div>
-          <div v-else-if="error" class="modal-loading" style="cursor:pointer" @click="retryLoad">
+          <div
+            v-else-if="error"
+            class="modal-loading"
+            style="cursor:pointer"
+            role="button"
+            tabindex="0"
+            @click="retryLoad"
+            @keydown.enter.self="retryLoad"
+          >
             <span class="kline-icon">!</span>
             <span>加载失败，点击重试</span>
           </div>
@@ -58,7 +66,7 @@ function retryLoad() {
               <div class="perf-grid">
                 <div class="perf-item">
                   <span class="perf-label">今日</span>
-                  <span class="perf-value" :class="(selectedStock?.changePct ?? 0) >= 0 ? 'up' : 'down'">
+                  <span class="perf-value" :class="trendClass(selectedStock?.changePct)">
                     {{ signChar(selectedStock?.changePct ?? 0) }}{{ (selectedStock?.changePct ?? 0).toFixed(2) }}%
                   </span>
                 </div>
@@ -68,12 +76,12 @@ function retryLoad() {
                   class="perf-item"
                 >
                   <span class="perf-label">{{ ['','近1月','近3月','近6月','今年以来'][perf.time_type] || '' }}</span>
-                  <span class="perf-value" :class="perf.changerate >= 0 ? 'up' : 'down'">
+                  <span class="perf-value" :class="trendClass(perf.changerate)">
                     {{ perf.changerate >= 0 ? '+' : '' }}{{ perf.changerate.toFixed(2) }}%
                   </span>
                   <span class="perf-vs">
                     <span class="perf-vs-label">vs 沪深300</span>
-                    <span class="perf-vs-value" :class="perf.hs300_changerate >= 0 ? 'up' : 'down'">
+                    <span class="perf-vs-value" :class="trendClass(perf.hs300_changerate)">
                       {{ perf.hs300_changerate >= 0 ? '+' : '' }}{{ perf.hs300_changerate.toFixed(2) }}%
                     </span>
                   </span>
@@ -119,11 +127,6 @@ function retryLoad() {
 
 /* ===== Steep: Modal — 24px radius, ink shadow ===== */
 /* 覆盖默认值 */
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: none;
-}
-
 .modal-container {
   width: 780px;
   max-width: 92vw;
@@ -155,9 +158,7 @@ function retryLoad() {
 }
 
 .modal-close {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
 }
 
 .modal-body {
@@ -169,10 +170,13 @@ function retryLoad() {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 12px;
+  min-height: 220px;
   padding: 60px 20px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
+  text-align: center;
 }
 
 .kline-icon {
@@ -226,6 +230,7 @@ function retryLoad() {
 
 .perf-value.up { color: var(--red); }
 .perf-value.down { color: var(--green); }
+.perf-value.flat { color: var(--text-muted); }
 
 /* vs 沪深300 */
 .perf-vs {
@@ -246,6 +251,7 @@ function retryLoad() {
 
 .perf-vs-value.up { color: var(--red); }
 .perf-vs-value.down { color: var(--green); }
+.perf-vs-value.flat { color: var(--text-secondary); }
 
 /* Steep: 行业表格 — 无边线靠表面区分 */
 .comp-table {
@@ -304,7 +310,7 @@ function retryLoad() {
   font-size: 10px;
   font-weight: 600;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   margin-right: 6px;
   vertical-align: middle;
 }

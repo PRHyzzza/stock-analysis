@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { sma, macd } from '../utils/indicators.js'
 import { getLimitPct } from '../utils/limit.js'
 import { fetchDayKlineCached } from '../utils/klineCache.js'
 import { calcTrapSignals } from './useTrapSignals.js'
@@ -22,37 +23,14 @@ import { calcVolumeSignals } from './useVolumeSignals.js'
 
 // ---- 工具函数 ----
 
-function sma(arr, period) {
-  const result = []
-  for (let i = 0; i < arr.length; i++) {
-    if (i < period - 1) { result.push(null); continue }
-    let sum = 0
-    for (let j = i - period + 1; j <= i; j++) sum += arr[j]
-    result.push(sum / period)
-  }
-  return result
-}
-
-function ema(data, period) {
-  const result = []
-  const k = 2 / (period + 1)
-  let prev = data[0]
-  result.push(prev)
-  for (let i = 1; i < data.length; i++) {
-    const val = data[i] * k + prev * (1 - k)
-    result.push(val)
-    prev = val
-  }
-  return result
-}
-
+/**
+ * MACD（12/26/9）—— 统一走 utils/indicators.js（SMA 种子 + 预热段均值），
+ * 与 useTechIndicators / 回测面板同口径，避免本文件再维护一份 EMA 导致背离判断漂移。
+ */
 function calcMACD(closePrices) {
   if (closePrices.length < 26) return []
-  const ema12 = ema(closePrices, 12)
-  const ema26 = ema(closePrices, 26)
-  const dif = ema12.map((v, i) => v - ema26[i])
-  const dea = ema(dif, 9)
-  return dif.map((v, i) => ({ dif: v, dea: dea[i], macd: 2 * (v - dea[i]) }))
+  const { dif, dea, hist } = macd(closePrices)
+  return dif.map((v, i) => ({ dif: v, dea: dea[i], macd: hist[i] }))
 }
 
 function slope(arr, n = 5) {
@@ -167,6 +145,14 @@ export function useT0Signals() {
       }
       return it.price
     })
+
+    // 时间 → 分时价：信号落库需要「触发当时的真实价格」；取不到返回 null，
+    // 由 utils/history.js 跳过该信号（绝不写 0，否则胜率面板无法区分「缺失」与「0 元」）
+    const priceByTime = new Map(items.map((it) => [it.time, Number(it.price)]))
+    const priceAt = (time) => {
+      const p = priceByTime.get(time)
+      return Number.isFinite(p) && p > 0 ? p : null
+    }
 
     const curPrice = prices[N - 1]
     const curAvgPrice = avgPrices[N - 1]
@@ -363,6 +349,10 @@ export function useT0Signals() {
         action: t.action,
         trap: true,
         trapType: t.type,
+        // 落库方向：诱多 = 看跌、诱空 = 看涨（由 history.js 归一为 bear/bull）；
+        // 价格取陷阱确认分钟的分时价，缺价则不落库
+        dir: t.type === 'bull' ? 'down' : 'up',
+        price: Number(t.price) > 0 ? Number(t.price) : null,
         severity: t.severity,
         confirm: t.confirm,
         time: t.time,
@@ -379,6 +369,9 @@ export function useT0Signals() {
           desc: s.desc,
           action: "实时预警（当下可判，不依赖后续走势）：追高/杀跌前先看量能验证",
           warn: true,
+          // warn 的 type 是真实方向（bull/bear），价格取锚点分钟的分时收盘价
+          dir: s.type === 'bull' ? 'up' : 'down',
+          price: priceAt(s.time),
           time: s.time,
         })
       }
@@ -496,7 +489,15 @@ export function useT0Signals() {
         ma5, ma10, macdState, dataPoints: N,
         trapCount: trapRes.traps.length,
         volumeSignalCount: volRes.signals.length,
-        volumeSignals: volRes.signals.slice(-6).map((s) => ({ time: s.time, name: s.name, type: s.type })),
+        // volume 链路只透传必要字段：direction 显式给出、价格取锚点分钟，
+        // 否则落库只能写 price=0 的废行（见 utils/history.js 与 CODE-REVIEW P0-1）
+        volumeSignals: volRes.signals.slice(-6).map((s) => ({
+          time: s.time,
+          name: s.name,
+          type: s.type,
+          dir: s.type === 'bull' ? 'up' : 'down',
+          price: priceAt(s.time),
+        })),
       },
     }
   }

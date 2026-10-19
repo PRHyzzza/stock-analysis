@@ -37,7 +37,35 @@
   --green: #27ae60;
   --green-bg: #eafaf1;
 
+  /* === 状态色（琥珀=/持仓/警示，避免各处硬编码 #b45309/#fef3c7） === */
+  --warn-ink: #b45309;
+  --warn-bg: #fef3c7;
+
+  /* === 错误色（与 --red 区分：--red 是「涨」，这里是「出错」） === */
+  --danger-ink: #dc2626;
+  --danger-bg: #fef2f2;
+
+  /* === 指标卡强调色（避免模板里写 #8b5cf6 等的十六进制） === */
+  --accent-violet: #8b5cf6;
+  --accent-amber: #f59e0b;
+  --accent-cyan: #06b6d4;
+
+  /* === 弹窗遮罩（所有弹窗统一，别再各自写 rgba） === */
+  --overlay-bg: rgba(23, 25, 28, 0.45);
+  --overlay-blur: blur(2px);
+
+  /* === 交互反馈 === */
+  --hover-bg: rgba(23, 25, 28, 0.045);
+  --hover-bg-strong: rgba(23, 25, 28, 0.075);
+  --active-bg: rgba(23, 25, 28, 0.1);
+  --focus-ring-color: rgba(93, 42, 26, 0.45);
+  /* 内嵌焦点环：inset 永远画在元素内部，父级 overflow:hidden 裁不到 */
+  --focus-glow: inset 0 0 0 2px rgba(93, 42, 26, 0.38);
+  --transition-fast: 120ms ease;
+  --transition-base: 180ms ease;
+
   /* === Radius (Steep) === */
+  --radius-xs: 6px;    /* 角标、小按钮 */
   --radius-sm: 12px;   /* images */
   --radius-md: 16px;   /* inputs */
   --radius-lg: 24px;   /* cards */
@@ -78,6 +106,8 @@
 body {
   height: 100%;
   overflow: hidden;
+  /* 行情软件：所有数字等宽，价格跳动时列宽不抖 */
+  font-variant-numeric: tabular-nums;
 }
 
 #app {
@@ -85,9 +115,46 @@ body {
   overflow: hidden;
 }
 
-/* 自定义滚动条 — Steep: 极简细条 */
+::selection {
+  background: rgba(93, 42, 26, 0.16);
+  color: var(--ink);
+}
+
+/* ===== 键盘可达性：统一焦点环（鼠标点击不显示） =====
+   一律 outline-offset: -2px「内缩」：本项目大量容器是 overflow:hidden（侧边栏、
+   列表滚动区、弹窗 body），外扩焦点环只要贴边就会被裁成「只剩一半」。
+   历史 bug：搜索框点击后焦点环左右两侧消失。 */
+:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+
+/* 输入类控件：内嵌 2px 环 + 边框转 rust（贴合圆角、且被裁不到；见 --focus-glow） */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: var(--focus-glow);
+}
+
+/* ===== 默认交互过渡：让所有可点元素有统一的反馈手感 ===== */
+button,
+[role="button"],
+input,
+select,
+textarea {
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+/* ===== 自定义滚动条 — Steep: 极简细条 ===== */
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -96,11 +163,23 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--dove);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--slate);
+}
+
+/* ===== 无障碍：系统开启「减少动态效果」时关闭所有动画 ===== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ===== 全局动画 ===== */

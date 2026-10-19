@@ -22,7 +22,7 @@
  */
 import { ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { signChar, fmtPct } from "../utils/format";
+import { signChar, fmtPct, trendClass } from "../utils/format";
 import { usePortfolio } from "../composables/usePortfolio.js";
 
 const props = defineProps({
@@ -33,8 +33,11 @@ const emit = defineEmits(["close", "open-detail"]);
 
 const pf = usePortfolio();
 
-/** 金额千分位（人民币口径，保留 2 位） */
-function fmtMoney(v) {
+/**
+ * 金额千分位（人民币口径，保留 2 位）
+ * 与 utils/format.js 的 fmtMoney（输入单位万元）口径不同，故保留本地实现并显式命名，禁止混用
+ */
+function fmtMoneyThousands(v) {
   const n = Number(v) || 0;
   return n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -43,15 +46,7 @@ function fmtMoney(v) {
 function fmtSignedMoney(v) {
   if (v == null) return "--";
   const n = Number(v) || 0;
-  return (n > 0 ? "+" : n < 0 ? "-" : "") + fmtMoney(Math.abs(n));
-}
-
-/** 涨跌方向 class（A 股习惯：涨红跌绿）；null 视为中性 */
-function trendClass(v) {
-  if (v == null || Number.isNaN(Number(v))) return "";
-  if (v > 0) return "up";
-  if (v < 0) return "down";
-  return "flat";
+  return signChar(n) + (n < 0 ? "-" : "") + fmtMoneyThousands(Math.abs(n));
 }
 
 function closeModal() {
@@ -141,11 +136,11 @@ function isIndustryLoading() {
               <div class="overview-grid">
                 <div class="ov-item">
                   <span class="ov-label">总市值</span>
-                  <span class="ov-value">¥{{ fmtMoney(pf.totalMarketValueCNY.value) }}</span>
+                  <span class="ov-value">¥{{ fmtMoneyThousands(pf.totalMarketValueCNY.value) }}</span>
                 </div>
                 <div class="ov-item">
                   <span class="ov-label">总成本</span>
-                  <span class="ov-value">¥{{ fmtMoney(pf.totalCostCNY.value) }}</span>
+                  <span class="ov-value">¥{{ fmtMoneyThousands(pf.totalCostCNY.value) }}</span>
                 </div>
                 <div class="ov-item">
                   <span class="ov-label">浮动盈亏</span>
@@ -166,7 +161,7 @@ function isIndustryLoading() {
                 <div class="day-main">
                   <span class="ov-label">当日盈亏</span>
                   <span class="day-value" :class="trendClass(pf.dayProfit.value.value)">
-                    {{ signChar(pf.dayProfit.value.value) }}¥{{ fmtMoney(Math.abs(pf.dayProfit.value.value)) }}
+                    {{ signChar(pf.dayProfit.value.value) }}¥{{ fmtMoneyThousands(Math.abs(pf.dayProfit.value.value)) }}
                     <span v-if="pf.dayProfit.value.pct != null" class="day-pct">
                       {{ fmtPct(pf.dayProfit.value.pct) }}
                     </span>
@@ -212,7 +207,10 @@ function isIndustryLoading() {
                   v-for="r in pf.rowsByProfit.value"
                   :key="'w-' + r.code"
                   class="weight-row"
+                  role="button"
+                  tabindex="0"
                   @click="openDetail(r)"
+                  @keydown.enter.self="openDetail(r)"
                   :title="`查看 ${r.name}`"
                 >
                   <div class="weight-head">
@@ -310,7 +308,7 @@ function isIndustryLoading() {
                   <div class="industry-head">
                     <span class="ind-name">{{ g.key }}</span>
                     <span class="ind-count">{{ g.count }} 只</span>
-                    <span class="ind-value">¥{{ fmtMoney(g.marketValueCNY) }}</span>
+                    <span class="ind-value">¥{{ fmtMoneyThousands(g.marketValueCNY) }}</span>
                     <span class="ind-pct">{{ (g.weightPct || 0).toFixed(2) }}%</span>
                   </div>
                   <div class="weight-track">
@@ -346,7 +344,7 @@ function isIndustryLoading() {
                 >
                   <span class="asset-key">{{ a.key }}</span>
                   <span class="asset-count">{{ a.count }} 只</span>
-                  <span class="asset-value">¥{{ fmtMoney(a.marketValueCNY) }}</span>
+                  <span class="asset-value">¥{{ fmtMoneyThousands(a.marketValueCNY) }}</span>
                   <span class="asset-profit" :class="trendClass(a.profitCNY)">
                     {{ fmtSignedMoney(a.profitCNY) }}
                   </span>
@@ -412,12 +410,6 @@ function isIndustryLoading() {
 
 <style scoped>
 /* ===== 容器：比 PositionModal 宽，容纳 8 列明细表 ===== */
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-  animation: none;
-}
-
 .portfolio-container {
   width: 860px;
   max-height: 86vh;
@@ -443,7 +435,7 @@ function isIndustryLoading() {
 }
 
 .modal-close {
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
 }
 
 .modal-body {
@@ -625,6 +617,9 @@ function isIndustryLoading() {
 .ext-link:hover {
   text-decoration: underline;
 }
+.ext-link:active {
+  opacity: 0.7;
+}
 
 /* ===== 2. 仓位分布 ===== */
 .weight-list {
@@ -638,6 +633,17 @@ function isIndustryLoading() {
   flex-direction: column;
   gap: 5px;
   cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: opacity var(--transition-fast);
+}
+.weight-row:hover .w-name {
+  color: var(--rust);
+}
+.weight-row:hover .weight-track {
+  background: var(--hover-bg);
+}
+.weight-row:active {
+  opacity: 0.75;
 }
 
 .weight-head {
@@ -830,10 +836,17 @@ function isIndustryLoading() {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition-fast), transform var(--transition-fast);
 }
 .btn-retry:hover {
   background: var(--apricot-wash);
+}
+.btn-retry:active {
+  transform: scale(0.98);
+}
+.btn-retry:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ===== 5. 资产类别 ===== */
@@ -907,6 +920,8 @@ function isIndustryLoading() {
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
+  min-height: 36px;
+  box-sizing: border-box;
 }
 
 .dt-head {
@@ -925,11 +940,14 @@ function isIndustryLoading() {
   color: var(--ink);
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
   width: 100%;
 }
 .dt-row:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
+}
+.dt-row:active {
+  background: var(--active-bg);
 }
 
 .dt-c-num {

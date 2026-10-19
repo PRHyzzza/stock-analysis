@@ -8,6 +8,7 @@
 
 import { ref } from "vue";
 import { queryIwencai, resetV, ensureV, isVCredentialError } from "./iwencaiClient.js";
+import { inferMarket } from "../utils/market.js";
 
 /**
  * 问财自然语言选股
@@ -83,9 +84,6 @@ export function parseIwencaiCode(row) {
   const clean = raw.trim();
   const m = clean.match(/^(\d{6})(?:\.(SH|SZ|BJ))?$/i);
   if (!m) return null;
-  const code = m[1];
-  const suffix = m[2] ? m[2].toUpperCase() : null;
-  let market = suffix ? (suffix === "SH" ? "SH" : "SZ") : code.startsWith("6") ? "SH" : "SZ";
-  if (suffix === "BJ") market = "BJ";
-  return { code, market };
+  // 市场判定统一走 inferMarket，避免「非 SH 即 SZ」把北交所误判为深市
+  return { code: m[1], market: inferMarket(m[1]) };
 }

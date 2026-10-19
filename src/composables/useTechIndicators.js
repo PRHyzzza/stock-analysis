@@ -5,28 +5,18 @@
  * 所有函数为纯函数，可在组件外独立使用。
  */
 // ---- 纯函数（可独立导出使用） ----
+import { emaFilled } from "../utils/indicators";
 
-/** EMA 计算 */
-function ema(data, period) {
-  const result = [];
-  const k = 2 / (period + 1);
-  let prev = data[0];
-  result.push(prev);
-  for (let i = 1; i < data.length; i++) {
-    const val = data[i] * k + prev * (1 - k);
-    result.push(val);
-    prev = val;
-  }
-  return result;
-}
-
-/** MACD: 返回 [{ dif, dea, macd }, ...] */
+/**
+ * MACD: 返回 [{ dif, dea, macd }, ...]
+ * EMA/DEA 统一使用 utils/indicators 的 SMA 种子实现，避免与 T+0/回测口径分叉
+ */
 export function calcMACD(closePrices) {
   if (closePrices.length < 26) return [];
-  const ema12 = ema(closePrices, 12);
-  const ema26 = ema(closePrices, 26);
+  const ema12 = emaFilled(closePrices, 12);
+  const ema26 = emaFilled(closePrices, 26);
   const dif = ema12.map((v, i) => v - ema26[i]);
-  const dea = ema(dif, 9);
+  const dea = emaFilled(dif, 9);
   const macd = dif.map((v, i) => 2 * (v - dea[i]));
   return dif.map((v, i) => ({ dif: v, dea: dea[i], macd: macd[i] }));
 }

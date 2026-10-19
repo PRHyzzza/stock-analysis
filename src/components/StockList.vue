@@ -108,8 +108,12 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
             v-for="stock in filteredWatchlist"
             :key="stock.code"
             class="stock-item"
+            role="button"
+            tabindex="0"
             :class="{ active: selectedStock?.code === stock.code }"
             @click="selectStock(stock)"
+            @keydown.enter.prevent="selectStock(stock)"
+            @keydown.space.prevent="selectStock(stock)"
           >
             <div class="item-left">
               <span class="item-name" :class="{ 'has-position': heldCodes.has(stock.code) }">{{ stock.name }}</span>
@@ -204,6 +208,10 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
     opacity: 1;
   }
   /* 窄窗口：隐藏代码与价格，仅保留名称+涨幅 */
+  .item-right {
+    gap: 4px;
+  }
+  /* 窄窗口：隐藏代码与价格，仅保留名称+涨幅 */
   .item-code,
   .market-badge-sm,
   .item-price {
@@ -212,9 +220,6 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
   .item-change {
     margin-left: auto;
     min-width: 44px;
-  }
-  .item-right {
-    gap: 4px;
   }
 }
 
@@ -237,8 +242,11 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
   cursor: pointer;
   background: transparent;
   color: var(--text-muted);
-  transition: all 0.2s;
+  transition: all var(--transition-base);
   letter-spacing: -0.009em;
+}
+.sidebar-tab:active {
+  transform: scale(0.985);
 }
 .sidebar-tab.active {
   background: var(--card-bg);
@@ -294,16 +302,20 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
   align-items: center;
   padding: 12px 22px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--transition-fast);
   position: relative;
 }
 
 .stock-item:hover {
-  background: var(--fog);
+  background: var(--hover-bg);
 }
 
 .stock-item.active {
   background: var(--apricot-wash);
+}
+
+.stock-item.active:hover {
+  background: #f9d7c2;
 }
 
 .stock-item.active::before {
@@ -315,6 +327,13 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
   width: 3px;
   background: var(--rust);
   border-radius: 0 2px 2px 0;
+}
+
+/* 键盘聚焦行：焦点环内缩，避免被列表 overflow 裁掉 */
+.stock-item:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
+  background: var(--hover-bg);
 }
 
 .stock-item + .stock-item {
@@ -338,18 +357,18 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
   white-space: nowrap;
 }
 
-/* 持仓股：名称金色高亮 */
+/* 持仓股：名称琥珀高亮 */
 .item-name.has-position {
-  color: #b45309;
+  color: var(--warn-ink);
 }
 
 /* 持仓角标 */
 .position-badge {
   font-size: 10px;
   font-weight: 700;
-  color: #b45309;
-  background: #fef3c7;
-  border-radius: 4px;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
+  border-radius: var(--radius-xs);
   padding: 1px 5px;
   line-height: 1;
   flex-shrink: 0;
@@ -366,12 +385,12 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
   font-size: 10px;
   font-weight: 700;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   line-height: 1;
 }
 .market-badge-sm.market-hk {
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
 }
 
 .item-right {
@@ -415,18 +434,23 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
   width: 26px;
   height: 26px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
-  color: #c8ced8;
+  color: var(--dove);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   flex-shrink: 0;
+  /* 默认隐形，悬停/键盘聚焦行时显现，减少列表视觉噪音 */
+  opacity: 0;
 }
 
-.stock-item:hover .item-remove {
+.stock-item:hover .item-remove,
+.stock-item:focus-within .item-remove,
+.item-remove:focus-visible {
+  opacity: 1;
   color: var(--slate);
   background: var(--fog);
 }
@@ -438,50 +462,10 @@ defineExpose({ focusSearch: () => searchDropdownRef.value?.focus() });
 
 .empty-state {
   text-align: center;
-  padding: 40px 20px;
+  padding: 48px 20px;
   color: var(--text-muted);
   font-size: 13px;
-}
-
-/* ===== 侧边栏 Tab 切换 ===== */
-.sidebar-tabs {
-  display: flex;
-  background: var(--card-bg);
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-
-.sidebar-tab {
-  flex: 1;
-  padding: 10px 0;
-  border: none;
-  background: transparent;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
-  position: relative;
-}
-
-.sidebar-tab:first-child {
-  border-radius: var(--radius) 0 0 var(--radius);
-}
-
-.sidebar-tab:last-child {
-  border-radius: 0 var(--radius) var(--radius) 0;
-}
-
-.sidebar-tab.active {
-  color: var(--text-primary);
-  background: #f0f2f8;
-}
-
-.sidebar-tab:hover:not(.active) {
-  color: var(--text-secondary);
-  background: #f8f9fc;
+  line-height: 1.6;
 }
 
 </style>

@@ -133,16 +133,16 @@ watch(isLive, schedule);
   -webkit-app-region: no-drag;
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s ease;
+  transition: background var(--transition-fast), transform var(--transition-fast);
 }
 
 .ms-pill:hover {
   background: var(--apricot-wash);
 }
 
-.ms-pill:focus-visible {
-  outline: 1px solid var(--rust);
-  outline-offset: 1px;
+/* 焦点环交给全局 :focus-visible，避免覆盖 */
+.ms-pill:active {
+  transform: scale(0.98);
 }
 
 .ms-pill.is-refreshing {

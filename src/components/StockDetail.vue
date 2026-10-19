@@ -5,7 +5,7 @@ import MoneyFlowModal from "./MoneyFlowModal.vue";
 import AlertsModal from "./AlertsModal.vue";
 import DetailActionBar from "./DetailActionBar.vue";
 import DataFreshness from "./DataFreshness.vue";
-import { signChar } from "../utils/format";
+import { signChar, fmtNum, fmtSignedNum, fmtPctOrDash, trendClass } from "../utils/format";
 import { isDayPeriod } from "../utils/klinePeriod.js";
 import { recordSignalEvents } from "../utils/history.js";
 import { useT0Signals } from "../composables/useT0Signals.js";
@@ -25,6 +25,9 @@ const props = defineProps({
   moneyFlowLoading: { type: Boolean, default: false },
   moneyFlowHistory: { type: Array, default: null },
   moneyFlowHistoryLoading: { type: Boolean, default: false },
+  // 刷新失败但保留旧资金流数据时置 true（§7.16）
+  moneyFlowStale: { type: Boolean, default: false },
+  moneyFlowHistoryStale: { type: Boolean, default: false },
   watchlistMarkers: { type: Array, default: () => [] },
   // 数据新鲜度：最近一次成功时间（ms，0=未获取）与最近一次刷新是否失败（展示旧数据）
   quoteFetchedAt: { type: Number, default: 0 },
@@ -181,14 +184,14 @@ const sinceAddedPct = computed(() => {
 
       <div class="price-area">
         <div class="price-main" :class="{ 'is-stale': quoteStale }">
-          <span class="price" :class="selectedStock.change >= 0 ? 'up' : 'down'">
-            {{ currencySymbol }}{{ selectedStock.price.toFixed(2) }}
+          <span class="price" :class="trendClass(selectedStock.change)">
+            {{ currencySymbol }}{{ fmtNum(selectedStock.price) }}
           </span>
-          <span class="price-change" :class="selectedStock.change >= 0 ? 'up' : 'down'">
-            {{ signChar(selectedStock.change) }}{{ selectedStock.change.toFixed(2) }}
+          <span class="price-change" :class="trendClass(selectedStock.change)">
+            {{ fmtSignedNum(selectedStock.change) }}
           </span>
-          <span class="price-pct" :class="selectedStock.change >= 0 ? 'up' : 'down'">
-            {{ signChar(selectedStock.changePct) }}{{ selectedStock.changePct.toFixed(2) }}%
+          <span class="price-pct" :class="trendClass(selectedStock.change)">
+            {{ fmtPctOrDash(selectedStock.changePct) }}
           </span>
           <DataFreshness
             class="price-fresh"
@@ -304,6 +307,8 @@ const sinceAddedPct = computed(() => {
       :money-flow-loading="moneyFlowLoading"
       :money-flow-history="moneyFlowHistory"
       :money-flow-history-loading="moneyFlowHistoryLoading"
+      :stale="moneyFlowStale"
+      :history-stale="moneyFlowHistoryStale"
       :t0-summary="t0Summary"
       :chart-mode="chartMode"
       @close="showMoneyFlowModal = false"
@@ -362,7 +367,7 @@ const sinceAddedPct = computed(() => {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   flex-wrap: wrap;
 }
 
@@ -418,8 +423,8 @@ const sinceAddedPct = computed(() => {
   border-radius: var(--radius-full);
 }
 .market-badge.market-hk {
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
 }
 
 /* 自选以来涨跌幅徽标 */
@@ -452,7 +457,7 @@ const sinceAddedPct = computed(() => {
 .price-main {
   display: flex;
   align-items: baseline;
-  gap: 14px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
@@ -480,6 +485,7 @@ const sinceAddedPct = computed(() => {
 .price-change {
   font-size: 18px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .price-change.up { color: var(--red); }
@@ -490,6 +496,7 @@ const sinceAddedPct = computed(() => {
   font-weight: 600;
   padding: 3px 14px;
   border-radius: var(--radius-full);
+  font-variant-numeric: tabular-nums;
 }
 
 .price-pct.up {
@@ -506,7 +513,7 @@ const sinceAddedPct = computed(() => {
 .meta-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 24px;
 }
 
@@ -527,8 +534,8 @@ const sinceAddedPct = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
   background: var(--fog);
 }
 
@@ -570,18 +577,23 @@ const sinceAddedPct = computed(() => {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   letter-spacing: -0.01em;
 }
 
 .chart-tab.active {
   background: var(--card-bg);
   color: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-card);
 }
 
 .chart-tab:hover:not(.active) {
   color: var(--text-secondary);
+  background: var(--hover-bg);
+}
+
+.chart-tab:active {
+  transform: scale(0.98);
 }
 
 /* ===== K 线弹性填充 ===== */

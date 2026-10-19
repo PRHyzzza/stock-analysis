@@ -158,34 +158,41 @@ onUnmounted(() => window.removeEventListener("click", onWindowClick, true));
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   padding: 0 10px;
-  cursor: pointer; outline: none; flex-shrink: 0;
-  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+  cursor: pointer; flex-shrink: 0;
+  transition:
+    background-color var(--transition-base),
+    border-color var(--transition-base),
+    box-shadow var(--transition-base),
+    color var(--transition-base);
   letter-spacing: -0.01em; line-height: 1; white-space: nowrap;
 }
 .ctrl-select:hover {
   background-color: var(--white); border-color: var(--dove);
-  color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  color: var(--text-primary); box-shadow: 0 1px 3px rgba(23,25,28,.06);
+}
+.ctrl-select:active {
+  transform: scale(0.98);
 }
 .ctrl-select:focus-visible,
 .ctrl-dropdown.open .ctrl-select {
-  border-color: var(--dove); box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  border-color: var(--dove); box-shadow: 0 1px 3px rgba(23,25,28,.06);
   background-color: var(--white); color: var(--text-primary);
 }
 .ctrl-select-label { flex: 1; text-align: left; }
 .ctrl-select-arrow {
   flex-shrink: 0; color: inherit; opacity: 0.5;
-  transition: transform 0.2s ease;
+  transition: transform var(--transition-base);
 }
 .ctrl-dropdown.open .ctrl-select-arrow { transform: rotate(180deg); }
 .ctrl-model { width: 130px; }
 .ctrl-effort {
   width: 78px; color: var(--rust);
   background: var(--apricot-wash);
-  border-color: rgba(93,42,26,.15); font-weight: 700;
+  border-color: var(--border); font-weight: 700;
 }
 .ctrl-effort:hover {
   background: var(--white); border-color: var(--rust);
-  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  box-shadow: 0 1px 3px rgba(23,25,28,.06);
 }
 .ctrl-dropdown.open .ctrl-effort {
   background: var(--white); border-color: var(--rust);
@@ -194,8 +201,8 @@ onUnmounted(() => window.removeEventListener("click", onWindowClick, true));
 .ctrl-menu {
   position: absolute; top: calc(100% + 4px); left: 50%;
   transform: translateX(-50%); min-width: 100%;
-  background: var(--white);
-  border: 1px solid rgba(23,25,28,.08);
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-dropdown);
   padding: 4px; z-index: 1010;
@@ -208,13 +215,20 @@ onUnmounted(() => window.removeEventListener("click", onWindowClick, true));
 .ctrl-menu-item {
   display: flex; align-items: center; gap: 8px;
   width: 100%; padding: 6px 10px;
-  border: none; background: transparent; border-radius: 8px;
+  border: none; background: transparent; border-radius: var(--radius-xs);
   font-size: 12px; font-weight: 500; font-family: inherit;
-  color: var(--text-primary); cursor: pointer; text-align: left;
-  transition: background-color 0.12s ease; white-space: nowrap;
+  color: var(--text-muted); cursor: pointer; text-align: left;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast); white-space: nowrap;
 }
-.ctrl-menu-item:hover { background: var(--fog); }
-.ctrl-menu-item.active { font-weight: 600; color: var(--rust); }
+.ctrl-menu-item:hover { background: var(--hover-bg); color: var(--text-primary); }
+.ctrl-menu-item:active { transform: scale(0.98); }
+.ctrl-menu-item.active {
+  font-weight: 600; color: var(--ink);
+  background: var(--card-bg); box-shadow: var(--shadow-card);
+}
 .ctrl-menu-label { flex: 1; }
 .ctrl-menu-desc {
   font-size: 10px; font-weight: 400; color: var(--text-muted);
@@ -225,17 +239,19 @@ onUnmounted(() => window.removeEventListener("click", onWindowClick, true));
 .ctrl-toggle {
   display: flex; align-items: center; gap: 7px;
   cursor: pointer; user-select: none;
-  padding: 3px 5px; border-radius: var(--radius-sm);
-  transition: background-color 0.18s ease;
+  padding: 3px 6px; border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast);
 }
-.ctrl-toggle:hover { background: var(--fog); }
+.ctrl-toggle:hover { background: var(--hover-bg); }
+.ctrl-toggle:active .ctrl-toggle-track { transform: scale(0.96); }
 .ctrl-toggle-input {
   position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
 }
 .ctrl-toggle-track {
   position: relative; width: 28px; height: 16px;
   background: var(--dove); border-radius: var(--radius-full);
-  transition: background-color 0.2s ease; flex-shrink: 0;
+  transition: background-color var(--transition-base), transform var(--transition-fast);
+  flex-shrink: 0;
 }
 .ctrl-toggle-input:checked + .ctrl-toggle-track { background: var(--rust); }
 .ctrl-toggle-knob {
@@ -250,7 +266,7 @@ onUnmounted(() => window.removeEventListener("click", onWindowClick, true));
 }
 .ctrl-toggle-label {
   font-size: 11px; font-weight: 600; color: var(--text-muted);
-  transition: color .15s; white-space: nowrap; letter-spacing: -.01em;
+  transition: color var(--transition-fast); white-space: nowrap; letter-spacing: -.01em;
 }
 .ctrl-toggle-input:checked ~ .ctrl-toggle-label { color: var(--rust); }
 </style>

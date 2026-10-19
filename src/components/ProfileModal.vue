@@ -105,12 +105,6 @@ function closeModal() {
 <style scoped>
 
 /* ProfileModal 特有覆盖 */
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-  animation: none;
-}
-
 .modal-container {
   width: 1100px;
   max-height: 80vh;
@@ -153,18 +147,19 @@ function closeModal() {
   border: 1px solid var(--ink);
   border-radius: var(--radius-full);
   background: var(--ink);
-  color: #fff;
+  color: var(--white);
   font-size: 12px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: all var(--transition-fast);
 }
 .btn-save:hover { opacity: 0.85; }
+.btn-save:active { transform: scale(0.98); }
 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .modal-close {
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
 }
 
 /* ===== 主体 ===== */
@@ -207,10 +202,9 @@ function closeModal() {
   width: 100%;
   padding: 12px 16px;
   border: none;
-  outline: none;
   resize: none;
   overflow-y: auto;
-  font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
+  font-family: monospace;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-primary);
@@ -258,16 +252,16 @@ function closeModal() {
 .markdown-body :deep(strong) { font-weight: 700; color: var(--ink); }
 .markdown-body :deep(em) { font-style: italic; }
 .markdown-body :deep(code) {
-  font-family: "JetBrains Mono", monospace;
+  font-family: monospace;
   font-size: 12px;
   background: var(--fog);
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 .markdown-body :deep(pre) {
   background: var(--fog);
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   overflow-x: auto;
   margin: 8px 0;
 }

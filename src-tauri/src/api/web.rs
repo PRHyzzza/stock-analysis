@@ -58,6 +58,11 @@ fn is_private_ip(ip: std::net::IpAddr) -> bool {
             }
         }
         std::net::IpAddr::V6(v6) => {
+            // IPv4-mapped（::ffff:127.0.0.1）：必须按内嵌的 IPv4 判断，
+            // 否则 v6 分支只看 ::1/fc00:: 等，会把 ::ffff:10.0.0.1 放行
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_private_ip(std::net::IpAddr::V4(v4));
+            }
             v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_unique_local() // fc00::/7
@@ -67,33 +72,55 @@ fn is_private_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
-/// SSRF 防护：校验主机名（可带端口）。
-/// IP 直接判断私网段；域名则 DNS 解析全部地址，任一命中私网即拒绝。
-/// 返回 Ok 表示允许访问。
-async fn host_is_allowed(host: &str) -> Result<(), String> {
-    // 剥 IPv6 方括号与端口
-    let host = host.trim_start_matches('[').split(']').next().unwrap_or(host);
-    let host = host.split(':').next().unwrap_or(host).trim();
+/// 解析主机字面量 IP（兼容 IPv6 的方括号写法）。域名返回 None。
+fn parse_ip_literal(host: &str) -> Option<std::net::IpAddr> {
+    let host = host.trim();
+    let host = if host.starts_with('[') && host.ends_with(']') {
+        &host[1..host.len() - 1]
+    } else {
+        host
+    };
+    host.parse::<std::net::IpAddr>().ok()
+}
+
+/// SSRF 防护 + DNS 固定：解析主机，返回**已校验**的全部直连地址。
+///
+/// 只做一次 DNS 解析，后续请求用 `resolve_to_addrs` 把这些地址钉死，
+/// 防止「校验时解析到公网、真正连接时被 DNS 重绑定到内网」的 TOCTOU 攻击。
+/// 任一地址落在私网即整体拒绝。
+async fn resolve_public_addrs(
+    host: &str,
+    port: u16,
+) -> Result<Vec<std::net::SocketAddr>, String> {
     if host.is_empty() {
         return Err("URL 缺少主机名".to_string());
     }
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+    // IP 字面量：直接判定（不要走 DNS，避免把 "127.0.0.1" 当域名）
+    if let Some(ip) = parse_ip_literal(host) {
         return if is_private_ip(ip) {
             Err(format!("禁止访问内网/本机地址: {}", ip))
         } else {
-            Ok(())
+            Ok(vec![std::net::SocketAddr::new(ip, port)])
         };
     }
-    // 域名：解析全部 A/AAAA 地址，任一为私网即拒绝（防 DNS 重绑定/内网域名）
-    let addrs = tokio::net::lookup_host((host, 80))
+
+    // 域名：解析全部 A/AAAA 地址，任一为私网即拒绝（防内网域名/泛解析）
+    let mut addrs = Vec::new();
+    for addr in tokio::net::lookup_host((host, port))
         .await
-        .map_err(|e| format!("域名解析失败 {}: {}", host, e))?;
-    for addr in addrs {
+        .map_err(|e| format!("域名解析失败 {}: {}", host, e))?
+    {
+        addrs.push(addr);
+    }
+    if addrs.is_empty() {
+        return Err(format!("域名解析无结果: {}", host));
+    }
+    for addr in &addrs {
         if is_private_ip(addr.ip()) {
             return Err(format!("域名 {} 解析到内网地址，已拒绝访问", host));
         }
     }
-    Ok(())
+    Ok(addrs)
 }
 
 /// 网页搜索：使用东方财富搜索 API（免费，无需 API Key，国内可访问）
@@ -290,64 +317,85 @@ async fn search_eastmoney_news(query: &str, max_results: usize) -> Result<Vec<We
     parse_eastmoney_jsonp(&body)
 }
 
+/// 构建单跳抓取客户端：先校验目标主机，再把已校验的 IP 钉死到 DNS 覆盖表。
+/// 每跳单独建 client（web_fetch 是低频路径，多建几个连接池代价可忽略），
+/// 换主机后无法复用上一跳的校验结果，必须重新解析 + 重新校验。
+async fn build_fetch_client(target: &url::Url) -> Result<reqwest::Client, String> {
+    let host = target
+        .host_str()
+        .ok_or_else(|| "URL 缺少主机名".to_string())?;
+    let port = target.port_or_known_default().unwrap_or(80);
+    let addrs = resolve_public_addrs(host, port).await?;
+    // resolve_to_addrs 需要不带方括号的主机名（IPv6 字面量 [::1] → ::1）
+    let override_host = host.trim_start_matches('[').trim_end_matches(']');
+    reqwest::Client::builder()
+        .user_agent(BROWSER_UA)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        // 重定向由 web_fetch 手动逐跳处理：每一跳都要重新校验主机/协议
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        // DNS 重绑定防护：连接只能落到上面已校验的地址，不再二次解析域名
+        .resolve_to_addrs(override_host, &addrs)
+        .build()
+        .map_err(|e| format!("创建抓取客户端失败: {}", e))
+}
+
 /// 网页抓取：获取指定 URL 的正文纯文本
 /// - 完整浏览器头模拟真实访问，降低 403 概率
 /// - 自动按 Content-Type 的 charset 解码（GBK/GB2312 等；无 charset 头时按字节探测）
 /// - 智能提取正文（JSON-LD → 正文容器 → meta 描述 → 整页兜底）
 /// - 安全截断，避免在 UTF-8 字符中间切片
-/// - SSRF 防护：拒绝内网/回环/链路本地地址；限制重定向（禁止跨主机跳转）
+/// - SSRF 防护：拒绝内网/回环/链路本地地址；手动跟随重定向（≤5 跳、禁止跨主机），
+///   每一跳都重新校验并把 DNS 钉死到已校验 IP，防 DNS 重绑定
 /// - 响应体上限 50MB，防止 OOM
 pub async fn web_fetch(url: &str) -> Result<String, String> {
     // 只抓 http/https，且主机必须非内网
-    let parsed = url::Url::parse(url).map_err(|e| format!("URL 解析失败: {}", e))?;
-    if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err(format!("不支持的 URL 协议: {}", parsed.scheme()));
+    let mut current = url::Url::parse(url).map_err(|e| format!("URL 解析失败: {}", e))?;
+    if current.scheme() != "http" && current.scheme() != "https" {
+        return Err(format!("不支持的 URL 协议: {}", current.scheme()));
     }
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| "URL 缺少主机名".to_string())?
-        .to_string();
-    host_is_allowed(&host).await?;
 
-    // reqwest 的重定向策略是 client 级配置（RequestBuilder 无 redirect 方法），
-    // 且策略闭包需捕获本次请求的主机 → 为 web_fetch 单独构建 client。
-    // web_fetch 是低频路径（AI 工具按需调用），不共享连接池影响可忽略
-    let original_host = host.to_lowercase();
-    let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
-        let target = attempt.url();
-        if target.scheme() != "http" && target.scheme() != "https" {
-            return attempt.error("仅允许 http/https 重定向");
+    // 手动跟随重定向（最多 5 跳）：每跳重新做 SSRF 校验并固定 DNS。
+    // 旧实现用 redirect policy 只校验目标主机名，但域名仍会在连接时重新解析，
+    // 攻击者可让首次解析返回公网、握手时换成内网（DNS 重绑定）。
+    let mut hops = 0u32;
+    let resp = loop {
+        if hops >= 5 {
+            return Err("重定向次数过多（超过 5 跳），已中止抓取".to_string());
         }
-        let target_host = target.host_str().unwrap_or("").to_lowercase();
-        if target_host != original_host {
-            return attempt.error("禁止跨主机重定向");
-        }
-        if let Ok(ip) = target_host.parse::<std::net::IpAddr>() {
-            if is_private_ip(ip) {
-                return attempt.error("禁止重定向到内网地址");
-            }
-        }
-        attempt.follow()
-    });
+        let client = build_fetch_client(&current).await?;
+        let resp = client
+            .get(current.as_str())
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+            .header("User-Agent", BROWSER_UA)
+            .header("Referer", "https://cn.bing.com/")
+            .send()
+            .await
+            .map_err(|e| format!("网页请求失败: {}", e))?;
 
-    let client = reqwest::Client::builder()
-        .user_agent(BROWSER_UA)
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(30))
-        .redirect(redirect_policy)
-        .no_proxy()
-        .build()
-        .map_err(|e| format!("创建抓取客户端失败: {}", e))?;
-
-    let resp = client
-        .get(url)
-        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-        .header("User-Agent", BROWSER_UA)
-        .header("Referer", "https://cn.bing.com/")
-        .send()
-        .await
-        .map_err(|e| format!("网页请求失败: {}", e))?;
+        if !resp.status().is_redirection() {
+            break resp;
+        }
+        let location = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| "重定向响应缺少 Location".to_string())?;
+        let next = current
+            .join(location)
+            .map_err(|e| format!("重定向地址解析失败: {}", e))?;
+        if next.scheme() != "http" && next.scheme() != "https" {
+            return Err(format!("不支持的 URL 协议: {}", next.scheme()));
+        }
+        // 与 PROJECT.md 约定一致：禁止跨主机重定向（换主机等于换信任边界）
+        if next.host_str() != current.host_str() {
+            return Err("禁止跨主机重定向".to_string());
+        }
+        hops += 1;
+        current = next;
+    };
 
     let status = resp.status();
     if !status.is_success() {
@@ -673,4 +721,108 @@ fn strip_html(s: &str) -> String {
         .replace("&#39;", "'")
         .replace("&nbsp;", " ");
     text.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_private_ip_blocks_private_v4_ranges() {
+        for ip in [
+            "0.0.0.0",
+            "10.1.2.3",
+            "127.0.0.1",
+            "169.254.169.254",
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.168.1.1",
+            "100.64.0.1",
+            "224.0.0.1",
+            "255.255.255.255",
+        ] {
+            let ip: std::net::IpAddr = ip.parse().unwrap();
+            assert!(is_private_ip(ip), "{ip} 应判定为内网/保留地址");
+        }
+        for ip in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "114.114.114.114",
+            "172.32.0.1",
+            "100.128.0.1",
+            "220.181.38.148",
+        ] {
+            let ip: std::net::IpAddr = ip.parse().unwrap();
+            assert!(!is_private_ip(ip), "{ip} 不应判定为内网");
+        }
+    }
+
+    #[test]
+    fn is_private_ip_checks_v6_loopback_and_ipv4_mapped() {
+        for ip in [
+            "::1",
+            "::",
+            "fc00::1",
+            "fd12::abcd",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+            "::ffff:192.168.1.1",
+        ] {
+            let ip: std::net::IpAddr = ip.parse().unwrap();
+            assert!(is_private_ip(ip), "{ip} 应判定为内网/回环");
+        }
+        for ip in ["2606:4700::1111", "2001:4860:4860::8888", "::ffff:8.8.8.8"] {
+            let ip: std::net::IpAddr = ip.parse().unwrap();
+            assert!(!is_private_ip(ip), "{ip} 不应判定为内网");
+        }
+    }
+
+    #[test]
+    fn parse_ip_literal_handles_brackets_and_domains() {
+        assert_eq!(parse_ip_literal("[::1]"), Some("::1".parse().unwrap()));
+        assert_eq!(
+            parse_ip_literal("127.0.0.1"),
+            Some("127.0.0.1".parse().unwrap())
+        );
+        assert_eq!(
+            parse_ip_literal("::ffff:10.0.0.1"),
+            Some("::ffff:10.0.0.1".parse().unwrap())
+        );
+        assert_eq!(parse_ip_literal("example.com"), None);
+        assert_eq!(parse_ip_literal(""), None);
+    }
+
+    #[tokio::test]
+    async fn resolve_public_addrs_rejects_private_literals() {
+        assert!(resolve_public_addrs("127.0.0.1", 80).await.is_err());
+        assert!(resolve_public_addrs("[::1]", 80).await.is_err());
+        assert!(resolve_public_addrs("[::ffff:10.0.0.1]", 80).await.is_err());
+        // 公网字面量直接放行，且端口被保留
+        let addrs = resolve_public_addrs("8.8.8.8", 443).await.unwrap();
+        assert_eq!(
+            addrs,
+            vec!["8.8.8.8:443".parse::<std::net::SocketAddr>().unwrap()]
+        );
+        assert!(resolve_public_addrs("", 80).await.is_err());
+    }
+
+    #[test]
+    fn normalize_text_collapses_blank_lines_and_keeps_content() {
+        let out = normalize_text("  第一行\n\n\n\n第二行  \n");
+        assert_eq!(out, "第一行\n\n第二行");
+    }
+
+    #[test]
+    fn strip_html_removes_tags_and_decodes_entities() {
+        assert_eq!(strip_html("<p>涨&amp;跌</p><br/>"), "涨&跌");
+    }
+
+    #[test]
+    fn unescape_json_handles_surrogates_and_bad_escapes() {
+        assert_eq!(unescape_json("a\\ud83d\\ude00b"), "a😀b");
+        // 截断/非法转义原样保留，孤立代理项用替换符兜底，均不得 panic
+        assert_eq!(unescape_json("1\\u12"), "1\\u12");
+        assert_eq!(unescape_json("\\uD800"), "\u{FFFD}");
+        assert_eq!(unescape_json("\\q"), "\\q");
+    }
 }

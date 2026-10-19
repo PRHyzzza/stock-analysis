@@ -40,6 +40,8 @@ import { useGlobalShortcuts } from "./composables/useGlobalShortcuts";
 import { useSettings } from "./composables/useSettings";
 import { useTradingCalendar } from "./composables/useTradingCalendar";
 import { isTradingHours } from "./utils/marketTime.js";
+import { inferMarket } from "./utils/market.js";
+import { setWindowHidden, effectiveInterval as effectiveRefreshInterval } from "./utils/refreshInterval.js";
 
 // ---- 侧边栏视图切换 ----
 const sidebarView = ref("watchlist");
@@ -122,13 +124,8 @@ function selectIwencaiStock(stock) {
   // 必须剥离为纯数字，否则 Rust 端 to_tencent_code 会拼出 "sh600519.SH" 导致全部接口失败
   const code = String(stock.code || "").replace(/\.(SH|SZ|BJ)$/i, "");
   if (!code) return;
-  // 市场推断：5 位=港股，43/82/83/87/88/92 开头=北交所，6 开头=沪市，其余=深市
-  let market = stock.market;
-  if (!market) {
-    if (/^\d{5}$/.test(code)) market = "HK";
-    else if (/^(43|82|83|87|88|92)/.test(code)) market = "BJ";
-    else market = code.startsWith("6") ? "SH" : "SZ";
-  }
+  // 市场推断走统一入口（5 位=港股，43/82/83/87/88/92=北交所，6/900=沪市，其余=深市）
+  const market = stock.market || inferMarket(code);
   const full = {
     code,
     name: stock.name || code,
@@ -245,8 +242,8 @@ function closeSettingsModal() { showSettingsModal.value = false; }
 
 const { indices, loadIndices } = useMarketIndices();
 const {
-  moneyFlow, moneyFlowLoading, loadMoneyFlow,
-  moneyFlowHistory, moneyFlowHistoryLoading, loadMoneyFlowHistory,
+  moneyFlow, moneyFlowLoading, moneyFlowStale, loadMoneyFlow,
+  moneyFlowHistory, moneyFlowHistoryLoading, moneyFlowHistoryStale, loadMoneyFlowHistory,
 } = useMoneyFlow(selectedStock);
 const {
   intradayData, intradayLoading, intradayFetchedAt, intradayStale, loadIntradayData,
@@ -360,9 +357,7 @@ function addStockFromSearch(result) {
 function handleAiAddWatchlist(pick) {
   const code = String(pick?.code || "").replace(/\.(SH|SZ|BJ)$/i, "");
   if (!code || isInWatchlist(code)) return;
-  const market = /^\d{5}$/.test(code)
-    ? "HK"
-    : (/^(43|82|83|87|88|92)/.test(code) ? "BJ" : (code.startsWith("6") ? "SH" : "SZ"));
+  const market = inferMarket(code);
   addToWatchlist({
     code,
     market,
@@ -420,8 +415,7 @@ let inSession = false;
 
 // ── 窗口不可见时降频 ──
 // 最小化 / 隐藏到托盘后用户看不到行情，继续按原间隔请求纯属浪费带宽；
-// 不可见时把各间隔放大 HIDDEN_REFRESH_FACTOR 倍，恢复可见立即补刷一次并恢复原间隔。
-const HIDDEN_REFRESH_FACTOR = 4;
+// 不可见时把各间隔放大 HIDDEN_REFRESH_FACTOR 倍（见 utils/refreshInterval.js），恢复可见立即补刷一次并恢复原间隔。
 /** document.visibilityState 判定（最小化） */
 const docHidden = ref(false);
 /** Rust 侧托盘隐藏事件判定（点关闭按钮 → window.hide()，visibilityState 不一定同步） */
@@ -429,10 +423,8 @@ const trayHidden = ref(false);
 /** 主窗口是否不可见：两个来源任一成立即视为不可见 */
 const windowHidden = computed(() => docHidden.value || trayHidden.value);
 
-/** 定时器实际使用的间隔（不可见时放宽） */
-function effectiveInterval(ms) {
-  return windowHidden.value ? ms * HIDDEN_REFRESH_FACTOR : ms;
-}
+/** 定时器实际使用的间隔（不可见时放宽；实现见 utils/refreshInterval.js，全局单一真源） */
+const effectiveInterval = effectiveRefreshInterval;
 
 /** 自选/持仓是否含港股（港股休市日与 A 股不同，由静态假期表单独判定） */
 const hasHkStock = computed(() =>
@@ -492,6 +484,8 @@ function onVisibilityChange() {
 }
 
 watch(windowHidden, (hidden) => {
+  // 先上报给共享的降频入口：子窗口（迷你/问财）的轮询同样需要降频，故放在早退之前
+  setWindowHidden(hidden);
   if (isMiniMode || isIwencaiMode) return; // 子窗口自带独立刷新逻辑
   rescheduleTimers();
   // 恢复可见立即补刷一次（离开期间数据大概率已过期）；盘外数据不再变化，仍守「盘外零请求」
@@ -515,12 +509,15 @@ function listenTracked(event, handler) {
 }
 
 onMounted(() => {
+  // 窗口可见性（最小化）→ 降频：主窗口与子窗口都要上报（子窗口轮询同样需要降频）
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  docHidden.value = document.hidden;
+  setWindowHidden(windowHidden.value);
+
   if (isMiniMode || isIwencaiMode) return; // 子窗口不执行主窗口逻辑（自带独立刷新）
 
   document.addEventListener("keydown", onKeydown);
-  // 窗口可见性（最小化）→ 降频；Rust 侧托盘隐藏事件 → 降频
-  document.addEventListener("visibilitychange", onVisibilityChange);
-  docHidden.value = document.hidden;
+  // Rust 侧托盘隐藏事件 → 降频
   listenTracked("main-window-hidden", () => { trayHidden.value = true; });
   listenTracked("main-window-shown", () => { trayHidden.value = false; });
   // 全局快捷键（Ctrl+K 搜索 / Ctrl+N 全局 AI）
@@ -653,10 +650,11 @@ async function refreshAllQuotes() {
 }
 
 onUnmounted(() => {
+  // 可见性监听对所有窗口都注册过，先统一注销
+  document.removeEventListener("visibilitychange", onVisibilityChange);
   if (isMiniMode || isIwencaiMode) return;
   appUnmounted = true;
   document.removeEventListener("keydown", onKeydown);
-  document.removeEventListener("visibilitychange", onVisibilityChange);
   teardownShortcuts();
   unlistenFns.forEach((fn) => fn());
   unlistenFns.length = 0;
@@ -727,6 +725,8 @@ onUnmounted(() => {
         :money-flow-loading="moneyFlowLoading"
         :money-flow-history="moneyFlowHistory"
         :money-flow-history-loading="moneyFlowHistoryLoading"
+        :money-flow-stale="moneyFlowStale"
+        :money-flow-history-stale="moneyFlowHistoryStale"
         :watchlist-markers="watchlistMarkers"
         :quote-fetched-at="quoteFetchedAt"
         :quote-stale="quoteStale"

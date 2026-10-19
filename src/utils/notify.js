@@ -7,7 +7,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
-import { recordAlertEvent } from "./history";
+import { recordAlertEvent } from "./history.js";
 
 const appWindow = getCurrentWindow();
 

@@ -16,6 +16,10 @@ const props = defineProps({
   t0Summary: { type: Object, default: null },
   /** 当前图表模式（仅分时模式显示 T+0 徽标） */
   chartMode: { type: String, default: "intraday" },
+  /** 快照刷新失败但保留了旧数据（PROJECT.md §7.16） */
+  stale: { type: Boolean, default: false },
+  /** 历史柱状图刷新失败但保留了旧数据 */
+  historyStale: { type: Boolean, default: false },
 });
 
 /** 资金流向分档明细（超大单/大单/中单/小单） */
@@ -50,10 +54,10 @@ function t0DirectionTooltip(summary) {
     <div class="flow-header">
       <span class="flow-title">主力资金</span>
       <template v-if="moneyFlow">
-        <span class="flow-text" :class="(moneyFlow.mainNetInflow ?? 0) >= 0 ? 'inflow' : 'outflow'">
+        <span class="flow-text" :class="(moneyFlow.mainNetInflow ?? 0) > 0 ? 'inflow' : (moneyFlow.mainNetInflow ?? 0) < 0 ? 'outflow' : ''">
           {{ fmtMoney(moneyFlow.mainNetInflow) }}
         </span>
-        <span class="flow-pct-text" :class="(moneyFlow.mainNetInflow ?? 0) >= 0 ? 'inflow' : 'outflow'">
+        <span class="flow-pct-text" :class="(moneyFlow.mainNetInflow ?? 0) > 0 ? 'inflow' : (moneyFlow.mainNetInflow ?? 0) < 0 ? 'outflow' : ''">
           {{ fmtPct(moneyFlow.mainNetPct) }}
         </span>
       </template>
@@ -61,6 +65,7 @@ function t0DirectionTooltip(summary) {
         <span class="flow-text">--</span>
       </template>
       <span v-if="moneyFlowLoading" class="flow-loading">加载中...</span>
+      <span v-else-if="stale" class="flow-stale" title="本次刷新失败，展示的是上一次成功的数据">旧数据</span>
 
       <!-- T+0 信号 -->
       <template v-if="chartMode === 'intraday' && t0Summary && t0Summary.hasSignal">
@@ -87,16 +92,17 @@ function t0DirectionTooltip(summary) {
     <div v-if="moneyFlow" class="flow-tiers">
       <div class="flow-tier" v-for="tier in flowTiers" :key="tier.key">
         <span class="tier-name">{{ tier.label }}</span>
-        <span class="tier-value" :class="tier.net >= 0 ? 'inflow' : 'outflow'">
+        <span class="tier-value" :class="tier.net > 0 ? 'inflow' : tier.net < 0 ? 'outflow' : ''">
           {{ fmtMoney(tier.net) }}
         </span>
-        <span class="tier-pct" :class="tier.net >= 0 ? 'inflow' : 'outflow'">
+        <span class="tier-pct" :class="tier.net > 0 ? 'inflow' : tier.net < 0 ? 'outflow' : ''">
           {{ fmtPct(tier.pct) }}
         </span>
       </div>
     </div>
 
     <!-- 近 30 日主力净流入历史柱状图 -->
+    <div v-if="historyStale && !moneyFlowHistoryLoading" class="flow-stale flow-stale-history">历史数据刷新失败，展示上次结果</div>
     <MoneyFlowChart
       :data="moneyFlowHistory || []"
       :loading="moneyFlowHistoryLoading"
@@ -107,13 +113,13 @@ function t0DirectionTooltip(summary) {
 <style scoped>
 /* ===== 主力资金流向 ===== */
 .flow-section {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .flow-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 0;
   flex-wrap: wrap;
 }
@@ -131,9 +137,25 @@ function t0DirectionTooltip(summary) {
   color: var(--text-muted);
 }
 
+/* 旧数据标注（PROJECT.md §7.16：刷新失败保留旧数据时必须标注） */
+.flow-stale {
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xs);
+  padding: 0 5px;
+  line-height: 16px;
+  flex-shrink: 0;
+}
+
+.flow-stale-history {
+  display: inline-block;
+  margin: 4px 0 0;
+}
+
 /* T+0 信号内联 */
 .flow-sep {
-  color: var(--border-light);
+  color: var(--border);
   font-size: 16px;
   margin: 0 6px;
   user-select: none;
@@ -143,34 +165,34 @@ function t0DirectionTooltip(summary) {
   font-size: 13px;
   font-weight: 700;
   padding: 2px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   letter-spacing: -0.009em;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: help;
 }
 .t0-badge-inline.dir-up {
   color: var(--red);
-  background: rgba(231, 76, 60, 0.1);
+  background: var(--red-bg);
 }
 .t0-badge-inline.dir-down {
   color: var(--green);
-  background: rgba(39, 174, 96, 0.1);
+  background: var(--green-bg);
 }
 .t0-badge-inline.dir-wait {
   color: var(--text-secondary);
-  background: rgba(163, 166, 175, 0.12);
+  background: var(--fog);
 }
 
 .t0-chip-inline {
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   color: var(--rust);
-  background: rgba(201, 94, 54, 0.1);
+  background: var(--apricot-wash);
   white-space: nowrap;
   letter-spacing: -0.005em;
-  cursor: pointer;
+  cursor: help;
 }
 
 .flow-text {
@@ -195,9 +217,9 @@ function t0DirectionTooltip(summary) {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 6px 24px;
-  margin-top: 14px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
   background: var(--fog);
 }
 

@@ -84,12 +84,18 @@ const tooltip = computed(() => {
   color: var(--rust);
   background: none;
   border: none;
-  padding: 0;
+  border-radius: var(--radius-xs);
+  padding: 0 2px;
   cursor: pointer;
   text-decoration: underline;
+  transition: opacity var(--transition-fast);
 }
 
 .fresh-retry:hover {
   opacity: 0.7;
+}
+
+.fresh-retry:active {
+  opacity: 0.5;
 }
 </style>

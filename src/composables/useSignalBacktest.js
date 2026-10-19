@@ -7,7 +7,8 @@
  * 日内信号要回测需另行落库分时数据（后续可扩展）。
  *
  * 统计口径：固定持有期（1/3/5/10 交易日），**非重叠交易**（持有期内不再开仓），
- * 单笔收益 = 持有期末收盘价 / 信号日收盘价 - 1；胜率 = 盈利笔数 / 总笔数。
+ * 单笔收益 = 持有期末收盘价 / 信号日收盘价 - 1；胜率 = 盈利笔数 /（盈利 + 亏损笔数），
+ * 平盘（收益恰为 0）单列 `flats`、不进退分母。
  * 样本 < MIN_SAMPLE 时由 UI 标注「样本不足」，不下结论。
  */
 import { ref } from "vue";
@@ -63,6 +64,7 @@ function prepareIndicators(bars, code) {
     ma10: smaSeries(closes, 10),
     ma20: smaSeries(closes, 20),
     volMa20: smaSeries(bars.map((b) => Number(b.volume) || 0), 20),
+    // 回测按板块口径取涨跌停幅度（ST 与所属板块一致，无需名称）
     limitPct: getLimitPct(code),
   };
 }
@@ -180,6 +182,8 @@ function summarize(returns) {
   if (n === 0) {
     return {
       trades: 0,
+      decided: 0,
+      flats: 0,
       winRate: null,
       expectancy: null,
       avgRet: null,
@@ -193,6 +197,8 @@ function summarize(returns) {
   }
 
   let wins = 0;
+  let losses = 0;
+  let flats = 0;
   let sum = 0;
   let grossWin = 0;
   let grossLoss = 0;
@@ -207,8 +213,11 @@ function summarize(returns) {
     if (r > 0) {
       wins += 1;
       grossWin += r;
-    } else {
+    } else if (r < 0) {
+      losses += 1;
       grossLoss += r;
+    } else {
+      flats += 1; // 平盘：不进退分母（否则 4 胜 4 负 2 平会被摊成 40%）
     }
     if (r > best) best = r;
     if (r < worst) worst = r;
@@ -218,10 +227,12 @@ function summarize(returns) {
     if (dd > maxDd) maxDd = dd;
   }
 
-  const losses = n - wins;
+  const decided = wins + losses;
   return {
     trades: n,
-    winRate: (wins / n) * 100,
+    decided, // 真正参与胜率计算的笔数（= 胜 + 负，不含平盘）
+    flats,
+    winRate: decided > 0 ? (wins / decided) * 100 : null,
     avgRet: sum / n,
     expectancy: sum / n,
     avgWin: wins ? grossWin / wins : null,
@@ -350,6 +361,9 @@ export function useSignalBacktest() {
   const data = ref(null);
   const stats = ref(null);
 
+  /** 请求序号：切换股票时并发 load，旧响应（含数据/错误/syncing）一律丢弃 */
+  let loadSeq = 0;
+
   /**
    * 读取本地历史并回测；本地样本不足或 forceNetwork 时先补齐远端 K 线（Rust 端自动落库）
    * @param {string} code 股票代码
@@ -357,29 +371,36 @@ export function useSignalBacktest() {
    */
   async function load(code, options = {}) {
     if (!code) return;
+    const mySeq = ++loadSeq;
     loading.value = true;
     error.value = "";
     try {
       let bars = await readLocal(code);
+      if (mySeq !== loadSeq) return;
       if (options.forceNetwork || bars.length < MIN_BARS) {
         syncing.value = true;
         try {
           // 该命令落库为旁路，返回远端全量 K 线（含比本地更早的历史）
           const remote = await invoke("get_stock_kline", { code, period: "day" });
+          if (mySeq !== loadSeq) return;
           if (Array.isArray(remote) && remote.length > bars.length) bars = remote;
         } catch (e) {
+          if (mySeq !== loadSeq) return;
           // 远端失败时仍可用于已有本地数据；本地也空才向外抛
           if (bars.length === 0) throw e;
         } finally {
-          syncing.value = false;
+          if (mySeq === loadSeq) syncing.value = false;
         }
       }
+      if (mySeq !== loadSeq) return;
       data.value = analyzeBars(bars, code);
     } catch (e) {
+      if (mySeq !== loadSeq) return;
       error.value = String(e?.message || e);
-      data.value = null;
+      // §7.16 刷新失败保留旧 data（上一只股票的结果）并置错误态；
+      // 清空会让面板闪空、也失去可对照的旧结果
     } finally {
-      loading.value = false;
+      if (mySeq === loadSeq) loading.value = false;
     }
   }
 
