@@ -85,10 +85,39 @@ pub fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// 简单版本号比较：a > b 返回 1，相等返回 0，a < b 返回 -1
+/// 去掉版本号前缀/空白，只剩可比较的部分（`v0.1.3` → `0.1.3`）
+fn normalize_version(s: &str) -> String {
+    s.trim()
+        .trim_start_matches(['v', 'V'])
+        .trim()
+        .to_string()
+}
+
+/// 把版本号切成 (主体数字段, 预发布标签)，主体只取 `-`/`+` 之前的部分。
+/// 非法段（parse 失败）按 0 处理，避免整段被丢弃后错位（如 `v0.1.x`）。
+fn parse_version(s: &str) -> (Vec<u64>, String) {
+    let s = normalize_version(s);
+    let core_end = s.find(['-', '+']).unwrap_or(s.len());
+    let (core, rest) = s.split_at(core_end);
+    let numbers: Vec<u64> = core
+        .split('.')
+        .map(|seg| seg.trim().parse::<u64>().unwrap_or(0))
+        .collect();
+    let pre = rest
+        .trim_start_matches('-')
+        .split('+')
+        .next()
+        .unwrap_or("")
+        .to_string();
+    (numbers, pre)
+}
+
+/// 语义化版本比较：a > b 返回 1，相等返回 0，a < b 返回 -1。
+/// 宽松规则（足够应付 GitHub release tag）：数字段逐级比较、缺省补 0；
+/// 主体相同时，正式版 > 预发布版（`0.1.3` > `0.1.3-beta.1`），两段预发布按字典序比较。
 fn compare_versions(a: &str, b: &str) -> i32 {
-    let pa: Vec<i32> = a.split('.').filter_map(|s| s.parse().ok()).collect();
-    let pb: Vec<i32> = b.split('.').filter_map(|s| s.parse().ok()).collect();
+    let (pa, pre_a) = parse_version(a);
+    let (pb, pre_b) = parse_version(b);
     for i in 0..pa.len().max(pb.len()) {
         let va = pa.get(i).copied().unwrap_or(0);
         let vb = pb.get(i).copied().unwrap_or(0);
@@ -96,7 +125,17 @@ fn compare_versions(a: &str, b: &str) -> i32 {
             return if va > vb { 1 } else { -1 };
         }
     }
-    0
+    match (pre_a.is_empty(), pre_b.is_empty()) {
+        (true, true) => 0,
+        // 正式版 > 预发布版
+        (true, false) => 1,
+        (false, true) => -1,
+        (false, false) => match pre_a.cmp(&pre_b) {
+            std::cmp::Ordering::Greater => 1,
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+        },
+    }
 }
 
 /// 检查 GitHub Releases 最新版本（限流 60 次/小时/IP，无认证）
@@ -110,10 +149,19 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
             fetch_latest_release(crate::api::build_proxy_http_client()?).await?
         }
     };
-    let latest = json["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
+    // GitHub 无 release / 解析失败时 tag_name 可能是 null，不能当成「没有新版本」
+    let raw_tag = json["tag_name"]
+        .as_str()
+        .map(normalize_version)
+        .unwrap_or_default();
+    let latest = if raw_tag.is_empty() {
+        env!("CARGO_PKG_VERSION").to_string()
+    } else {
+        raw_tag
+    };
     let url = json["html_url"].as_str().unwrap_or("").to_string();
     let current = env!("CARGO_PKG_VERSION").to_string();
-    let has_update = !latest.is_empty() && compare_versions(&latest, &current) > 0;
+    let has_update = compare_versions(&latest, &current) > 0;
     Ok(UpdateInfo {
         current,
         latest,
@@ -420,5 +468,42 @@ pub async fn get_signal_events(
         kind.as_deref().filter(|s| !s.is_empty()),
         limit.unwrap_or(500),
     )
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn compares_numeric_segments() {
+        assert_eq!(compare_versions("0.1.3", "0.1.2"), 1);
+        assert_eq!(compare_versions("0.1.2", "0.1.3"), -1);
+        assert_eq!(compare_versions("0.1.3", "0.1.3"), 0);
+        assert_eq!(compare_versions("0.2.0", "0.1.99"), 1);
+        assert_eq!(compare_versions("10.0.0", "9.9.9"), 1);
+    }
+
+    #[test]
+    fn treats_v_prefix_and_missing_segments_as_equal() {
+        assert_eq!(compare_versions("v0.1.3", "v0.1.3"), 0);
+        assert_eq!(compare_versions("v0.1.3", "0.1.3.0"), 0);
+        assert_eq!(compare_versions(" V0.1.3 ", "0.1.3"), 0);
+    }
+
+    #[test]
+    fn prerelease_is_lower_than_stable() {
+        assert_eq!(compare_versions("0.1.3-beta.1", "0.1.3"), -1);
+        assert_eq!(compare_versions("0.1.3", "0.1.3-beta.1"), 1);
+        assert_eq!(compare_versions("0.1.4-beta.1", "0.1.3"), 1);
+        assert_eq!(compare_versions("0.1.3-rc.1", "0.1.3-beta.2"), 1);
+        assert_eq!(compare_versions("0.1.3+build7", "0.1.3"), 0);
+    }
+
+    #[test]
+    fn garbage_segment_does_not_shift_later_segments() {
+        // 旧实现把 "x" 过滤掉，导致 0.2.x 与 0.1.99 被误判为相等
+        assert_eq!(compare_versions("0.2.x", "0.1.99"), 1);
+        assert_eq!(compare_versions("", "0.0.0"), 0);
+    }
 }
 

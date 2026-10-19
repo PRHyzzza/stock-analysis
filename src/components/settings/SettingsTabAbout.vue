@@ -19,7 +19,13 @@ async function checkUpdate() {
   checkError.value = "";
   updateInfo.value = null;
   try {
-    updateInfo.value = await invoke("check_for_update");
+    const info = await invoke("check_for_update");
+    // 仓库没有 release / tag 解析不到时，不要显示成「已是最新 · 最新 v当前版本」误导用户
+    if (!info?.latest) {
+      checkError.value = "未能从 GitHub 获取版本 tag（仓库可能尚未发布 release 或 tag 格式无法解析）";
+    } else {
+      updateInfo.value = info;
+    }
   } catch (err) {
     checkError.value = String(err);
   } finally {
