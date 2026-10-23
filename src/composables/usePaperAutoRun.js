@@ -77,7 +77,7 @@ export function usePaperAutoRun() {
     const status = getMarketStatus(); // 不传 code → A 股口径
     const today = status.dateStr || getToday();
     // 成功后 autoDoneOn 为真，把日期传进去让 shouldRunAuto 直接拒绝
-    const lastDoneDate = paper.autoDoneOn(today) ? today : "";
+    const lastDoneDate = paper.autoDoneOn(today, now) ? today : "";
     const base = shouldRunAuto(autoConfig.value, { now, lastAutoDate: lastDoneDate, status });
     if (!base.run) return base;
 

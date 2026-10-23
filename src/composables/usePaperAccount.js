@@ -34,7 +34,9 @@ import {
 import {
   activeStrategies,
   applyPoolMode,
+  localDate,
   mergeStrategyHits,
+  minutesOfDay,
   normalizeAutoConfig,
 } from "../utils/paperAuto.js";
 
@@ -540,15 +542,27 @@ export function usePaperAccount() {
   }
 
   /**
-   * 今天是否已经**由定时任务**跑过（幂等守卫，跨重启有效）
+   * 今天是否已经跑过「当天该跑的那次」（幂等守卫，跨重启有效）
    *
-   * 手动「立即执行一次」不占用名额：否则上午手动跑一次，当天收盘后那次定时任务
-   * 会被挡掉，收盘数据要等第二天才进账。手动运行的记录仍然保存（`manual: true`），
-   * 只是不参与这里的判定。
+   * 定时任务跑过 → 直接算完成。
+   * 手动「立即执行一次」→ **只有发生在运行时刻之后**才算完成当天任务：
+   *   - 上午手动验证策略（如 10:00）不该顶替收盘后那次跑批，否则当天收盘数据永远进不了账；
+   *   - 收盘后手动跑过（如 16:00）则等价于当天任务，不必再让定时器重复打一遍问财、
+   *     重复拉一遍全池日 K（那次 `runForward` 必然只会返回 `upToDate`）。
    */
-  function autoDoneOn(date) {
+  function autoDoneOn(date, now = new Date()) {
     const r = lastAuto.value;
-    return !!date && r?.date === date && !!r?.ran && !r?.manual;
+    if (!date || !r?.ran || r.date !== date) return false;
+    if (!r.manual) return true;
+
+    // 手动运行：仅当它发生在当天运行时刻之后，才视为完成
+    const target = minutesOfDay(autoConfig.value.time);
+    if (target == null) return false;
+    const at = r.ts ? new Date(r.ts) : now;
+    const sameDay = localDate(at) === date;
+    const stamp = sameDay ? at : now;
+    const minutes = stamp.getHours() * 60 + stamp.getMinutes();
+    return minutes >= target;
   }
 
   _instance = {
