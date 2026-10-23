@@ -3,7 +3,10 @@
  * PaperTradingModal.vue — 选股驱动 · 每日向前累积 的模拟盘面板
  *
  * 三段式（与用户选定的方案一致）：
- *   选股池（问财筛选结果 / 手动加） → 每个交易日收盘跑日线规则 → 次日开盘撮合
+ *   选股池（问财筛选结果 / 手动加 / 每日定时自动跑策略） → 每个交易日收盘跑日线规则 → 次日开盘撮合
+ *
+ * 「自动选股」标签页只管**配置与触发**：定时判定与跑批逻辑在
+ * `usePaperAutoRun.js`（调度）+ `utils/paperAuto.js`（纯逻辑），本组件不重算口径。
  *
  * 与 BacktestModal 的口径差异（PROJECT.md §7.19，面板必须如实披露）：
  *   BacktestModal：信号日收盘买入、持有 N 日收盘卖出、**不计费用**
@@ -17,8 +20,10 @@
  */
 import { ref, computed, watch } from "vue";
 import { usePaperAccount } from "../composables/usePaperAccount.js";
+import { usePaperAutoRun, AUTO_RETRY_MS } from "../composables/usePaperAutoRun.js";
 import { signChar, trendClass } from "../utils/format.js";
 import { DEFAULT_CONFIG } from "../utils/paperEngine.js";
+import { DEFAULT_AUTO_CONFIG, describeAutoResult, normalizeTime } from "../utils/paperAuto.js";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -46,7 +51,14 @@ const {
   updateConfig,
   resetAccount,
   clearAll,
+  autoConfig,
+  autoRunning,
+  lastAuto,
+  updateAutoConfig,
+  setStrategies,
 } = pa;
+// 自动运行的调度器：面板里的「立即执行一次」和「最近判断」都走它（与定时任务同一份逻辑）
+const autoRun = usePaperAutoRun();
 
 /** 当前标签页 */
 const tab = ref("overview");
@@ -55,6 +67,7 @@ const TABS = [
   { id: "positions", label: "持仓" },
   { id: "trades", label: "成交" },
   { id: "pool", label: "选股池" },
+  { id: "auto", label: "自动选股" },
   { id: "runs", label: "运行日志" },
   { id: "settings", label: "配置" },
 ];
@@ -169,6 +182,87 @@ const diagRows = computed(() => {
   }));
 });
 
+// ── 自动选股 ──────────────────────────────────────────
+/** 策略编辑草稿（新增一行用；编辑既有行直接改 autoConfig.strategies） */
+const newQuestion = ref("");
+const autoHint = ref("");
+
+/** 最近一次自动运行的可读文案 */
+const autoResultText = computed(() => {
+  const r = lastAuto.value;
+  if (!r) return "";
+  if (r.error) return r.error;
+  return describeAutoResult(r);
+});
+
+/** 调度器最近的判断（回答「为什么今天还没跑」） */
+const autoCheckText = computed(() => autoRun.lastCheck.value?.reason || "");
+
+/** 策略列表的本地副本（template 里 v-for 遍历 + 就地编辑/删除） */
+const strategyRows = computed(() => autoConfig.value.strategies || []);
+
+/** 启用的策略条数（0 条时定时任务必然空转，须在 UI 上明确提示） */
+const enabledStrategyCount = computed(
+  () => strategyRows.value.filter((s) => s.enabled !== false && s.question).length
+);
+
+function setAuto(patch) {
+  updateAutoConfig(patch);
+}
+
+function commitAutoTime(raw) {
+  const t = normalizeTime(raw);
+  if (!t) {
+    autoHint.value = "运行时刻格式应为 HH:mm（如 15:30）";
+    return;
+  }
+  autoHint.value = "";
+  updateAutoConfig({ time: t });
+}
+
+function addStrategy() {
+  const q = newQuestion.value.trim();
+  if (!q) {
+    autoHint.value = "请输入问财策略语句（如「连续三年ROE大于15%」）";
+    return;
+  }
+  if (strategyRows.value.some((s) => s.question === q)) {
+    autoHint.value = "该策略语句已存在";
+    return;
+  }
+  if (strategyRows.value.length >= 10) {
+    autoHint.value = "最多保存 10 条策略";
+    return;
+  }
+  const nextId = `s${Date.now().toString(36)}`;
+  setStrategies([...strategyRows.value, { id: nextId, question: q, enabled: true }]);
+  newQuestion.value = "";
+  autoHint.value = "";
+}
+
+function removeStrategy(id) {
+  setStrategies(strategyRows.value.filter((s) => s.id !== id));
+}
+
+function toggleStrategy(id) {
+  setStrategies(
+    strategyRows.value.map((s) => (s.id === id ? { ...s, enabled: s.enabled === false } : s))
+  );
+}
+
+/** 立即跑一次（跳过时刻判断，用于验证策略是否有效；不占用当天的定时名额） */
+async function runAutoNow() {
+  autoHint.value = "";
+  const res = await autoRun.trigger(new Date(), true);
+  if (!res) {
+    autoHint.value = "自动运行正在进行中，请稍候";
+    return;
+  }
+  autoHint.value = res.error ? res.error : describeAutoResult(res);
+  // 池可能被自动任务改过，面板里的池同步一次
+  reloadPool();
+}
+
 // ── 交互 ──────────────────────────────────────────────
 /** 打开面板：先从 localStorage 同步一次选股池（问财是独立窗口，跨窗口不共享响应式状态） */
 watch(
@@ -263,6 +357,7 @@ function commitNumber(key, raw) {
             </svg>
             <span class="modal-title">模拟盘</span>
             <span class="mode-pill">选股驱动 · 每日向前累积</span>
+            <span v-if="autoConfig.enabled" class="auto-pill">每日 {{ autoConfig.time }} 自动</span>
             <span v-if="stale" class="stale-pill">数据不完整</span>
           </div>
           <button class="modal-close" @click="emit('close')" title="关闭">
@@ -522,6 +617,142 @@ function commitNumber(key, raw) {
               </p>
             </template>
 
+            <!-- ─── 自动选股 ─── -->
+            <template v-else-if="tab === 'auto'">
+              <div class="auto-head">
+                <label class="auto-switch">
+                  <input
+                    class="toggle"
+                    type="checkbox"
+                    :checked="autoConfig.enabled"
+                    @change="setAuto({ enabled: $event.target.checked })"
+                  />
+                  <span class="auto-switch-text">
+                    <b>每日定时自动选股并跑批</b>
+                    <span class="auto-sub">到点自动查问财 → 更新选股池 → 向前累积撮合，无需手动</span>
+                  </span>
+                </label>
+                <button
+                  class="ghost-btn"
+                  :disabled="autoRunning || !enabledStrategyCount"
+                  title="跳过时刻判断，立刻按当前策略跑一次（用于验证策略是否有效）"
+                  @click="runAutoNow"
+                >
+                  <span v-if="autoRunning" class="spinner"></span>
+                  {{ autoRunning ? "执行中…" : "立即执行一次" }}
+                </button>
+              </div>
+
+              <div class="cfg-grid auto-grid">
+                <label class="cfg-item">
+                  <span class="cfg-label">每天运行时刻（本地时区）</span>
+                  <input
+                    class="cfg-input"
+                    type="text"
+                    placeholder="15:30"
+                    :value="autoConfig.time"
+                    @change="commitAutoTime($event.target.value)"
+                  />
+                </label>
+                <label class="cfg-item">
+                  <span class="cfg-label">选股池更新方式</span>
+                  <select
+                    class="cfg-input"
+                    :value="autoConfig.mode"
+                    @change="setAuto({ mode: $event.target.value })"
+                  >
+                    <option value="replace">跟随策略（当日命中即当日池）</option>
+                    <option value="merge">只增不减（策略漏选不踢票）</option>
+                  </select>
+                </label>
+                <label class="cfg-item">
+                  <span class="cfg-label">每条策略取行数</span>
+                  <input
+                    class="cfg-input"
+                    type="number"
+                    min="1"
+                    max="100"
+                    :value="autoConfig.perpage"
+                    @change="setAuto({ perpage: Number($event.target.value) })"
+                  />
+                </label>
+                <label class="auto-check-line">
+                  <input
+                    class="toggle small"
+                    type="checkbox"
+                    :checked="autoConfig.notify"
+                    @change="setAuto({ notify: $event.target.checked })"
+                  />
+                  <span class="cfg-label">跑完发系统通知</span>
+                </label>
+              </div>
+
+              <div class="auto-section">
+                <div class="auto-section-head">
+                  <span class="cfg-label">问财策略语句（{{ enabledStrategyCount }} 条启用）</span>
+                </div>
+                <div class="pool-add">
+                  <input
+                    v-model="newQuestion"
+                    class="pool-input"
+                    placeholder="如：连续三年ROE大于15%，市值小于300亿"
+                    maxlength="120"
+                    @keyup.enter="addStrategy"
+                  />
+                  <button class="ghost-btn" @click="addStrategy">添加策略</button>
+                </div>
+                <div v-if="autoHint" class="pool-hint-line">{{ autoHint }}</div>
+
+                <div v-if="!strategyRows.length" class="tab-empty auto-empty">
+                  还没有策略
+                  <span class="tab-empty-sub">
+                    添加一条问财语句即可；多个策略的命中结果会合并去重后进池
+                  </span>
+                </div>
+                <div v-else class="pool-list">
+                  <div
+                    class="pool-item"
+                    v-for="s in strategyRows"
+                    :key="s.id"
+                    :class="{ 'strategy-off': s.enabled === false }"
+                  >
+                    <input
+                      class="toggle small"
+                      type="checkbox"
+                      :checked="s.enabled !== false"
+                      :title="s.enabled === false ? '启用该策略' : '停用该策略'"
+                      @change="toggleStrategy(s.id)"
+                    />
+                    <span class="strategy-q">{{ s.question }}</span>
+                    <span v-if="s.enabled === false" class="strategy-tag">已停用</span>
+                    <button class="icon-btn" title="删除该策略" @click="removeStrategy(s.id)">
+                      <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
+                        <path d="M4 4L14 14M14 4L4 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="auto-section">
+                <span class="cfg-label">最近一次自动运行</span>
+                <div v-if="!lastAuto" class="auto-last muted">尚未自动运行过</div>
+                <div v-else class="auto-last">
+                  <span class="auto-last-date">{{ lastAuto.date }}</span>
+                  <span :class="lastAuto.error ? 'diag-err' : ''">{{ autoResultText }}</span>
+                </div>
+                <div v-if="autoCheckText" class="auto-reason">当前判断：{{ autoCheckText }}</div>
+              </div>
+
+              <p class="tab-note">
+                定时任务只在<b>主窗口</b>运行（关掉应用不会在后台跑）：每次启动会先补判断一次，
+                到点且当天没跑过才执行；应用整天没开时错过的日期不单独补跑，
+                而是由「向前累积」在下次运行时从上次跑到的那天之后一次性补齐。
+                运行失败会隔 {{ Math.round(AUTO_RETRY_MS / 60000) }} 分钟重试，不会每分钟打问财（避免被限流）。
+                默认时刻 {{ DEFAULT_AUTO_CONFIG.time }}（收盘后 30 分钟，日 K 收盘价稳定后才取数）。
+              </p>
+            </template>
+
             <!-- ─── 运行日志 ─── -->
             <template v-else-if="tab === 'runs'">
               <div v-if="!runRows.length" class="tab-empty">还没有运行记录</div>
@@ -675,6 +906,17 @@ function commitNumber(key, raw) {
   background: var(--warn-bg);
   padding: 2px 8px;
   border-radius: var(--radius-full);
+}
+
+/* 自动运行开启时的常显标记：用户一眼能看到「账户正在被自动改」 */
+.auto-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--fog);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── 运行条 ── */
@@ -1009,6 +1251,79 @@ function commitNumber(key, raw) {
   border-top: 1px solid var(--border);
 }
 
+/* ── 自动选股 ── */
+.auto-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+.auto-switch { display: flex; align-items: center; gap: 10px; cursor: pointer; min-width: 0; }
+.auto-switch-text { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--text-primary); }
+.auto-sub { font-size: 11.5px; color: var(--text-muted); }
+
+/* Toggle 开关（与 SettingsModal 同款：视觉隐藏原生框会破坏键盘可达，故用 appearance:none） */
+.toggle {
+  appearance: none;
+  width: 40px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  flex-shrink: 0;
+  margin: 0;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--white);
+  transition: transform var(--transition-fast);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.toggle:checked { background: var(--ink); }
+.toggle:checked::after { transform: translateX(18px); }
+.toggle.small { width: 32px; height: 18px; }
+.toggle.small::after { width: 14px; height: 14px; }
+.toggle.small:checked::after { transform: translateX(14px); }
+
+.auto-grid { grid-template-columns: repeat(2, 1fr); }
+.auto-check-line { display: flex; align-items: center; gap: 8px; padding-top: 16px; cursor: pointer; }
+
+.auto-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+}
+.auto-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.auto-empty { min-height: 96px; }
+.auto-empty .tab-empty-sub { max-width: 380px; text-align: center; line-height: 1.6; }
+
+.strategy-off .strategy-q { color: var(--text-muted); text-decoration: line-through; }
+.strategy-q { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.5; word-break: break-word; }
+.strategy-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--fog);
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+}
+
+.auto-last { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; font-size: 12.5px; }
+.auto-last.muted { color: var(--text-muted); }
+.auto-last-date { font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.auto-reason { margin-top: 6px; font-size: 11.5px; color: var(--text-muted); }
+
 /* ── 空态与说明 ── */
 .tab-empty {
   display: flex;
@@ -1048,5 +1363,13 @@ function commitNumber(key, raw) {
   border-top-color: var(--white);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
+}
+/* 浅色按钮上的 spinner 换成深色描边，否则白圈白底看不见 */
+.ghost-btn .spinner {
+  border-color: rgba(23, 25, 28, 0.15);
+  border-top-color: var(--rust);
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

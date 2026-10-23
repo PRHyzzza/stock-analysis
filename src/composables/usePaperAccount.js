@@ -31,11 +31,21 @@ import {
   stepDay,
   summarizeAccount,
 } from "../utils/paperEngine.js";
+import {
+  activeStrategies,
+  applyPoolMode,
+  mergeStrategyHits,
+  normalizeAutoConfig,
+} from "../utils/paperAuto.js";
 
 /** 账户与选股池的持久化键（前缀与项目其它 key 保持一致） */
 const ACCOUNT_KEY = "stock-analysis-paper-account";
 /** 池单独存一份：问财窗口与主窗口共用，账户重置时不应连带清空选股池 */
 const POOL_KEY = "stock-analysis-paper-pool";
+/** 自动选股配置（策略语句 + 运行时刻 + 池更新模式） */
+const AUTO_CONFIG_KEY = "stock-analysis-paper-auto";
+/** 最近一次自动运行结果（用于「今日是否已跑」的幂等判断，跨重启有效） */
+const AUTO_RESULT_KEY = "stock-analysis-paper-auto-result";
 
 /** 单票最少 K 线根数（与 useSignalBacktest 的 MIN_BARS 一致；不足则规则无法判定） */
 const MIN_BARS = 60;
@@ -103,6 +113,10 @@ export function usePaperAccount() {
   const stale = ref(false);
   /** 每只票的取数诊断：{ code: { bars, source, error } } */
   const diagnostics = ref({});
+  /** 自动选股配置（策略语句 / 运行时刻 / 池更新模式），落 AUTO_CONFIG_KEY */
+  const autoConfig = ref(normalizeAutoConfig(readJson(AUTO_CONFIG_KEY, null)));
+  /** 自动运行进行中（与手动 `running` 分开：手动按钮的禁用态不该被定时任务改写） */
+  const autoRunning = ref(false);
 
   /** 代际守卫：重置账户/换池时旧运行的写入一律丢弃 */
   let runSeq = 0;
@@ -190,6 +204,42 @@ export function usePaperAccount() {
     persistPool();
     account.value = { ...account.value, pool: [] };
     persist();
+  }
+
+  /**
+   * 整池替换（自动选股用：每日策略命中集合 = 当日池）
+   *
+   * 与 `addToPool` 的区别：这里允许「变少」，因此调用方必须自己保证
+   * `items` 是**可信的命中结果**而不是「取数失败后的空集合」——
+   * 拿空数组覆盖会让引擎把全部持仓视为池外（只卖不买），代价很大。
+   * 空数组在此处直接拒绝，返回 false，交调用方决定要不要显式 `clearPool()`。
+   *
+   * @param {Array<{code: string, name?: string, source?: string}>} items
+   * @param {string} [source] 来源标记，缺省 "auto"
+   * @returns {boolean} 是否写入
+   */
+  function setPool(items, source = "auto") {
+    const list = Array.isArray(items) ? items : [];
+    const seen = new Set();
+    const next = [];
+    for (const item of list) {
+      const code = String(item?.code ?? "").trim();
+      if (!/^\d{6}$/.test(code)) continue; // 模拟盘只做 A 股 6 位
+      if (seen.has(code)) continue;
+      seen.add(code);
+      next.push({
+        code,
+        name: String(item?.name ?? "").trim(),
+        addedAt: String(item?.addedAt ?? "") || getToday(),
+        source: String(item?.source ?? "") || source,
+      });
+    }
+    if (!next.length) return false;
+    pool.value = next;
+    persistPool();
+    account.value = { ...account.value, pool: next };
+    persist();
+    return true;
   }
 
   /**
@@ -376,6 +426,131 @@ export function usePaperAccount() {
     return pool.value.length;
   }
 
+  // ── 自动运行（每日定时跑问财策略 → 更新选股池 → 向前累积）──────────────
+  // 为什么配置放这个 composable 而不是 useSettings：它只服务模拟盘，
+  // 且 useSettings 的 sanitize 以 DEFAULTS 为 schema 会把嵌套对象整个丢掉（§7.9 之外的原因）。
+
+  /** 最近的自动运行结果（UI 展示用，随账户一起存） */
+  const lastAuto = ref(readJson(AUTO_RESULT_KEY, null) || null);
+
+  /** 更新自动运行配置（部分更新，非法值由 normalizeAutoConfig 夹住） */
+  function updateAutoConfig(patch) {
+    const merged = normalizeAutoConfig({ ...autoConfig.value, ...(patch || {}) });
+    autoConfig.value = merged;
+    writeJson(AUTO_CONFIG_KEY, merged);
+  }
+
+  /** 策略增删改 */
+  function setStrategies(list) {
+    updateAutoConfig({ strategies: Array.isArray(list) ? list : [] });
+  }
+
+  /**
+   * 跑一次「自动选股 + 向前累积」
+   *
+   * 顺序是硬要求：**先更新池，再跑批**。反过来的话今天新选出的票要等到明天
+   * 才会被引擎看到，自动化的意义就丢了一半。
+   *
+   * @param {{ fetchStrategyHits: Function, now?: Date, date?: string, manual?: boolean }} opts
+   *   fetchStrategyHits(question, perpage) → rows，由调用方注入（本文件不 import 问财，
+   *   避免 composable 层出现 Tauri/网络依赖，纯函数层与 I/O 层保持分离）
+   *   manual=true 表示用户在面板里手动点「立即执行一次」：结果照常记录，
+   *   但**不占用当天的自动运行名额**（否则 10:00 手动跑一次，15:30 收盘后的
+   *   那次定时任务就被幂等守卫挡掉，当天收盘数据永远进不了账）
+   * @returns {Promise<{ ran: boolean, reason: string, poolSize: number, added: string[],
+   *                     removed: string[], skipped: boolean, days: number, failed: string[],
+   *                     upToDate: boolean, error: string, manual: boolean }>}
+   */
+  async function runAuto(opts = {}) {
+    const manual = !!opts.manual;
+    const empty = {
+      ran: false, reason: "", poolSize: pool.value.length, added: [], removed: [],
+      skipped: false, days: 0, failed: [], upToDate: false, error: "", manual,
+    };
+    if (running.value) return { ...empty, reason: "正在运行中" };
+
+    const date = String(opts.date ?? "") || getToday();
+    const fetchHits = opts.fetchStrategyHits;
+    if (typeof fetchHits !== "function") {
+      return { ...empty, reason: "未注入选股函数" };
+    }
+
+    const strategies = activeStrategies(autoConfig.value);
+    if (!strategies.length) return { ...empty, reason: "未配置问财策略" };
+
+    autoRunning.value = true;
+    try {
+      // 1) 逐条策略查问财（顺序执行：并发打问财极易触发 403 限流）
+      const results = [];
+      const strategyErrors = [];
+      for (const s of strategies) {
+        try {
+          const rows = await fetchHits(s.question, autoConfig.value.perpage);
+          results.push({ strategyId: s.id, rows: Array.isArray(rows) ? rows : [] });
+        } catch (e) {
+          strategyErrors.push(`${s.question}：${String(e?.message || e || "查询失败")}`);
+        }
+      }
+
+      // 一条都没成功 → 不能拿空结果去覆盖池（那会让全部持仓变「池外」）
+      if (!results.length) {
+        const msg = strategyErrors.length
+          ? `问财策略全部查询失败：${strategyErrors.slice(0, 2).join("；")}`
+          : "问财策略无返回";
+        lastAuto.value = { date, ran: false, error: msg, manual, ts: Date.now() };
+        writeJson(AUTO_RESULT_KEY, lastAuto.value);
+        return { ...empty, reason: msg, error: msg };
+      }
+
+      // 2) 合并命中 → 按模式更新池
+      const hits = mergeStrategyHits(results);
+      const applied = applyPoolMode(hits, pool.value, { mode: autoConfig.value.mode, date });
+      if (!applied.skipped) setPool(applied.pool, "auto");
+      else reloadPool(); // 未命中也要把账户 pool 与磁盘对齐
+
+      // 3) 向前累积（池刚更新过，reloadPool 会读到新池）
+      const run = await runForward({});
+
+      const summaryOut = {
+        date,
+        ran: true,
+        reason: strategyErrors.length ? `部分策略失败：${strategyErrors[0]}` : "",
+        poolSize: pool.value.length,
+        added: applied.added,
+        removed: applied.removed,
+        skipped: applied.skipped,
+        days: run.days || 0,
+        failed: run.failed || [],
+        upToDate: !!run.upToDate,
+        error: error.value || "",
+        manual,
+        ts: Date.now(),
+      };
+      lastAuto.value = summaryOut;
+      writeJson(AUTO_RESULT_KEY, summaryOut);
+      return summaryOut;
+    } catch (e) {
+      const msg = String(e?.message || e || "自动运行失败");
+      lastAuto.value = { date, ran: false, error: msg, manual, ts: Date.now() };
+      writeJson(AUTO_RESULT_KEY, lastAuto.value);
+      return { ...empty, reason: msg, error: msg };
+    } finally {
+      autoRunning.value = false;
+    }
+  }
+
+  /**
+   * 今天是否已经**由定时任务**跑过（幂等守卫，跨重启有效）
+   *
+   * 手动「立即执行一次」不占用名额：否则上午手动跑一次，当天收盘后那次定时任务
+   * 会被挡掉，收盘数据要等第二天才进账。手动运行的记录仍然保存（`manual: true`），
+   * 只是不参与这里的判定。
+   */
+  function autoDoneOn(date) {
+    const r = lastAuto.value;
+    return !!date && r?.date === date && !!r?.ran && !r?.manual;
+  }
+
   _instance = {
     // 状态
     account,
@@ -387,15 +562,24 @@ export function usePaperAccount() {
     error,
     stale,
     diagnostics,
+    autoConfig,
+    autoRunning,
+    lastAuto,
     // 配置与池
     updateConfig,
     addToPool,
+    setPool,
     removeFromPool,
     clearPool,
     reloadPool,
     // 运行
     runForward,
     latestCloses,
+    // 自动运行
+    updateAutoConfig,
+    setStrategies,
+    runAuto,
+    autoDoneOn,
     // 生命周期
     resetAccount,
     clearAll,
