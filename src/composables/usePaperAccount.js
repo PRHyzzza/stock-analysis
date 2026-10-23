@@ -53,7 +53,7 @@ const AUTO_RESULT_KEY = "stock-analysis-paper-auto-result";
 const MIN_BARS = 60;
 /** 拉取日 K 的条数上限 */
 const KLINE_LIMIT = 2000;
-/** 单次运行最多向前累积的交易日数（防止首次运行从很久以前开始跑几千天） */
+/** 首次运行补跑上限（真正的补跑天数由 account.config.backfillDays 决定，默认 0 = 只跑最新一天） */
 const MAX_CATCHUP_DAYS = 250;
 
 function readJson(key, fallback) {
@@ -344,9 +344,18 @@ export function usePaperAccount() {
         return { days: 0, reports: [], failed, upToDate: true };
       }
 
-      // 首次运行（lastRunDate 为空）只跑最近 MAX_CATCHUP_DAYS 个交易日，避免从库里最老一天开始
-      if (!last && dates.length > MAX_CATCHUP_DAYS) {
-        dates = dates.slice(-MAX_CATCHUP_DAYS);
+      /**
+       * 首次运行只跑最新一个交易日（`backfillDays = 0`，默认值）。
+       *
+       * 为什么改掉原来「补跑最近 250 天」：那会把过去一年的模拟交易一次性全部跑完，
+       * 用户打开面板时看到的是一堆自己没做过的历史成交（这正是「莫名其妙的回测」）。
+       * 向前累积的本意是**从今天开始逐日积累**，历史回放该去回测面板做，不该混进模拟账户。
+       * 需要预热时由用户显式把 `backfillDays` 调大。
+       */
+      if (!last) {
+        const backfill = Math.max(0, Math.min(MAX_CATCHUP_DAYS, Number(account.value.config?.backfillDays) || 0));
+        const keep = backfill > 0 ? backfill : 1;
+        if (dates.length > keep) dates = dates.slice(-keep);
       }
 
       let acct = account.value;

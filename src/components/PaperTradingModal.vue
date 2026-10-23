@@ -182,6 +182,22 @@ const diagRows = computed(() => {
   }));
 });
 
+/** 最近一次运行的打分排名（含分数条 / 是否入选），让用户看清「凭什么买」 */
+const lastScores = computed(() => {
+  const run = lastRun.value;
+  if (!run) return [];
+  const scores = Array.isArray(run.scores) ? run.scores : [];
+  const picked = new Set((run.picked || []).map((p) => p.code));
+  const nameOf = new Map(pool.value.map((p) => [p.code, p.name]));
+  return scores.map((s, i) => ({
+    code: s.code,
+    name: nameOf.get(s.code) || "",
+    score: Number(s.score) || 0,
+    rank: i + 1,
+    picked: picked.has(s.code),
+  }));
+});
+
 // ── 自动选股 ──────────────────────────────────────────
 /** 策略编辑草稿（新增一行用；编辑既有行直接改 autoConfig.strategies） */
 const newQuestion = ref("");
@@ -501,13 +517,36 @@ function commitNumber(key, raw) {
                   <span class="pg-reason">{{ o.reason }}</span>
                 </div>
               </div>
+
+              <!-- 最近一次打分排名 -->
+              <div class="score-card" v-if="lastScores.length">
+                <div class="sec-title">
+                  最近一次打分排名
+                  <span class="score-sub">
+                    {{ lastRun?.date }} · 阈值 {{ account.config.minScore }} 分 · 每日最多买 {{ account.config.maxPicks }} 只
+                  </span>
+                </div>
+                <div class="score-row" v-for="s in lastScores" :key="s.code" :class="{ picked: s.picked }">
+                  <span class="score-rank">{{ s.rank }}</span>
+                  <button class="link-btn" @click="openDetail(s.code)">{{ s.name || s.code }}</button>
+                  <span class="pg-code">{{ s.code }}</span>
+                  <span class="score-bar">
+                    <span class="score-bar-fill" :style="{ width: `${s.score}%` }"></span>
+                  </span>
+                  <span class="score-num" :class="s.score >= account.config.minScore ? 'up' : 'muted'">
+                    {{ s.score }}
+                  </span>
+                  <span class="score-tag" v-if="s.picked">买入</span>
+                  <span class="score-tag muted" v-else-if="s.score < account.config.minScore">未达标</span>
+                </div>
+              </div>
             </template>
 
             <!-- ─── 持仓 ─── -->
             <template v-else-if="tab === 'positions'">
               <div v-if="!positions.length" class="tab-empty">
                 当前无持仓
-                <span class="tab-empty-sub">选股池内规则触发后，会在下一个交易日开盘买入</span>
+                <span class="tab-empty-sub">选股池内打分达标且位于当日分数前列的票，会在下一个交易日开盘买入</span>
               </div>
               <table v-else class="paper-table">
                 <thead>
@@ -761,11 +800,12 @@ function commitNumber(key, raw) {
                   <tr>
                     <th>交易日</th>
                     <th class="num">扫描</th>
-                    <th class="num">信号</th>
+                    <th class="num">可达标</th>
                     <th class="num">成交</th>
                     <th class="num">卖单</th>
                     <th class="num">买单</th>
                     <th class="num">权益</th>
+                    <th>入选</th>
                     <th>跳过</th>
                   </tr>
                 </thead>
@@ -773,12 +813,20 @@ function commitNumber(key, raw) {
                   <tr v-for="r in runRows" :key="r.date">
                     <td>{{ r.date }}</td>
                     <td class="num">{{ r.scanned }}</td>
-                    <td class="num">{{ (r.signalCodes || []).length }}</td>
+                    <td class="num">{{ r.scored ?? "—" }}</td>
                     <td class="num">{{ r.filledCount }}</td>
                     <td class="num">{{ r.exitCount }}</td>
                     <td class="num">{{ r.entryCount }}</td>
                     <td class="num" :class="r.partial ? 'muted' : ''">
                       ¥{{ money(r.equity) }}<span v-if="r.partial" class="partial-mark">*</span>
+                    </td>
+                    <td class="skip-cell">
+                      <template v-if="(r.picked || []).length">
+                        <span v-for="(p, i) in r.picked" :key="i" class="pick-item">
+                          {{ p.code }} {{ p.score }}分
+                        </span>
+                      </template>
+                      <span v-else class="muted">—</span>
                     </td>
                     <td class="skip-cell">
                       <template v-if="(r.skipped || []).length">
@@ -818,6 +866,18 @@ function commitNumber(key, raw) {
                   <input class="cfg-input" type="number" :value="account.config.maxWeightPct" @change="commitNumber('maxWeightPct', $event.target.value)" />
                 </label>
                 <label class="cfg-item">
+                  <span class="cfg-label">入选最低分（0-100）</span>
+                  <input class="cfg-input" type="number" :value="account.config.minScore" @change="commitNumber('minScore', $event.target.value)" />
+                </label>
+                <label class="cfg-item">
+                  <span class="cfg-label">每日最多买入只数</span>
+                  <input class="cfg-input" type="number" :value="account.config.maxPicks" @change="commitNumber('maxPicks', $event.target.value)" />
+                </label>
+                <label class="cfg-item">
+                  <span class="cfg-label">首次补跑天数（0=只跑最新一天）</span>
+                  <input class="cfg-input" type="number" :value="account.config.backfillDays" @change="commitNumber('backfillDays', $event.target.value)" />
+                </label>
+                <label class="cfg-item">
                   <span class="cfg-label">止损（%，0=关闭）</span>
                   <input class="cfg-input" type="number" :value="account.config.stopLossPct" @change="commitNumber('stopLossPct', $event.target.value)" />
                 </label>
@@ -854,14 +914,17 @@ function commitNumber(key, raw) {
               <p class="tab-note">
                 改动配置不会重算历史——新参数只影响之后的交易日。想用新参数从头验证，
                 请「重置账户」后重新运行。默认值：持有 {{ DEFAULT_CONFIG.holdDays }} 日、最多 {{ DEFAULT_CONFIG.maxPositions }} 只、
-                单票 {{ DEFAULT_CONFIG.perTradeCashPct }}%、止损 {{ DEFAULT_CONFIG.stopLossPct }}%、止盈 {{ DEFAULT_CONFIG.takeProfitPct }}%。
+                单票 {{ DEFAULT_CONFIG.perTradeCashPct }}%、止损 {{ DEFAULT_CONFIG.stopLossPct }}%、止盈 {{ DEFAULT_CONFIG.takeProfitPct }}%、
+                入选分 {{ DEFAULT_CONFIG.minScore }} 分、每日最多买 {{ DEFAULT_CONFIG.maxPicks }} 只。
+                「首次补跑天数」保持 0 时，模拟盘从运行当天开始逐日累积，不会回放历史；
+                调大会在首次运行时补跑指定交易日数（相当于小规模历史回放，仅供验证）。
               </p>
             </template>
           </div>
 
           <!-- ══ 底部口径声明（必须始终可见） ══ -->
           <p class="paper-disclaimer">
-            口径：<b>D 日收盘</b>跑日线规则出单 → <b>D+1 开盘价</b>成交（含 {{ (account.config.slippage * 100).toFixed(2) }}% 单边滑点），
+            口径：<b>D 日收盘</b>按 6 个因子（趋势/位置/动量/量能/MACD/RSI）打分，取<b>达标分数前 N 只</b>出单 → <b>D+1 开盘价</b>成交（含 {{ (account.config.slippage * 100).toFixed(2) }}% 单边滑点），
             <b>全额计入</b>佣金/印花税/过户费，A 股 T+1、涨跌停与停牌不可成交，最小下单单位按板块校验。
             与「信号回测」面板口径不同（那边是信号日收盘买、不计费用），两者数字不可直接比较；
             样本不足 10 笔的胜率仅供参考，历史表现不代表未来收益，本面板不构成投资建议。
@@ -1114,6 +1177,58 @@ function commitNumber(key, raw) {
 .pg-code { color: var(--text-muted); font-size: 11.5px; flex-shrink: 0; }
 .pg-reason { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ── 打分排名 ── */
+.score-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.score-sub { margin-left: 8px; font-weight: 400; font-size: 11.5px; color: var(--text-muted); }
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12.5px;
+  border-top: 1px solid var(--border-light);
+}
+.score-row.picked { background: var(--hover-bg); }
+.score-rank {
+  width: 18px;
+  text-align: right;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.score-bar {
+  flex: 1;
+  min-width: 40px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--border-light);
+  overflow: hidden;
+}
+.score-bar-fill { display: block; height: 100%; background: var(--graphite); border-radius: var(--radius-full); }
+.score-num {
+  width: 30px;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.score-num.muted { color: var(--text-muted); font-weight: 400; }
+.score-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: var(--radius-full);
+  color: var(--warn-ink);
+  background: var(--warn-bg);
+}
+.score-tag.muted { color: var(--text-muted); background: var(--hover-bg); }
+
 /* ── 表格 ── */
 .paper-table {
   width: 100%;
@@ -1146,6 +1261,7 @@ function commitNumber(key, raw) {
 .rule-cell { font-size: 11.5px; color: var(--text-muted); }
 .skip-cell { font-size: 11.5px; }
 .skip-item { display: block; color: var(--text-muted); }
+.pick-item { display: block; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .partial-mark { color: var(--warn-ink); font-weight: 700; margin-left: 2px; }
 
 .link-btn {

@@ -21,6 +21,7 @@
  *    退化为成本价算出「部分净值」，并在 `nav.missing` 里记下代码 + `partial: true`，由 UI 标注。
  */
 import { DEFAULT_FEE_CONFIG, buyCost, sellProceeds } from "./paperFees.js";
+import { scoreBars } from "./paperScore.js";
 import {
   canFill,
   fillPrice,
@@ -50,7 +51,13 @@ export const DEFAULT_CONFIG = Object.freeze({
   stopLossPct: 8,
   /** 止盈（%，0 = 关闭），按收盘价判断 */
   takeProfitPct: 20,
-  /** 启用的规则 id 列表；空数组 = 全部规则 */
+  /** 入选最低分（0-100，见 paperScore.js）；低于此分数不买 */
+  minScore: 60,
+  /** 每日最多买入只数（1-5）；与剩余可用仓位取小 */
+  maxPicks: 2,
+  /** 首次运行补跑天数（0 = 只跑最新一个交易日，不做历史回测） */
+  backfillDays: 0,
+  /** 启用的规则 id 列表；空数组 = 全部规则（现在只用于「信号确认」，不再直接决定买入） */
   rules: [],
   /** 费率配置 */
   fees: { ...DEFAULT_FEE_CONFIG },
@@ -85,6 +92,9 @@ export function normalizeConfig(raw = {}) {
     slippage: clampNumber(src.slippage, 0, 0.05, DEFAULT_CONFIG.slippage),
     stopLossPct: clampNumber(src.stopLossPct, 0, 100, DEFAULT_CONFIG.stopLossPct),
     takeProfitPct: clampNumber(src.takeProfitPct, 0, 1000, DEFAULT_CONFIG.takeProfitPct),
+    minScore: Math.round(clampNumber(src.minScore, 0, 100, DEFAULT_CONFIG.minScore)),
+    maxPicks: Math.round(clampNumber(src.maxPicks, 1, 5, DEFAULT_CONFIG.maxPicks)),
+    backfillDays: Math.round(clampNumber(src.backfillDays, 0, 250, DEFAULT_CONFIG.backfillDays)),
     rules: Array.isArray(src.rules) ? src.rules.filter((r) => typeof r === "string") : [],
     fees: {
       commissionRate: clampNumber(fees.commissionRate, 0, 0.01, DEFAULT_FEE_CONFIG.commissionRate),
@@ -206,6 +216,9 @@ export function buildSignals(barsByCode, config = {}, analyze) {
         active: [],
         names: [],
         bars: res.bars,
+        score: 0,
+        scoreParts: null,
+        scoreEnough: false,
         reason: `日 K 仅 ${res.bars} 根，不足 60 根无法判定（可在回测面板同步更多历史）`,
       };
       continue;
@@ -214,6 +227,9 @@ export function buildSignals(barsByCode, config = {}, analyze) {
     const hit = res.rules.filter(
       (r) => r.active && (enabled.length === 0 || enabled.includes(r.id))
     );
+    // 打分：对**已截断到 signalDate** 的 K 线算分（调用方负责截断，这里不再二次截取，
+    // 以免与 buildSignals 的直接调用（单测/诊断脚本）产生两套口径）
+    const scored = scoreBars(list, code);
     out[code] = {
       code,
       date: lastDate,
@@ -221,6 +237,9 @@ export function buildSignals(barsByCode, config = {}, analyze) {
       active: hit.map((r) => r.id),
       names: hit.map((r) => r.name),
       bars: res.bars,
+      score: scored.score,
+      scoreParts: scored.parts,
+      scoreEnough: scored.enough,
       reason: hit.length ? "" : "今日无规则触发",
     };
   }
@@ -292,7 +311,14 @@ export function planExits(acct, { date, barsByCode }) {
 }
 
 /**
- * 生成买入委托（池内规则触发 → 等权/比例分配 → 次日开盘成交）
+ * 生成买入委托（池内打分达标 → 按分数排序取前 N → 次日开盘成交）
+ *
+ * 与旧版的差别（这是用户「莫名其妙的回测」的直接病根）：
+ * - 旧版：`active.length > 0` 即买入，按触发规则条数排序 → 门槛形同虚设，每日名额先被弱信号占满
+ * - 新版：先卡 `cfg.minScore`，再按分数降序（同分按代码稳定排序），每日最多 `cfg.maxPicks` 只
+ *
+ * 规则触发退化为「信号确认」而非「入选条件」：仍允许用 `cfg.rules` 过滤，
+ * 但**没有规则触发也能凭分数入选**——打分本身已是多指标合成，再要求规则命中会重复过滤。
  */
 export function planEntries(acct, { date, barsByCode, signals }) {
   const cfg = acct.config;
@@ -305,28 +331,34 @@ export function planEntries(acct, { date, barsByCode, signals }) {
     return idx >= 0 ? nz(bars[idx].close) || null : null;
   });
 
-  // 候选：池内触发、未持仓、未在途
+  // 候选：打分达标、未持仓、未在途
   const candidates = [];
   for (const item of Object.values(signals || {})) {
-    if (!item || !item.active?.length) continue;
+    if (!item) continue;
     if (held.has(item.code) || pendingBuy.has(item.code)) continue;
+    // K 线不足 60 根时 scoreBars 返回 0 分（不假填充），因此只有把 minScore 调到 0
+    // 才会买「算不出分」的票；默认 60 分时这类票自然被挡在外面。
+    if (!(Number(item.score) >= cfg.minScore)) continue;
     candidates.push(item);
   }
-  // 触发规则多者优先（信号强度代理）；再按代码稳定排序，保证回放可复现
+  // 分数高者优先；同分按代码稳定排序，保证逐日回放可复现
   candidates.sort((a, b) => {
-    if (b.active.length !== a.active.length) return b.active.length - a.active.length;
+    const d = Number(b.score) - Number(a.score);
+    if (d !== 0) return d;
     return String(a.code).localeCompare(String(b.code));
   });
 
   const slots = Math.max(0, cfg.maxPositions - held.size - pendingBuy.size);
+  const picks = Math.min(slots, cfg.maxPicks, candidates.length);
   const budget = Math.min(
     (equity * cfg.perTradeCashPct) / 100,
     (equity * cfg.maxWeightPct) / 100,
     acct.cash
   );
 
-  for (const c of candidates.slice(0, slots)) {
+  for (const c of candidates.slice(0, picks)) {
     if (budget < 100) break;
+    const ruleText = c.active?.length ? `，规则确认 ${c.active.length} 条` : "";
     orders.push({
       id: nextId(acct) + `-${c.code}-buy`,
       side: "buy",
@@ -334,8 +366,9 @@ export function planEntries(acct, { date, barsByCode, signals }) {
       name: c.name || "",
       budget: Math.round(budget * 100) / 100,
       signalDate: date,
-      rules: c.active,
-      reason: `命中 ${c.active.length} 条规则：${c.names.join("、")}（次日开盘买入）`,
+      rules: c.active || [],
+      score: Number(c.score) || 0,
+      reason: `打分 ${Number(c.score) || 0} 分（阈值 ${cfg.minScore}）${ruleText}，次日开盘买入`,
     });
   }
   return orders;
@@ -446,6 +479,7 @@ export function settlePending(acct, { date, barsByCode }) {
         feeTotal: cost.fee.total,
         cashDelta: -cost.cash,
         rules: order.rules || [],
+        score: Number(order.score) || 0,
         reason: order.reason || "",
         signalDate: order.signalDate,
         realized: null,
@@ -593,6 +627,12 @@ export function stepDay(acct, { date, barsByCode, analyze }) {
     skipped: settled.skipped || [],
     scanned: Object.keys(poolSignals).length,
     signalCodes: Object.values(poolSignals).filter((s) => s.active?.length).map((s) => s.code),
+    /** 当日打分最高的一批（供 UI / 运行日志展示「为什么买/没买」） */
+    scores: Object.values(poolSignals)
+      .filter((s) => s.scoreEnough)
+      .map((s) => ({ code: s.code, score: Number(s.score) || 0 }))
+      .sort((a, b) => b.score - a.score || String(a.code).localeCompare(String(b.code)))
+      .slice(0, 10),
     exitOrders: exits,
     entryOrders: entries,
     nav: navRes.nav,
@@ -603,6 +643,10 @@ export function stepDay(acct, { date, barsByCode, analyze }) {
     date,
     scanned: report.scanned,
     signalCodes: report.signalCodes,
+    scored: report.scores.length,
+    /** 当日打分前 10（供 UI 展示「为什么买 / 为什么没买」） */
+    scores: report.scores,
+    picked: entries.map((o) => ({ code: o.code, score: o.score })),
     filledCount: settled.filled.length,
     exitCount: exits.length,
     entryCount: entries.length,

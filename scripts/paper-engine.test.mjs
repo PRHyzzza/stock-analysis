@@ -25,6 +25,7 @@ import {
   summarizeAccount,
   heldTradingDays,
   buildSignals,
+  planEntries,
 } from "../src/utils/paperEngine.js";
 
 // ── 费用 ──────────────────────────────────────────────
@@ -157,7 +158,7 @@ function fakeAnalyze(bars, code) {
 }
 
 test("引擎 — 信号日收盘出单、次日开盘成交（无前视偏差）", () => {
-  let acct = createAccount({ initialCash: 100000, holdDays: 0, stopLossPct: 0, takeProfitPct: 0, slippage: 0.001 });
+  let acct = createAccount({ initialCash: 100000, holdDays: 0, stopLossPct: 0, takeProfitPct: 0, slippage: 0.001, minScore: 0 });
   acct.pool = [{ code: "600519", name: "贵州茅台" }];
   const map = { "600519": BARS_600519 };
 
@@ -184,7 +185,7 @@ test("引擎 — 信号日收盘出单、次日开盘成交（无前视偏差）
 });
 
 test("引擎 — 当日买入当日不可卖（A 股 T+1）", () => {
-  let acct = createAccount({ initialCash: 100000, holdDays: 1, stopLossPct: 0, takeProfitPct: 0 });
+  let acct = createAccount({ initialCash: 100000, holdDays: 1, stopLossPct: 0, takeProfitPct: 0, minScore: 0 });
   acct.pool = [{ code: "600519", name: "贵州茅台" }];
   const map = { "600519": BARS_600519 };
   acct = stepDay(acct, { date: "2026-01-05", barsByCode: map, analyze: fakeAnalyze }).account;
@@ -195,7 +196,7 @@ test("引擎 — 当日买入当日不可卖（A 股 T+1）", () => {
 });
 
 test("引擎 — 持有期到点：收盘判断、次日开盘卖出，并算出已实现盈亏", () => {
-  let acct = createAccount({ initialCash: 100000, holdDays: 2, stopLossPct: 0, takeProfitPct: 0, slippage: 0 });
+  let acct = createAccount({ initialCash: 100000, holdDays: 2, stopLossPct: 0, takeProfitPct: 0, slippage: 0, minScore: 0 });
   acct.pool = [{ code: "600519", name: "贵州茅台" }];
   const map = { "600519": BARS_600519 };
 
@@ -236,7 +237,7 @@ test("引擎 — 止损按收盘价判断并挂次日卖单", () => {
       rules: [{ id: "ma_golden", name: "均线金叉", active, signalCount: 0, barsAgo: 0, lastHitDate: asOf, evaluated: true, byPeriod: {} }],
     };
   };
-  let acct = createAccount({ initialCash: 100000, holdDays: 0, stopLossPct: 8, takeProfitPct: 0, slippage: 0 });
+  let acct = createAccount({ initialCash: 100000, holdDays: 0, stopLossPct: 8, takeProfitPct: 0, slippage: 0, minScore: 0 });
   acct.pool = [{ code: "600519", name: "贵州茅台" }];
   const map = { "600519": bars };
 
@@ -251,7 +252,7 @@ test("引擎 — 止损按收盘价判断并挂次日卖单", () => {
 });
 
 test("引擎 — 缺当日收盘价的持仓不用成本价冒充，标 partial 并记 missing", () => {
-  let acct = createAccount({ initialCash: 100000, holdDays: 0 });
+  let acct = createAccount({ initialCash: 100000, holdDays: 0, minScore: 0 });
   acct.pool = [{ code: "600519", name: "贵州茅台" }];
   const map = { "600519": BARS_600519 };
   acct = stepDay(acct, { date: "2026-01-05", barsByCode: map, analyze: fakeAnalyze }).account;
@@ -269,7 +270,7 @@ test("引擎 — 缺当日收盘价的持仓不用成本价冒充，标 partial 
 });
 
 test("引擎 — 未注入 analyze 时不出信号（宁可空仓不假成交）", () => {
-  const acct = createAccount({ initialCash: 50000 });
+  const acct = createAccount({ initialCash: 50000, minScore: 0 });
   acct.pool = [{ code: "600519", name: "贵州茅台" }];
   const res = stepDay(acct, { date: "2026-01-05", barsByCode: { "600519": BARS_600519 } });
   assert.equal(res.report.entryOrders.length, 0);
@@ -315,4 +316,73 @@ test("持有交易日数 — 按 K 线序号算，找不到开仓日时按日期
   const bars = BARS_600519;
   assert.equal(heldTradingDays(bars, "2026-01-06", "2026-01-08"), 2);
   assert.equal(heldTradingDays(bars, "2025-12-30", "2026-01-08"), 4, "开仓日不在序列里时按日期区间兜底");
+});
+
+// ── 买入筛选：打分门槛 + 每日名额 ──────────────────────
+/** 造一份 signals（planEntries 只读 code/score/active/scoreEnough） */
+function sig(code, score, active = []) {
+  return { code, score, active, names: [], scoreEnough: true, bars: 200 };
+}
+
+test("买入 — 低于 minScore 的票不买，即使有规则触发", () => {
+  const acct = createAccount({ initialCash: 100000, minScore: 60, maxPicks: 5 });
+  acct.pool = [];
+  const signals = {
+    "600519": sig("600519", 59, ["ma_golden"]),
+    "000001": sig("000001", 60, []),
+  };
+  const orders = planEntries(acct, { date: "2026-01-05", barsByCode: { "600519": BARS_600519, "000001": BARS_600519 }, signals });
+  assert.equal(orders.length, 1, "59 分不入选、60 分入选（阈值含等于）");
+  assert.equal(orders[0].code, "000001");
+});
+
+test("买入 — 按分数降序取前 maxPicks 只，不被规则条数影响", () => {
+  const acct = createAccount({ initialCash: 100000, minScore: 60, maxPicks: 2, maxPositions: 5 });
+  acct.pool = [];
+  const bars = BARS_600519;
+  const signals = {
+    // 触发规则更多的票分数低 → 旧逻辑会优先买它，新逻辑应按分数买
+    "600519": sig("600519", 62, ["a", "b", "c", "d"]),
+    "000001": sig("000001", 95, []),
+    "000002": sig("000002", 88, []),
+    "000003": sig("000003", 70, []),
+  };
+  const orders = planEntries(acct, {
+    date: "2026-01-05",
+    barsByCode: { "600519": bars, "000001": bars, "000002": bars, "000003": bars },
+    signals,
+  });
+  assert.equal(orders.length, 2, "maxPicks=2 只买两只");
+  assert.deepEqual(orders.map((o) => o.code), ["000001", "000002"], "按分数降序，规则条数不再决定优先级");
+  assert.equal(orders[0].score, 95, "委托上要带分数，供 UI 追溯");
+  assert.match(orders[0].reason, /95 分/);
+});
+
+test("买入 — 剩余仓位不足时名额被 maxPositions 夹住", () => {
+  const acct = createAccount({ initialCash: 100000, minScore: 60, maxPicks: 5, maxPositions: 2 });
+  acct.pool = [];
+  acct.positions = [
+    { code: "600036", name: "招商银行", shares: 100, costPrice: 10, costAmount: 1000, openDate: "2026-01-01", openRules: [] },
+    { code: "601318", name: "中国平安", shares: 100, costPrice: 10, costAmount: 1000, openDate: "2026-01-01", openRules: [] },
+  ];
+  const bars = BARS_600519;
+  const signals = { "000001": sig("000001", 90), "000002": sig("000002", 85) };
+  const orders = planEntries(acct, { date: "2026-01-05", barsByCode: { "000001": bars, "000002": bars }, signals });
+  assert.equal(orders.length, 0, "已满仓时不再买入");
+});
+
+test("买入 — 已持仓/已在途的票不重复下单", () => {
+  const acct = createAccount({ initialCash: 100000, minScore: 50, maxPicks: 5 });
+  acct.pool = [];
+  acct.positions = [{ code: "000001", name: "", shares: 100, costPrice: 10, costAmount: 1000, openDate: "2026-01-01", openRules: [] }];
+  acct.pending = [{ id: "1", side: "buy", code: "000002", budget: 10000, signalDate: "2026-01-05", rules: [] }];
+  const bars = BARS_600519;
+  const signals = { "000001": sig("000001", 99), "000002": sig("000002", 98), "000003": sig("000003", 97) };
+  const orders = planEntries(acct, {
+    date: "2026-01-05",
+    barsByCode: { "000001": bars, "000002": bars, "000003": bars },
+    signals,
+  });
+  assert.equal(orders.length, 1);
+  assert.equal(orders[0].code, "000003");
 });

@@ -16,8 +16,8 @@ stock-analysis/
 │   ├── composables/            34 个（§3.1）
 │   ├── skills/                 12 skill / 17 工具（§3.2）
 │   ├── prompts/                system-prompt.md（AI 提示词模板，§3.4）
-│   └── utils/                  format（数值/涨跌色/千分位统一入口）/ market（市场与代码判定唯一入口 isHKCode·isBJCode·inferMarket）/ marketTime（交易日历+时段）/ limit（涨跌停按板块，ST 与所属板块一致、无需名称）/ refreshInterval（轮询降频唯一入口，§7.29）/ indicators（EMA 等指标统一预热口径）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）/ paperFees（模拟盘费用：佣金万2.5、最低5元、印花税卖出0.05%、过户费双向）/ paperRules（模拟盘可回测的日线规则集，复用 useSignalBacktest.analyzeBars）/ paperEngine（模拟盘撮合引擎：信号→次日开盘成交、T+1、涨跌停不成交、滑点、费用、净值序列，§7.35）/ paperAuto（模拟盘自动选股的纯逻辑：运行时刻判定、多策略命中合并、池更新模式，§7.36）
-├── scripts/                    本地诊断与 node:test 用例（diagnose-intraday / indicator-tightness.test / trap-signals.test / paper-engine.test / paper-auto.test，`pnpm test`）
+│   └── utils/                  format（数值/涨跌色/千分位统一入口）/ market（市场与代码判定唯一入口 isHKCode·isBJCode·inferMarket）/ marketTime（交易日历+时段）/ limit（涨跌停按板块，ST 与所属板块一致、无需名称）/ refreshInterval（轮询降频唯一入口，§7.29）/ indicators（EMA 等指标统一预热口径）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）/ paperFees（模拟盘费用：佣金万2.5、最低5元、印花税卖出0.05%、过户费双向）/ paperRules（模拟盘可回测的日线规则集，复用 useSignalBacktest.analyzeBars）/ paperEngine（模拟盘撮合引擎：信号→次日开盘成交、T+1、涨跌停不成交、滑点、费用、净值序列，§7.35）/ paperScore（模拟盘选股打分：趋势/位置/动量/量能/MACD/RSI 六因子满分 100，K 线不足 60 根不打分，§7.35）/ paperAuto（模拟盘自动选股的纯逻辑：运行时刻判定、多策略命中合并、池更新模式，§7.36）
+├── scripts/                    本地诊断与 node:test 用例（diagnose-intraday / indicator-tightness.test / trap-signals.test / paper-engine.test / paper-score.test / paper-auto.test，`pnpm test`）
 ├── .github/
 │   ├── workflows/ci.yml         CI：pnpm build + pnpm test + cargo test（PR/push 自动跑）
 │   └── copilot-instructions.md  Copilot 摘要（细节以本文档为准）
@@ -97,7 +97,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——落库全部走旁路（§7.18）；表结构 / 保留期 / 日期口径见 §4.4
 - **历史信号胜率面板**: `SignalHistoryModal.vue` + `useSignalHistory.js` — 消费此前只写不读的 `signal_event`：把**真实落库过的**信号与之后真实走出的日 K 对照，给 1/3/5/10 日持有期的胜率 / 平均收益 / 盈亏比，并按信号名与股票分组。**胜负按信号方向判定**（看涨信号涨了算胜、看跌信号跌了算胜），方向未知的不计入胜率并单独披露；缺价格 / 缺日 K / 持有期超出 K 线长度的样本一律排除并展示覆盖度。口径与标注要求见 §7.26
 - **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），非重叠交易统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；顶部另有**当前状态**区（截至 `asOf` 末根 K 线，按「现在成立 / 近 10 日内出现过 / 未触发」分组，只含上述 8 条可回测规则），口径与标注要求见 §7.19
-- **模拟盘（选股驱动 · 每日向前累积）**: `PaperTradingModal.vue` + `usePaperAccount.js` + `utils/paperEngine.js` / `paperRules.js` / `paperFees.js` — 选股池（问财窗口「加入模拟盘」/ 详情页按钮 / 手动输码）→ **每个交易日收盘**用日线规则出信号 → **次日开盘**按开盘价 + 滑点撮合，T+1、涨跌停/停牌不成交、计全额费用（佣金万2.5 最低 5 元 + 印花税卖出 0.05% + 过户费双向 0.001%），逐日累积净值曲线与成交/运行日志；账户与选股池是**本地 localStorage 单例**，不写 SQLite 也不进 AI 上下文。引擎是纯函数（可单测、无前视），口径与标注要求见 §7.35
+- **模拟盘（选股驱动 · 每日向前累积）**: `PaperTradingModal.vue` + `usePaperAccount.js` + `utils/paperEngine.js` / `paperRules.js` / `paperFees.js` / `paperScore.js` — 选股池（问财窗口「加入模拟盘」/ 详情页按钮 / 手动输码）→ **每个交易日收盘**按 6 因子打分（趋势 25 / 位置 20 / 动量 20 / 量能 15 / MACD 10 / RSI 10，满分 100）→ 取**达标分数前 N 只** → **次日开盘**按开盘价 + 滑点撮合，T+1、涨跌停/停牌不成交、计全额费用（佣金万2.5 最低 5 元 + 印花税卖出 0.05% + 过户费双向 0.001%），逐日累积净值曲线与成交/运行日志；账户与选股池是**本地 localStorage 单例**，不写 SQLite 也不进 AI 上下文。引擎是纯函数（可单测、无前视），口径与标注要求见 §7.35
 - **模拟盘自动选股（每日定时）**: `usePaperAutoRun.js`（调度）+ `utils/paperAuto.js`（判定纯逻辑）+ 面板「自动选股」标签页 — 用户保存若干**问财策略语句**，主窗口每 1min tick 判定「已启用 / 有策略 / 是交易日 / 已过运行时刻（默认 15:30，收盘后日 K 稳定）/ 当天没跑过（幂等落 localStorage）」，满足则**逐条顺序**跑问财 → 命中合并去重 → 按 `replace`（跟随策略，当日命中即当日池）或 `merge`（只增不减）更新选股池 → 立刻 `runForward` 向前累积 → 系统通知（不写 `alert_event`）。空命中绝不清池、失败 15min 退避、只在主窗口跑（子窗口会重复下单）。口径见 §7.36
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **K线周期口径**: `utils/klinePeriod.js` 是周期标签 / 均线口径 / 非日K提示的唯一真源（§7.21）；技术分析、AI 分析、筹码弹窗均按当前周期标注口径，T+0 趋势与 MACD 背离只吃日K
@@ -286,6 +286,9 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
     - **与 `useSignalBacktest` 的口径差异必须写明**：回测面板是「信号日收盘买入 / 持有 N 日收盘卖出 / 不计费用」；模拟盘是「次日开盘 + 滑点 / 计全额费用 / 实际撮合约束」。两处数字**不可直接比较**，模拟盘天然更难看——正因如此它才有参考价值。UI 必须标注「非重叠交易 + 固定持有期 + 样本 <10 笔仅供参考」
     - **存储边界**：模拟盘账户/选股池只存 localStorage（`stock-analysis-paper-account` / `-paper-pool`），**不落 SQLite、不注入 AI 上下文**；跨窗口（问财独立窗口）共享只能靠打开面板时 `reloadPool()` 重读，禁止假设响应式状态跨窗口同步
     - **日期口径**：一律 `marketTime.getToday()` 的本地日期字符串，禁止 `toISOString()`（§7.13）；`nav`/`runs`/`trades` 只增不改，重置账户必须显式确认（两次点击）
+    - **买入只由打分决定，规则触发降为「信号确认」**：`paperScore.scoreBars` 用 6 个因子（趋势 25 / 位置 20 / 动量 20 / 量能 15 / MACD 10 / RSI 10，满分合计 100）打分，`planEntries` 只买 `score >= config.minScore` 且按分数**降序**取前 `config.maxPicks` 只。**禁止**退回到「规则触发即买 / 按触发规则条数优先」——旧口径下门槛形同虚设，每日名额先被弱信号占满（实测 250 日 −23% 回撤、胜率 35.6%）。打分所用的 K 线必须**先截断到 signalDate**（`scoreWindow`/`stepDay` 内的 `sliceToDate`），否则就是前视偏差
+    - **K 线不足 60 根不打分、不买入**：`scoreBars` 返回 `enough:false` 且 `score:0`，不得用 0 分 K 线凑数、也不得因规则命中就放行。分数必须落在 0-100 且各分项不超自身权重（`scripts/paper-score.test.mjs` 已锁）
+    - **打分结果必须可见**：`runs[].scores`（当日分数前 10）与 `runs[].picked`（入选 + 分数）落进运行日志，`trades[].score` 记在成交上，总览有「最近一次打分排名」卡片。理由：按分数选股若不给用户看分数，「为什么买这只」就无法复盘，用户只能看到结果
 36. **模拟盘自动选股必须「到点才跑、跑过不再跑、失败不清池」**:
     - **判定顺序与短路**：`paperAuto.shouldRunAuto` 依次查「已启用 → 有启用策略 → 当天是交易日（`marketTime.getMarketStatus()`，不传 code 即 A 股口径）→ 已过 `time` → 当天没跑过」。任一不满足直接返回 `{run:false, reason}`，UI 要能显示 `reason`（回答「为什么今天还没跑」）
     - **幂等靠 localStorage 而非内存**：`lastAuto.date` 落 `stock-analysis-paper-auto-result`，重启后当天仍然不重跑。**禁止**只用一个内存变量判重——那会让「反复开关应用」变成反复跑批
