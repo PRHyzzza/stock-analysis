@@ -36,6 +36,8 @@ const props = defineProps({
   klineStale: { type: Boolean, default: false },
   intradayFetchedAt: { type: Number, default: 0 },
   intradayStale: { type: Boolean, default: false },
+  // 当前股票是否在模拟盘选股池（由父组件从单例池计算后传入）
+  inPaperPool: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -46,6 +48,7 @@ const emit = defineEmits([
   "open-ai-modal",
   "open-chip-modal",
   "open-backtest-modal",
+  "toggle-paper-pool",
   "load-intraday",
   "retry-quote",
   "retry-kline",
@@ -276,6 +279,7 @@ const sinceAddedPct = computed(() => {
         :alert-count="alertCount"
         :selected-stock="selectedStock"
         :in-watchlist="selectedStock && isInWatchlist(selectedStock.code)"
+        :in-paper-pool="inPaperPool"
         @open-industry-modal="emit('open-industry-modal')"
         @open-tech-modal="emit('open-tech-modal')"
         @toggle-sr="handleToggleSR"
@@ -283,6 +287,7 @@ const sinceAddedPct = computed(() => {
         @open-money-flow="showMoneyFlowModal = true"
         @open-alerts="showAlertsModal = true"
         @open-backtest-modal="emit('open-backtest-modal')"
+        @toggle-paper-pool="emit('toggle-paper-pool', $event)"
         @open-ai-modal="emit('open-ai-modal')"
         @toggle-watchlist="emit('toggle-watchlist', $event)"
       />

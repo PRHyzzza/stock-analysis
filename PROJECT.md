@@ -13,11 +13,11 @@ stock-analysis/
 ├── src/                        Vue 前端
 │   ├── App.vue                 入口：窗口/定时器/跨窗口联动
 │   ├── components/             布局/列表/详情/弹窗/迷你窗/标题栏 + settings/(5) + ai/(4)（子系统见 §3.3）
-│   ├── composables/            30 个（§3.1）
+│   ├── composables/            34 个（§3.1）
 │   ├── skills/                 12 skill / 17 工具（§3.2）
 │   ├── prompts/                system-prompt.md（AI 提示词模板，§3.4）
-│   └── utils/                  format（数值/涨跌色/千分位统一入口）/ market（市场与代码判定唯一入口 isHKCode·isBJCode·inferMarket）/ marketTime（交易日历+时段）/ limit（涨跌停按板块，ST 与所属板块一致、无需名称）/ refreshInterval（轮询降频唯一入口，§7.29）/ indicators（EMA 等指标统一预热口径）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）
-├── scripts/                    本地诊断与 node:test 用例（diagnose-intraday / indicator-tightness.test / trap-signals.test，`pnpm test`）
+│   └── utils/                  format（数值/涨跌色/千分位统一入口）/ market（市场与代码判定唯一入口 isHKCode·isBJCode·inferMarket）/ marketTime（交易日历+时段）/ limit（涨跌停按板块，ST 与所属板块一致、无需名称）/ refreshInterval（轮询降频唯一入口，§7.29）/ indicators（EMA 等指标统一预热口径）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）/ paperFees（模拟盘费用：佣金万2.5、最低5元、印花税卖出0.05%、过户费双向）/ paperRules（模拟盘可回测的日线规则集，复用 useSignalBacktest.analyzeBars）/ paperEngine（模拟盘撮合引擎：信号→次日开盘成交、T+1、涨跌停不成交、滑点、费用、净值序列，§7.35）
+├── scripts/                    本地诊断与 node:test 用例（diagnose-intraday / indicator-tightness.test / trap-signals.test / paper-engine.test，`pnpm test`）
 ├── .github/
 │   ├── workflows/ci.yml         CI：pnpm build + pnpm test + cargo test（PR/push 自动跑）
 │   └── copilot-instructions.md  Copilot 摘要（细节以本文档为准）
@@ -60,6 +60,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存，**缓存 key = 归一化问题 + perpage**——服务端忽略 page、perpage 决定行数，故不能只按问题缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
 | `useSignalBacktest` | 信号回测：读本地日 K 跑 8 条日线规则 × 4 持有期（非重叠交易，口径见 §7.19），本地不足 60 根或手动同步时补拉远端一次并落库；纯函数 `analyzeBars(bars, code)` 可单测；返回值另含每条规则的**当前状态**（`active` 末根是否触发 / `barsAgo` 距今天数 / `lastHitDate`），供面板「当前状态」区显示 | `get_kline_history` / `get_db_stats`（+ `get_stock_kline`） |
 | `useSignalHistory` | 历史信号胜率：读本地库 `signal_event`（**此前只写不读**）+ 逐只取日 K，按信号方向算 1/3/5/10 日持有期胜率 / 平均收益 / 盈亏比。纯函数 `inferDirection` / `forwardReturn` / `summarizeSamples` 可单测。与 `useSignalBacktest` 的区别和口径要求见 §7.26 | `get_signal_events` / `get_kline_history` |
+| `usePaperAccount` | 模拟盘（**单例**，§7.12）：选股池 + 资金账户 + 每日向前累积跑批。池与账户存 localStorage（`stock-analysis-paper-pool` / `-paper-account`）；跑批时逐只取本地日 K（不足 60 根补拉远端一次），按 `tradingDates` 逐日 `stepDay` 累积，`runSeq` 代际守卫防换池竞态；池可来自问财窗口（跨窗口只能靠 `reloadPool()` 从 localStorage 重读）或手动添加；`latestCloses` 仅供展示参考价 | `get_kline_history`（+ `get_stock_kline`） |
 
 **纯计算**：`useTechIndicators`（MACD/KDJ/RSI/WR，交叉信号标注「N 根前」；AI 预计算注入复用）、`useChipDistribution`（筹码：最近 ≤480 根 K 线按价格分布，档位自适应保证每档 ≥0.01 元；**日K + 有换手率时按换手率衰减**——各根换手率 = 最新换手率 ×（该根量 ÷ 最新根量），无需流通股本，逐根留存系数 = 1 − 衰减系数×该根换手率，衰减系数默认 1；其余周期/缺换手率则不衰减并在 UI/AI 标注）、`useSupportResistance`（支撑/阻力）、`useT0Signals` + `useTrapSignals` + `useVolumeSignals`（T+0 信号/量价陷阱/量价信号，细节见文件注释；**趋势与 MACD 背离只吃日K**——非日K周期经 `klineCache` 取日K，取不到则跳过并披露）、`aiContext`（提示词构建，§3.4；周期口径随 `klinePeriod` 注入）
 
@@ -95,6 +96,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——落库全部走旁路（§7.18）；表结构 / 保留期 / 日期口径见 §4.4
 - **历史信号胜率面板**: `SignalHistoryModal.vue` + `useSignalHistory.js` — 消费此前只写不读的 `signal_event`：把**真实落库过的**信号与之后真实走出的日 K 对照，给 1/3/5/10 日持有期的胜率 / 平均收益 / 盈亏比，并按信号名与股票分组。**胜负按信号方向判定**（看涨信号涨了算胜、看跌信号跌了算胜），方向未知的不计入胜率并单独披露；缺价格 / 缺日 K / 持有期超出 K 线长度的样本一律排除并展示覆盖度。口径与标注要求见 §7.26
 - **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），非重叠交易统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；顶部另有**当前状态**区（截至 `asOf` 末根 K 线，按「现在成立 / 近 10 日内出现过 / 未触发」分组，只含上述 8 条可回测规则），口径与标注要求见 §7.19
+- **模拟盘（选股驱动 · 每日向前累积）**: `PaperTradingModal.vue` + `usePaperAccount.js` + `utils/paperEngine.js` / `paperRules.js` / `paperFees.js` — 选股池（问财窗口「加入模拟盘」/ 详情页按钮 / 手动输码）→ **每个交易日收盘**用日线规则出信号 → **次日开盘**按开盘价 + 滑点撮合，T+1、涨跌停/停牌不成交、计全额费用（佣金万2.5 最低 5 元 + 印花税卖出 0.05% + 过户费双向 0.001%），逐日累积净值曲线与成交/运行日志；账户与选股池是**本地 localStorage 单例**，不写 SQLite 也不进 AI 上下文。引擎是纯函数（可单测、无前视），口径与标注要求见 §7.35
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **K线周期口径**: `utils/klinePeriod.js` 是周期标签 / 均线口径 / 非日K提示的唯一真源（§7.21）；技术分析、AI 分析、筹码弹窗均按当前周期标注口径，T+0 趋势与 MACD 背离只吃日K
 - **全局设置**: 5 标签页实时生效
@@ -270,3 +272,13 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 32. **Rust 侧不阻塞 async 运行时**: 所有触 DB（同步 rusqlite + 全局 `Mutex`）与本地文件 IO 的命令必须经 `commands.rs` 的 `blocking()`（`tauri::async_runtime::spawn_blocking`）后再 `.await`，禁止在 async 命令体里直接锁 DB 或 `std::fs`（`MutexGuard` 也不能跨 `await`）。同理禁止在命令体里 `std::thread::sleep` / 同步重活
 33. **流式终态必须可判定**: `call_llm_stream` 用 `DoneGuard` 保证每轮**恰好一次** `llm-done`——正常 `{}`，中断 `{status:"partial", partial:true, reason, warning}`；前端 `llmClient` 必须把 `status==="partial"`（或旧版 `warning`）转成 `interrupted`，上层据此标「已中断，内容可能不完整」并允许重试。**禁止**把半截回答静默当成功收尾
 34. **外部 URL 抓取必须钉 IP**: `web_fetch` 先解析并校验全部地址（任一私网即拒），再用 `resolve_to_addrs` 把已校验 IP 钉进 client，重定向手动逐跳（≤5 跳、禁跨主机、每跳复检+重新钉 IP）；主机名用 `url::Url` 解析（兼容 `[::1]`），`is_private_ip` 必须覆盖 IPv4-mapped IPv6。理由：先校验后由 reqwest 二次解析存在 DNS 重绑定窗口
+35. **模拟盘口径必须无前视、且与回测面板区分**:
+    - **成交时点**：信号在 **D 日收盘**用 `analyzeBars` 判定（只吃 D 日及之前的 K 线），委托**次日 D+1 开盘价**成交（`settlePending`）。**禁止用信号日的收盘价/最低价成交**——那是前视偏差，会让模拟收益显著虚高
+    - **不可成交必须如实跳过，不许追单**：一字涨停买不进、一字跌停卖不出、停牌无 K 线，都记 `skipped` + 原因（`canFill`，涨跌停幅度走 `utils/limit.js`，不传名称）；连续 3 个交易日无行情则委托作废。宁可少成交也不假成交
+    - **费用一律计入**：`paperFees.js` 为唯一口径（佣金万 2.5 且最低 5 元、印花税仅卖出 0.05%、过户费双向 0.001%），`DEFAULT_FEE_CONFIG` 与 UI 默认值必须同源；`buyCost`/`sellProceeds` 的现金方向（买入为支出、卖出为净回款）不得写反——同价往返必然亏损，任何「同价往返不亏」的结果都说明费用漏算
+    - **最小下单单位按板块**：主板/创业板 100 股整数倍，科创板 200 股起后按 1 股递增，北交所 100 股起后按 1 股递增；卖出允许零股一次性清仓。**不得统一按 100 股取整**
+    - **缺价不许用成本价冒充**：持仓在当前日缺收盘价时标 `partial` 并计入 `missing`，`dayChangePct` 置 `null`（同 §7.24）
+    - **与 `useSignalBacktest` 的口径差异必须写明**：回测面板是「信号日收盘买入 / 持有 N 日收盘卖出 / 不计费用」；模拟盘是「次日开盘 + 滑点 / 计全额费用 / 实际撮合约束」。两处数字**不可直接比较**，模拟盘天然更难看——正因如此它才有参考价值。UI 必须标注「非重叠交易 + 固定持有期 + 样本 <10 笔仅供参考」
+    - **存储边界**：模拟盘账户/选股池只存 localStorage（`stock-analysis-paper-account` / `-paper-pool`），**不落 SQLite、不注入 AI 上下文**；跨窗口（问财独立窗口）共享只能靠打开面板时 `reloadPool()` 重读，禁止假设响应式状态跨窗口同步
+    - **日期口径**：一律 `marketTime.getToday()` 的本地日期字符串，禁止 `toISOString()`（§7.13）；`nav`/`runs`/`trades` 只增不改，重置账户必须显式确认（两次点击）
+

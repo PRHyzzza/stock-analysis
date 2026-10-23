@@ -17,6 +17,7 @@ import ChipDistribution from "./components/ChipDistribution.vue";
 import BacktestModal from "./components/BacktestModal.vue";
 import PositionModal from "./components/PositionModal.vue";
 import PortfolioModal from "./components/PortfolioModal.vue";
+import PaperTradingModal from "./components/PaperTradingModal.vue";
 import SignalHistoryModal from "./components/SignalHistoryModal.vue";
 import ProfileModal from "./components/ProfileModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
@@ -39,6 +40,7 @@ import { useChildWindows } from "./composables/useChildWindows";
 import { useGlobalShortcuts } from "./composables/useGlobalShortcuts";
 import { useSettings } from "./composables/useSettings";
 import { useTradingCalendar } from "./composables/useTradingCalendar";
+import { usePaperAccount } from "./composables/usePaperAccount.js";
 import { isTradingHours } from "./utils/marketTime.js";
 import { inferMarket } from "./utils/market.js";
 import { setWindowHidden, effectiveInterval as effectiveRefreshInterval } from "./utils/refreshInterval.js";
@@ -174,6 +176,34 @@ const showPortfolioModal = ref(false);
 function openPortfolioModal() { showPortfolioModal.value = true; }
 function closePortfolioModal() { showPortfolioModal.value = false; }
 
+// ---- 模拟盘弹窗（选股驱动 · 每日向前累积）----
+const showPaperModal = ref(false);
+function openPaperModal() { showPaperModal.value = true; }
+function closePaperModal() { showPaperModal.value = false; }
+// 模拟盘账户是单例（§7.12）；这里取池与持仓用于「点标的→切详情」时取中文名
+const { pool: paperPool, addToPool: paperAddToPool, removeFromPool: paperRemoveFromPool } = usePaperAccount();
+
+/** 当前详情页股票是否已在模拟盘选股池（DetailActionBar 的按钮态） */
+const selectedInPaperPool = computed(() => {
+  const code = selectedStock.value?.code;
+  if (!code) return false;
+  return (paperPool.value || []).some((p) => p.code === code);
+});
+
+/**
+ * 详情页「模拟盘」按钮：池内 → 移出；池外 → 加入。
+ * 池外持仓不会被强制平仓（引擎只卖不买），因此这里只需切换池成员。
+ */
+function handleTogglePaperPool(stock) {
+  const code = String(stock?.code || "").trim();
+  if (!/^\d{6}$/.test(code)) return;
+  if (selectedInPaperPool.value) {
+    paperRemoveFromPool(code);
+    return;
+  }
+  paperAddToPool([{ code, name: stock?.name || "", source: "detail" }]);
+}
+
 /**
  * 组合面板点击某只持仓 → 切到该股详情并关闭组合面板。
  *
@@ -194,6 +224,23 @@ function handlePortfolioOpenDetail(code) {
   selectStock({
     code: c,
     name: pos?.name || c,
+    market,
+    price: 0, change: 0, changePct: 0,
+    open: 0, high: 0, low: 0, prevClose: 0,
+    volume: 0, turnover: 0, turnoverRate: 0, pe: 0, amplitude: 0,
+  });
+}
+
+function handlePaperOpenDetail(code) {
+  const c = String(code || "").replace(/\.(SH|SZ|BJ)$/i, "");
+  if (!c) return;
+  const market = inferMarket(c);
+  const poolItem = paperPool.value.find((p) => p.code === c);
+  const posItem = positions.value.find((p) => p.code === c);
+  closePaperModal();
+  selectStock({
+    code: c,
+    name: poolItem?.name || posItem?.name || c,
     market,
     price: 0, change: 0, changePct: 0,
     open: 0, high: 0, low: 0, prevClose: 0,
@@ -689,6 +736,7 @@ onUnmounted(() => {
       @open-positions="openPositionsModal"
       @open-portfolio="openPortfolioModal"
       @open-signal-history="openSignalHistoryModal"
+      @open-paper="openPaperModal"
       @open-profile="openProfileModal"
       @open-settings="openSettingsModal"
       @open-global-ai="openGlobalAiModal"
@@ -734,6 +782,7 @@ onUnmounted(() => {
         :kline-stale="klineStale"
         :intraday-fetched-at="intradayFetchedAt"
         :intraday-stale="intradayStale"
+        :in-paper-pool="selectedInPaperPool"
         @toggle-watchlist="handleToggleWatchlist"
         @change-kline-period="changeKlinePeriod"
         @open-industry-modal="onIndustryModalOpen"
@@ -741,6 +790,7 @@ onUnmounted(() => {
         @open-ai-modal="openAiModal"
         @open-chip-modal="openChipModal"
         @open-backtest-modal="openBacktestModal"
+        @toggle-paper-pool="handleTogglePaperPool"
         @load-intraday="loadIntradayData(selectedStock)"
         @retry-quote="refreshAllQuotes()"
         @retry-kline="loadKlineData(selectedStock)"
@@ -827,6 +877,13 @@ onUnmounted(() => {
       :show="showPortfolioModal"
       @close="closePortfolioModal"
       @open-detail="handlePortfolioOpenDetail"
+    />
+
+    <!-- 模拟盘弹窗（选股池驱动 · 每日向前累积） -->
+    <PaperTradingModal
+      :show="showPaperModal"
+      @close="closePaperModal"
+      @open-detail="handlePaperOpenDetail"
     />
 
     <!-- 历史信号胜率弹窗（本地历史库 signal_event 读取 + 日K回看） -->

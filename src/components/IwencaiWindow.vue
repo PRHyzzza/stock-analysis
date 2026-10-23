@@ -17,6 +17,7 @@ import {
   parseIwencaiCode,
 } from "../composables/useIwencaiRobot";
 import { useUserProfileSingleton } from "../composables/useUserProfile";
+import { usePaperAccount } from "../composables/usePaperAccount.js";
 
 const appWindow = getCurrentWindow();
 
@@ -272,6 +273,60 @@ function onAddWatchlist(row) {
   starred.add(parsed.code);
 }
 
+// ── 模拟盘选股池 ──────────────────────────────────────
+// 本窗口与主窗口共用同一个 localStorage key（stock-analysis-paper-pool），
+// 直接写池即可，主窗口打开模拟盘面板时会 reloadPool() 同步。
+const paper = usePaperAccount();
+/** 本窗口会话内已加入模拟盘的代码集合（防重复加；初值取磁盘上已有的池） */
+const inPaperPool = reactive(new Set((paper.pool.value || []).map((p) => p.code)));
+/** 一次性提示文案（加池结果） */
+const paperHint = ref("");
+
+function markPaperHint(text) {
+  paperHint.value = text;
+  window.setTimeout(() => {
+    if (paperHint.value === text) paperHint.value = "";
+  }, 2600);
+}
+
+/** 行内「模拟盘」→ 单只加入选股池 */
+function onAddPaper(row) {
+  const parsed = parseIwencaiCode(row);
+  if (!parsed) return;
+  if (parsed.market !== "SH" && parsed.market !== "SZ" && parsed.market !== "BJ") {
+    markPaperHint("模拟盘只做 A 股（沪深北），港股不入池");
+    return;
+  }
+  if (inPaperPool.has(parsed.code)) return;
+  const name = String(row["股票简称"] ?? "");
+  const added = paper.addToPool([{ code: parsed.code, name, source: "iwencai" }]);
+  for (const a of added) inPaperPool.add(a.code);
+  if (added.length) markPaperHint(`已加入模拟盘选股池：${name || parsed.code}`);
+}
+
+/** 整批加入（当前页所有行）→ 一次写池 */
+function onAddPaperBatch() {
+  const candidates = [];
+  for (const row of localRows.value) {
+    const parsed = parseIwencaiCode(row);
+    if (!parsed) continue;
+    if (parsed.market !== "SH" && parsed.market !== "SZ" && parsed.market !== "BJ") continue;
+    if (inPaperPool.has(parsed.code)) continue;
+    candidates.push({
+      code: parsed.code,
+      name: String(row["股票简称"] ?? ""),
+      source: "iwencai",
+    });
+  }
+  if (!candidates.length) {
+    markPaperHint("本页标的都已在模拟盘选股池中");
+    return;
+  }
+  const added = paper.addToPool(candidates);
+  for (const a of added) inPaperPool.add(a.code);
+  markPaperHint(`已加入模拟盘选股池 ${added.length} 只（池内共 ${paper.pool.value.length} 只）`);
+}
+
 /** 单元格显示：空值 → --；数值列按列类型/单位格式化（长小数、大数读起来更直观） */
 function cellText(v, col) {
   if (v === null || v === undefined || v === "") return "--";
@@ -388,6 +443,20 @@ function cellText(v, col) {
             </svg>
             {{ aiSent ? "✓ 已发送 AI 分析" : "AI 分析这批股票" }}
           </button>
+          <button
+            class="paper-batch-btn"
+            :disabled="!normalized.rows.length"
+            title="把本页所有 A 股加入模拟盘选股池（主窗口「模拟盘」面板据此逐日交易）"
+            @click="onAddPaperBatch"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <rect x="1.8" y="8.6" width="2.6" height="5" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="6" y="5.4" width="2.6" height="8.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="10.2" y="2.4" width="2.6" height="11.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+            </svg>
+            整页加入模拟盘
+          </button>
+          <span v-if="paperHint" class="paper-hint-text">{{ paperHint }}</span>
         </div>
         <div class="result-table-wrap">
           <table class="result-table">
@@ -415,6 +484,13 @@ function cellText(v, col) {
                     :class="{ added: starred.has(rowCode(row)) }"
                     @click.stop="onAddWatchlist(row)"
                   >{{ starred.has(rowCode(row)) ? "✓ 已加" : "★ 自选" }}</button>
+                  <button
+                    class="star-btn paper-btn"
+                    :class="{ added: inPaperPool.has(rowCode(row)) }"
+                    :disabled="inPaperPool.has(rowCode(row))"
+                    title="加入模拟盘选股池（A 股，主窗口「模拟盘」面板据此逐日自动交易）"
+                    @click.stop="onAddPaper(row)"
+                  >{{ inPaperPool.has(rowCode(row)) ? "✓ 已入池" : "模拟盘" }}</button>
                 </td>
               </tr>
             </tbody>
@@ -845,6 +921,43 @@ function cellText(v, col) {
   color: var(--green);
 }
 
+/* ===== 整页加入模拟盘按钮 ===== */
+.paper-batch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+.paper-batch-btn:hover:not(:disabled) {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--apricot-wash);
+}
+.paper-batch-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.paper-batch-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 加池结果提示（一次性，自动消失） */
+.paper-hint-text {
+  color: var(--rust);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .result-table-wrap {
   flex: 1;
   overflow: auto;
@@ -956,6 +1069,14 @@ function cellText(v, col) {
   border-color: rgba(39, 174, 96, 0.35);
   color: var(--green);
   background: rgba(39, 174, 96, 0.06);
+  cursor: default;
+}
+
+/* 行内「模拟盘」按钮：与「★ 自选」并排，间距 6px */
+.paper-btn {
+  margin-left: 6px;
+}
+.paper-btn:disabled {
   cursor: default;
 }
 

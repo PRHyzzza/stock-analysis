@@ -6,7 +6,7 @@ defineProps({
   refreshing: { type: Boolean, default: false },
 });
 
-defineEmits(["refresh", "open-positions", "open-portfolio", "open-signal-history", "open-profile", "open-settings", "open-global-ai", "open-iwencai"]);
+defineEmits(["refresh", "open-positions", "open-portfolio", "open-signal-history", "open-paper", "open-profile", "open-settings", "open-global-ai", "open-iwencai"]);
 </script>
 
 <template>
@@ -56,6 +56,14 @@ defineEmits(["refresh", "open-positions", "open-portfolio", "open-signal-history
           <circle cx="9.5" cy="8.5" r="1.2" fill="currentColor"/>
         </svg>
         <span>信号</span>
+      </button>
+      <button class="btn-positions" @click="$emit('open-paper')" title="模拟盘（选股驱动 · 每日向前累积）">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="1.8" y="8.6" width="2.6" height="5" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+          <rect x="6" y="5.4" width="2.6" height="8.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+          <rect x="10.2" y="2.4" width="2.6" height="11.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+        <span>模拟盘</span>
       </button>
       <button class="btn-positions" @click="$emit('open-iwencai')" title="问财选股">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

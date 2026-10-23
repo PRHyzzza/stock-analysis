@@ -12,6 +12,8 @@ defineProps({
   selectedStock: { type: Object, default: null },
   /** 当前股票是否在自选 */
   inWatchlist: { type: Boolean, default: false },
+  /** 当前股票是否在模拟盘选股池 */
+  inPaperPool: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -24,6 +26,7 @@ const emit = defineEmits([
   "open-backtest-modal",
   "open-ai-modal",
   "toggle-watchlist",
+  "toggle-paper-pool",
 ]);
 </script>
 
@@ -81,6 +84,20 @@ const emit = defineEmits([
         <path d="M4.5 10.5 7 7.5l2 1.5L13 4"/>
       </svg>
       <span>信号回测</span>
+    </button>
+    <button
+      v-if="!isHK"
+      class="btn btn-paper"
+      :class="{ 'in-paper': inPaperPool }"
+      :title="inPaperPool ? '已在模拟盘选股池（点击移出）' : '加入模拟盘选股池（每日向前累积自动记账）'"
+      @click="selectedStock && emit('toggle-paper-pool', selectedStock)"
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.8" y="8.6" width="2.6" height="5" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="6" y="5.4" width="2.6" height="8.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="10.2" y="2.4" width="2.6" height="11.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+      </svg>
+      <span>{{ inPaperPool ? "✓ 模拟盘" : "模拟盘" }}</span>
     </button>
     <button class="btn btn-ai" @click="emit('open-ai-modal')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -253,6 +270,28 @@ const emit = defineEmits([
   background: var(--sky-wash);
   border-color: var(--ink);
   color: var(--ink);
+}
+
+/* Steep: 模拟盘入池按钮 — 柱状图标 + Ghost 风格；已在池内时 rust 高亮 */
+.btn-paper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  transition: all var(--transition-fast);
+}
+.btn-paper:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--apricot-wash);
+}
+.btn-paper.in-paper {
+  background: var(--apricot-wash);
+  border-color: var(--rust);
+  color: var(--rust);
+  font-weight: 600;
 }
 
 /* Steep: 提醒按钮（均线+价格合并）— 铃铛图标 + Ghost 风格，启用时橙色高亮 */
