@@ -6,29 +6,27 @@ use regex::Regex;
 
 /// 获取个股实时行情（来自腾讯财经）
 /// 港股: qt.gtimg.cn 返回延迟约 15 分钟的行情（缓存节点轮询、价格来回跳），
-///       改用分时接口 web.ifzq.gtimg.cn 获取实时数据，与分时图完全同源
+///       改用分时接口 ifzq.gtimg.cn 获取实时数据，与分时图完全同源
 pub async fn fetch_stock_quote(code: &str) -> Result<StockQuote, String> {
     let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
 
     let fields: Vec<String> = if is_hk_stock(code) {
         // 港股：分时接口（实时行情，qt 字段布局与 qt.gtimg.cn 一致）
+        // 统一用 ifzq 主机（web.ifzq 的 fqkline 已被 WAF 501 拦截，见 fetch_kline 注释）
         let url = format!(
-            "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={}",
+            "https://ifzq.gtimg.cn/appstock/app/minute/query?code={}",
             t_code
         );
         let resp = client
             .get(&url)
-            .header("Referer", "https://web.ifzq.gtimg.cn/")
+            .header("Referer", "https://ifzq.gtimg.cn/")
             .header("Accept", "application/json")
             .send()
             .await
             .map_err(|e| format!("请求港股实时行情失败: {}", e))?;
 
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("解析 JSON 失败: {}", e))?;
+        let data = super::read_json(resp, "港股实时行情").await?;
 
         data.get("data")
             .and_then(|d| d.get(&t_code))
@@ -464,24 +462,26 @@ pub async fn fetch_kline_data(
             t_code, period, minute_limit
         )
     } else {
+        // 日/周/月：fqkline 走 ifzq 主机。
+        // 注意：`web.ifzq.gtimg.cn` 的 fqkline 已被腾讯云 WAF 拦截，恒定返回
+        // HTTP 501 + 一段 `<script>window.location.href="https://waf.tencent.com/501page.html..."` 的
+        // HTML 拦截页（无论带什么 Referer/UA 都是 501），resp.json() 会报
+        // "error decoding response body"。ifzq 主机同参数同结构可用，故统一改用它。
         format!(
-            "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={},{},,,{},qfq",
+            "https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={},{},,,{},qfq",
             t_code, period, limit
         )
     };
 
     let resp = client
         .get(&url)
-        .header("Referer", "https://web.ifzq.gtimg.cn/")
+        .header("Referer", "https://ifzq.gtimg.cn/")
         .header("Accept", "application/json")
         .send()
         .await
         .map_err(|e| format!("请求 K 线数据失败: {}", e))?;
 
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析 JSON 失败: {}", e))?;
+    let data = super::read_json(resp, if is_minute { "分钟 K 线" } else { "K 线数据" }).await?;
 
     let klines = if is_minute {
         // mkline 响应：data.{t_code}.{period} 直接是数组（另有 qt/prec 等字段）
@@ -534,22 +534,19 @@ pub async fn fetch_intraday_data(code: &str) -> Result<IntradayData, String> {
     let client = super::build_http_client()?;
     let t_code = to_tencent_code(code);
     let url = format!(
-        "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={}",
+        "https://ifzq.gtimg.cn/appstock/app/minute/query?code={}",
         t_code
     );
 
     let resp = client
         .get(&url)
-        .header("Referer", "https://web.ifzq.gtimg.cn/")
+        .header("Referer", "https://ifzq.gtimg.cn/")
         .header("Accept", "application/json")
         .send()
         .await
         .map_err(|e| format!("请求分时数据失败: {}", e))?;
 
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析 JSON 失败: {}", e))?;
+    let data = super::read_json(resp, "分时数据").await?;
 
     // 结构: data.{t_code}
     let stock_data = data
@@ -709,10 +706,7 @@ pub async fn fetch_fx_rate() -> Result<f64, String> {
         .await
         .map_err(|e| format!("请求汇率失败: {}", e))?;
 
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析汇率 JSON 失败: {}", e))?;
+    let data = super::read_json(resp, "汇率").await?;
 
     let rate = data
         .get("rates")

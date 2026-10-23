@@ -147,7 +147,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 | 文件 | 编码 | 注意 |
 |------|------|------|
-| `tencent.rs` | **GBK** → `encoding_rs` | `~` 分隔无反爬；**行情字段下标（0-based）**：[6]成交量(手) [37]成交额(万) [38]换手率 [39]市盈率 **[43]振幅** [46]市净率 [47]涨停价 [48]跌停价（**振幅是 [43]，[46] 是市净率**，易混）；**港股字段不同**：[43] 同为振幅、[46] 是英文名、[59] 才是换手率，量额需 ÷100/÷10000 归一；分钟 K（m5/m15/m30/m60）走 mkline（320 根、无复权、**港股不支持**），日周月走 fqkline（前复权 120 根，**仅 6 字段无成交额**，`KlineItem.turnover` 恒空走 `volume×close` 兜底）；分时按市场交易时段过滤（剔盘后零星成交）；**累计成交量单位按市场归一**——A 股/北交所为「手」（均价分母 ×100 换算成股），港股原值是「股」（×1，且分钟量 ÷100 归一到「手」）；分时时间戳 `HHmm` 需 `len==4 && is_ascii` 才切片；资金流字段需 `≥41` 段否则报 `NO_DATA` 交东财兜底 |
+| `tencent.rs` | **GBK** → `encoding_rs` | 主机名铁律：**只用 `qt.gtimg.cn`（行情/资金流）与 `ifzq.gtimg.cn`（K 线/分时，含港股实时行情）；禁止 `web.ifzq.gtimg.cn`** —— 该子域的 `fqkline` 已被腾讯云 WAF 恒定 501（返回 HTML 拦截页，`resp.json()` 只报 `error decoding response body`），`mkline` 被 301，`Referer` 也统一用 `https://ifzq.gtimg.cn/`；`~` 分隔无反爬；**行情字段下标（0-based）**：[6]成交量(手) [37]成交额(万) [38]换手率 [39]市盈率 **[43]振幅** [46]市净率 [47]涨停价 [48]跌停价（**振幅是 [43]，[46] 是市净率**，易混）；**港股字段不同**：[43] 同为振幅、[46] 是英文名、[59] 才是换手率，量额需 ÷100/÷10000 归一；分钟 K（m5/m15/m30/m60）走 mkline（320 根、无复权、**港股不支持**），日周月走 fqkline（前复权 120 根，**仅 6 字段无成交额**，`KlineItem.turnover` 恒空走 `volume×close` 兜底）；分时按市场交易时段过滤（剔盘后零星成交）；**累计成交量单位按市场归一**——A 股/北交所为「手」（均价分母 ×100 换算成股），港股原值是「股」（×1，且分钟量 ÷100 归一到「手」）；分时时间戳 `HHmm` 需 `len==4 && is_ascii` 才切片；**北交所 K 线极稀疏**——腾讯对该市场基本不回历史（`bj920002` 日 K 仅 1 根，`bj430047`/`bj830799`/`bj871981` 等均为 0 根；响应键是 `day` 而非 `qfqday`，靠已有的 `qfqday → day` fallback 兜住），故北交所标的的 K 线类功能（回测/模拟盘/技术分析）会普遍拿不到 60 根而被跳过，这是数据源限制不是 bug；资金流字段需 `≥41` 段否则报 `NO_DATA` 交东财兜底 |
 | `eastmoney.rs` | UTF-8 | push2 主域被 WAF 拦，用 push2delay → push2his 兜底 |
 | `llm.rs` | UTF-8 | V4 回传 `reasoning_content`；SSE 兼容 `\n\n`/`\r\n\r\n` + 流末 flush 尾块；`data:` 有/无空格；LLM client 240s 读超时；**终态事件契约**：`DoneGuard` 保证每轮流式**恰好发一次** `llm-done`——正常结束 `data:{}`，中断（上游断流 / 客户端断开，Drop 兜底）为 `{status:"partial", partial:true, reason:"stream_interrupted"|"client_disconnected", warning}`；前端据 `status==="partial"` 标「已中断，内容可能不完整」 |
 | `web.rs` | UTF-8（无 charset 头探测 GBK） | sort=default 相关性排序；中文无空格按子串剥泛词；四级正文提取；反爬站过滤；**SSRF 防护**（私网拒绝、禁跨主机重定向、≤50MB；DNS 校验结果用 `resolve_to_addrs` **钉死 IP** 防重绑定；重定向**手动逐跳**（≤5 跳、禁跨主机、每跳复检+重钉）；主机名用 `url::Url` 解析并支持 `[::1]` 字面量、`is_private_ip` 含 V4-mapped V6）；JSON 反转义按 UTF-16 处理 `\uXXXX`（**支持代理对**，孤立代理项转 `U+FFFD` 而非 panic/丢字） |
@@ -296,4 +296,9 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
     - **定时器只在主窗口**（`usePaperAutoRun.start()` 由 `App.vue` 的 `onMounted` 调用，子窗口早退）：多窗口各跑一份会重复下单。tick 间隔走 `refreshInterval.effectiveInterval`（§7.29），但窗口不可见**不阻止执行**——自动跑批与行情轮询不同
     - **失败退避**：失败不记日期，`AUTO_RETRY_MS`（15 分钟）后重试，避免每分钟打问财被限流。成功通知不传 `meta`（不往 `alert_event` 写假价格提醒）
     - **存储键**：`stock-analysis-paper-auto`（配置）/ `stock-analysis-paper-auto-result`（最近结果）。与账户同属 localStorage 边界，**不落 SQLite、不进 AI 上下文**（同 §7.35）
+37. **所有 HTTP JSON 响应必须经 `api::read_json` 读，禁止裸 `resp.json()`**:
+    - 统一的 `api/mod.rs::read_json(resp, what)` 会**先校验 HTTP 状态码再解析**：非 2xx 报 `{what} HTTP {status}（响应非 JSON）: <响应体前 160 字>`，2xx 但解析失败报 `{what} JSON 解析失败: <err> | 原始响应: <前 160 字>`
+    - 理由：行情接口被 WAF/网关拦截时返回的是 **HTTP 4xx/5xx + HTML 拦截页**，裸 `resp.json()` 只会抛 `error decoding response body`——把「被拦截」误报成「数据格式错」，把排查方向带偏（2026-10 腾讯 `web.ifzq.gtimg.cn` 的 `fqkline` 被 WAF 501 拦截就是这么被误报成 JSON 解析失败的）
+    - 已接入：`tencent.rs`（港股实时行情 / K 线 / 分时 / 汇率）、`eastmoney.rs`（行业分析）、`hotlist.rs`（热榜）。**新增数据源必须走同一入口**，并在 `what` 里写清是哪个数据（错误信息要能定位到接口）
+    - 例外：`calendar.rs` 需要自己区分 401/403/429 业务语义（`[INVALID_KEY]`/`[RATE_LIMITED]`），保留自带的状态码分支；`llm.rs` 走流式响应，不适用
 

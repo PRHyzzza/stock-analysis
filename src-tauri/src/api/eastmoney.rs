@@ -18,8 +18,7 @@ pub async fn fetch_industry_analysis(em_code: &str) -> Result<serde_json::Value,
         .await
         .map_err(|e| format!("请求失败: {}", e))?;
 
-    resp.json::<serde_json::Value>().await
-        .map_err(|e| format!("解析 JSON 失败: {}", e))
+    super::read_json(resp, "东财行业分析").await
 }
 
 /// 获取个股行业名称（从东方财富行情页提取）

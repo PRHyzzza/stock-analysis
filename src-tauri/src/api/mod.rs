@@ -78,6 +78,41 @@ pub fn build_llm_http_client() -> Result<&'static reqwest::Client, String> {
         .map_err(|e| e.clone())
 }
 
+/// 把响应体读成 JSON，但**先校验 HTTP 状态码**
+///
+/// 为什么不能直接 `resp.json()`：这些行情接口在触发 WAF/网关拦截时会返回
+/// HTTP 4xx/5xx + 一段 HTML 拦截页，`resp.json()` 只会报
+/// `error decoding response body`，把「被拦截」伪装成「数据格式错」，
+/// 排查时完全指错方向（2026-10 腾讯 fqkline 被 WAF 501 拦截就是这么被误报的）。
+///
+/// 统一口径：状态码非 2xx 时报 `{what} HTTP {status}`，并附带响应体片段；
+/// 状态码正常但 JSON 解析失败时报 `{what} JSON 解析失败`，同样附片段。
+pub async fn read_json(
+    resp: reqwest::Response,
+    what: &str,
+) -> Result<serde_json::Value, String> {
+    let status = resp.status();
+    if !status.is_success() {
+        // 只取一小段，避免把整页 HTML 塞进错误信息
+        let snippet: String = resp
+            .text()
+            .await
+            .unwrap_or_default()
+            .chars()
+            .take(160)
+            .collect();
+        return Err(format!("{} HTTP {}（响应非 JSON）: {}", what, status, snippet.trim()));
+    }
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("{} 读取响应失败: {}", what, e))?;
+    serde_json::from_str(&text).map_err(|e| {
+        let snippet: String = text.chars().take(160).collect();
+        format!("{} JSON 解析失败: {} | 原始响应: {}", what, e, snippet.trim())
+    })
+}
+
 // 重导出高频 API 函数，保持与 commands.rs 兼容
 pub use calendar::fetch_trading_days;
 pub use eastmoney::{fetch_industry_analysis, fetch_industry_name, fetch_money_flow as fetch_money_flow_eastmoney, fetch_money_flow_history, parse_industry_analysis};
