@@ -123,6 +123,12 @@ export function usePaperAccount() {
   const scoreInfo = ref({ code: "", loading: false, res: null, text: "", error: "" });
   /** 隔夜缺口复盘（按需加载：会逐只拉日 K，不在打开面板时自动跑） */
   const overnight = ref({ loading: false, data: null, error: "" });
+  /** 自选池参考分：code → { res, text, error, at }（at = 计算日期，跨日重算） */
+  const poolScores = ref({});
+  /** 自选打分进行中（逐只串行，避免并发打接口） */
+  const poolScoreBusy = ref(false);
+  /** 打分进度（UI 显示「打分中 3/12」） */
+  const poolScoreProgress = ref({ done: 0, total: 0 });
   /** 上次记录净值的时间戳（节流用） */
   let lastNavAt = 0;
 
@@ -439,6 +445,58 @@ export function usePaperAccount() {
     return res;
   }
 
+  /**
+   * 给自选池逐只算参考分（串行；已算过的当天跳过）
+   *
+   * 为什么要缓存到日期：日 K 一天只变一次，重复算既慢又浪费；
+   * 跨日后自动重算，避免拿昨天的分看今天的票。
+   *
+   * @param {boolean} [force] 忽略当天缓存强制重算
+   */
+  async function loadPoolScores(force = false) {
+    if (poolScoreBusy.value) return;
+    const codes = pool.value.map((p) => p.code);
+    if (!codes.length) {
+      poolScores.value = {};
+      return;
+    }
+    const today = getToday();
+    // 清掉已移出自选的缓存，再挑出需要算的
+    const keep = new Set(codes);
+    const base = {};
+    for (const [code, entry] of Object.entries(poolScores.value)) {
+      if (keep.has(code)) base[code] = entry;
+    }
+    poolScores.value = base;
+    const todo = codes.filter((c) => force || poolScores.value[c]?.at !== today);
+    if (!todo.length) return;
+
+    poolScoreBusy.value = true;
+    poolScoreProgress.value = { done: 0, total: todo.length };
+    try {
+      for (let i = 0; i < todo.length; i++) {
+        const code = todo[i];
+        const bars = await fetchBars(code);
+        let entry;
+        if (!bars.length) {
+          entry = { res: null, text: "", error: "没有日 K 数据，无法打分", at: today };
+        } else {
+          const res = scoreBars(bars.slice(-200), code);
+          entry = {
+            res,
+            text: describeScore(res),
+            error: res.enough ? "" : `日 K 仅 ${res.bars} 根（不足 60 根）`,
+            at: today,
+          };
+        }
+        poolScores.value = { ...poolScores.value, [code]: entry };
+        poolScoreProgress.value = { done: i + 1, total: todo.length };
+      }
+    } finally {
+      poolScoreBusy.value = false;
+    }
+  }
+
   // ── 下单 ──────────────────────────────────────────────
   /**
    * 下单（买/卖）
@@ -577,6 +635,7 @@ export function usePaperAccount() {
     prevCloses.value = {};
     missingPrices.value = [];
     overnight.value = { loading: false, data: null, error: "" };
+    poolScores.value = {};
     persist();
     return {
       ok: true,
@@ -605,6 +664,7 @@ export function usePaperAccount() {
     error.value = "";
     prices.value = {};
     missingPrices.value = [];
+    poolScores.value = {};
     persist();
   }
 
@@ -663,6 +723,10 @@ export function usePaperAccount() {
     importLedger,
     // 参考打分
     loadScore,
+    poolScores,
+    poolScoreBusy,
+    poolScoreProgress,
+    loadPoolScores,
     // 交易
     loadTicket,
     preview,

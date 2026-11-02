@@ -62,6 +62,10 @@ const {
   sell,
   review,
   overnight,
+  poolScores,
+  poolScoreBusy,
+  poolScoreProgress,
+  loadPoolScores,
   loadOvernightReview,
   exportLedger,
   importLedger,
@@ -80,6 +84,11 @@ const TABS = [
   { id: "pool", label: "自选" },
   { id: "settings", label: "配置" },
 ];
+
+// 切到「自选」就补打分：每只按天缓存，重复进入不会重复拉 K 线
+watch(tab, (v) => {
+  if (v === "pool" && pool.value.length) loadPoolScores();
+});
 
 // ── 格式（金额为「元」；与 utils/format 的万元口径区分，故本地实现）──
 function money(v) {
@@ -347,6 +356,31 @@ function heldShares(code) {
   return positionRows.value.find((p) => p.code === code)?.shares || 0;
 }
 
+/** 自选页是否按参考分排序 */
+const poolSortByScore = ref(false);
+
+/** 自选行（附参考分；可按分排序，未打分的排最后） */
+const poolRows = computed(() => {
+  const rows = pool.value.map((p) => {
+    const entry = poolScores.value[p.code];
+    const res = entry?.res;
+    return {
+      ...p,
+      score: res?.enough ? res.score : null,
+      penalty: res?.penalty || 0,
+      patterns: Array.isArray(res?.patternHits) ? res.patternHits : [],
+      scoreText: entry?.text || "",
+      scoreErr: entry?.error || "",
+    };
+  });
+  if (!poolSortByScore.value) return rows;
+  return rows.slice().sort((a, b) => {
+    const av = a.score == null ? -1 : a.score;
+    const bv = b.score == null ? -1 : b.score;
+    return bv - av || String(a.code).localeCompare(String(b.code));
+  });
+});
+
 // ── 自选池 ────────────────────────────────────────────
 const manualCode = ref("");
 const manualName = ref("");
@@ -367,6 +401,7 @@ async function submitManual() {
   poolHint.value = added.length ? `已加入自选：${code}` : "该代码已在自选中";
   manualCode.value = "";
   manualName.value = "";
+  if (added.length) loadPoolScores();
 }
 
 // ── 配置 ──────────────────────────────────────────────
@@ -1002,6 +1037,11 @@ onUnmounted(() => {
                 <input v-model="manualCode" class="pool-input code" placeholder="6 位代码" maxlength="6" inputmode="numeric" @keyup.enter="submitManual" />
                 <input v-model="manualName" class="pool-input" placeholder="名称（可留空自动查）" @keyup.enter="submitManual" />
                 <button class="ghost-btn" @click="submitManual">加入自选</button>
+                <button
+                  class="ghost-btn"
+                  :disabled="poolScoreBusy || !pool.length"
+                  @click="loadPoolScores(true)"
+                >{{ poolScoreBusy ? `打分中 ${poolScoreProgress.done}/${poolScoreProgress.total}` : "重新打分" }}</button>
               </div>
               <div v-if="poolHint" class="pool-hint-line">{{ poolHint }}</div>
 
@@ -1009,36 +1049,55 @@ onUnmounted(() => {
                 自选是空的
                 <span class="tab-empty-sub">手动输入代码、或在问财选股窗口把标的加入模拟盘；这里只是方便你快速下单</span>
               </div>
-              <table v-else class="paper-table">
-                <thead>
-                  <tr>
-                    <th>名称</th>
-                    <th class="num">持仓</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="p in pool" :key="p.code">
-                    <td>
-                      <button class="link-btn" @click="openDetail(p.code)">{{ p.name || p.code }}</button>
-                      <span class="cell-code">{{ p.code }}</span>
-                    </td>
-                    <td class="num" :class="heldShares(p.code) ? '' : 'muted'">
-                      {{ heldShares(p.code) ? `${sharesText(heldShares(p.code))} 股` : "—" }}
-                    </td>
-                    <td class="pool-ops">
-                      <button class="ghost-btn tiny" @click="tradeStock(p.code, 'buy')">买入</button>
-                      <button class="ghost-btn tiny" :disabled="!heldShares(p.code)" @click="tradeStock(p.code, 'sell')">卖出</button>
-                      <button class="icon-btn" title="移出自选" @click="removeFromPool(p.code)">
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                          <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              <p class="tab-note">自选只是「快速下单入口」，不会自动买入任何标的。</p>
+              <template v-else>
+                <div class="pool-tools">
+                  <label class="pool-sort">
+                    <input type="checkbox" v-model="poolSortByScore" />
+                    按参考分排序
+                  </label>
+                  <span class="pool-score-hint">参考分 = 6 因子 + 风险扣分 + 战法共振，每天算一次；不参与买卖判定</span>
+                </div>
+                <table class="paper-table">
+                  <thead>
+                    <tr>
+                      <th>名称</th>
+                      <th class="num">参考分</th>
+                      <th class="num">持仓</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="p in poolRows" :key="p.code">
+                      <td>
+                        <button class="link-btn" @click="openDetail(p.code)">{{ p.name || p.code }}</button>
+                        <span class="cell-code">{{ p.code }}</span>
+                      </td>
+                      <td class="num pool-score" :title="p.scoreText || p.scoreErr || '未打分'">
+                        <template v-if="p.score != null">
+                          <span :class="p.score >= DEFAULT_SCORE_CONFIG.minScore ? 'up' : 'muted'">{{ p.score }}</span>
+                          <span v-if="p.penalty > 0" class="score-tag risk">-{{ p.penalty }}</span>
+                          <span v-if="p.patterns.length" class="score-tag pattern" :title="p.patterns.join('、')">{{ p.patterns[0] }}</span>
+                        </template>
+                        <span v-else-if="poolScoreBusy" class="muted">…</span>
+                        <span v-else class="muted">{{ p.scoreErr ? "—" : "--" }}</span>
+                      </td>
+                      <td class="num" :class="heldShares(p.code) ? '' : 'muted'">
+                        {{ heldShares(p.code) ? `${sharesText(heldShares(p.code))} 股` : "—" }}
+                      </td>
+                      <td class="pool-ops">
+                        <button class="ghost-btn tiny" @click="tradeStock(p.code, 'buy')">买入</button>
+                        <button class="ghost-btn tiny" :disabled="!heldShares(p.code)" @click="tradeStock(p.code, 'sell')">卖出</button>
+                        <button class="icon-btn" title="移出自选" @click="removeFromPool(p.code)">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+              <p class="tab-note">自选只是「快速下单入口」，不会自动买入任何标的；分数只做观察。</p>
             </template>
 
             <!-- ─── 配置 ─── -->
@@ -1599,6 +1658,12 @@ onUnmounted(() => {
 /* ── 账本备份 ── */
 .ledger-title { margin-top: 16px; }
 .ledger-row { display: flex; gap: 8px; margin-bottom: 8px; }
+/* ── 自选打分 ── */
+.pool-tools { display: flex; align-items: center; gap: 12px; margin: 0 0 8px; }
+.pool-sort { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.pool-score-hint { font-size: 11.5px; color: var(--text-muted); }
+.pool-score { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pool-score .score-tag { margin-left: 4px; }
 .ledger-textarea {
   width: 100%;
   resize: vertical;
