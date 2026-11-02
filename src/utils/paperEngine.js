@@ -1,69 +1,43 @@
 /**
- * paperEngine — 模拟盘撮合与记账引擎（**纯函数**，无 Vue / 无 Tauri / 无 localStorage）
+ * paperEngine — 手动模拟盘撮合与记账（**纯函数**，无 Vue / 无 Tauri / 无 localStorage）
  *
- * 设计口径（与 PROJECT.md §7.19 的回测诚实性一致）：
+ * 运行模型（v2，与 v1 的「每日跑批」完全不同）：
+ *   用户自己决定买卖 → 按**当前实时价 + 滑点**立即成交 → 记账（现金/持仓/流水/净值）。
+ *   没有信号、没有委托队列、没有次日开盘撮合、没有自动平仓。
  *
- * 1. **日线级、每日向前累积（daily forward）**
- *    D 日收盘后跑选股规则 → 生成 D+1 开盘执行的委托 → D+1 开盘价撮合。
- *    这是唯一无前视偏差的做法：日线信号在收盘后才确定，不可能当日收盘成交。
- *
- * 2. **与回测的口径差异（必须在 UI 披露）**
- *    `useSignalBacktest` 是「信号日收盘价买入、持有 N 日收盘卖出、**不计费用**」；
- *    本引擎是「信号日收盘出单、**次日开盘价 + 滑点**成交、**计全额费用**」。
- *    因此模拟盘收益天然低于回测面板，两者数字**不可直接比较**。
- *
- * 3. **费用全额计入**（`paperFees.js`），含最低佣金 5 元 —— 小资金高频时损耗显著，这是模拟盘的价值所在。
- *
- * 4. **A 股 T+1**：当日买入的股份当日不可卖。本引擎天然满足（卖出委托一律次日开盘成交），
- *    并在 `planExits` 里额外防御 `openDate === date` 的情况。
- *
- * 5. **缺失行情不用成本价冒充**（PROJECT.md §7.24）：净值计算时若某持仓无当日收盘价，
- *    退化为成本价算出「部分净值」，并在 `nav.missing` 里记下代码 + `partial: true`，由 UI 标注。
+ * 口径（与 PROJECT.md §7.35 一致）：
+ * 1. **成交价 = 最新价 ± 滑点**，按 tick 对齐并夹在当日高低与涨跌停之间（`paperRules.fillPrice`）。
+ *    「市价单」在真实交易里就是吃掉盘口，滑点是对这件事的最低限度补偿。
+ * 2. **只在交易时段内允许下单**（由调用方用 `marketTime.getMarketStatus` 判定后传入），
+ *    引擎自身不读时钟——纯函数才能被单测。
+ * 3. **涨停不可买、跌停不可卖**：模拟盘宁可少成交，也不假装在涨停板上买到了。
+ * 4. **A 股 T+1**：当日买入的股份当日不可卖出。这里按「锁定股数」精确记账——
+ *    昨天买 500 股、今天再买 300 股，今天最多只能卖 500 股（旧版用 `openDate === date`
+ *    直接判死，加仓后连老仓都卖不了，是错的）。
+ * 5. **费用全额计入**（`paperFees.js` 唯一口径）：佣金万 2.5 最低 5 元、印花税仅卖出 0.05%、
+ *    过户费双向 0.001%。同价往返必然亏损。
+ * 6. **最小下单单位按板块**（`paperRules.getLotRule`）：主板/创业板 100 股整数倍，
+ *    科创板 200 股起 1 股递增，北交所 100 股起 1 股递增；卖出允许零股一次性清仓。
+ * 7. **缺价不用成本价冒充**（§7.24）：净值缺价时退化为成本价估值并标 `partial` + `missing`。
+ * 8. 日期一律 `YYYY-MM-DD` 本地日期字符串，禁止 `toISOString()`（§7.13）。
  */
 import { DEFAULT_FEE_CONFIG, buyCost, sellProceeds } from "./paperFees.js";
-import { scoreBars } from "./paperScore.js";
-import {
-  canFill,
-  fillPrice,
-  floorLot,
-  floorSellLot,
-  getLimitPrices,
-} from "./paperRules.js";
+import { floorLot, floorSellLot, getLimitPrices, getLotRule } from "./paperRules.js";
+import { fillPrice } from "./paperRules.js";
 
-/** 账户模型版本（localStorage 迁移用） */
-export const ACCOUNT_VERSION = 1;
+/** 账户模型版本（localStorage 迁移用）；v1 = 选股跑批，v2 = 手动交易 */
+export const ACCOUNT_VERSION = 2;
 
-/** 默认配置 */
+/** 默认配置（只保留手动交易需要的项） */
 export const DEFAULT_CONFIG = Object.freeze({
   /** 初始资金（元） */
   initialCash: 100000,
-  /** 固定持有期（交易日）；0 = 不按时间平仓，只靠止盈止损 */
-  holdDays: 5,
-  /** 最大同时持仓只数 */
-  maxPositions: 5,
-  /** 单票最大权重（%，相对当前总权益） */
-  maxWeightPct: 25,
-  /** 每笔买入预算占总权益比例（%） */
-  perTradeCashPct: 20,
   /** 单向滑点（小数，0.001 = 0.1%） */
   slippage: 0.001,
-  /** 止损（%，0 = 关闭），按收盘价判断 */
-  stopLossPct: 8,
-  /** 止盈（%，0 = 关闭），按收盘价判断 */
-  takeProfitPct: 20,
-  /** 入选最低分（0-100，见 paperScore.js）；低于此分数不买 */
-  minScore: 60,
-  /** 每日最多买入只数（1-5）；与剩余可用仓位取小 */
-  maxPicks: 2,
-  /** 首次运行补跑天数（0 = 只跑最新一个交易日，不做历史回测） */
-  backfillDays: 0,
-  /** 启用的规则 id 列表；空数组 = 全部规则（现在只用于「信号确认」，不再直接决定买入） */
-  rules: [],
   /** 费率配置 */
   fees: { ...DEFAULT_FEE_CONFIG },
 });
 
-/** 数值兜底（不做假值填充，仅防 NaN 破坏状态机） */
 function nz(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -75,27 +49,22 @@ function clampNumber(v, min, max, fallback) {
   return Math.min(max, Math.max(min, n));
 }
 
+function round2(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 /**
- * 配置规整（用户输入一律过一遍，避免负资金/负持有期把引擎弄坏）
- * @param {object} raw
- * @returns {object} 规整后的配置
+ * 配置规整（用户输入一律过一遍）
+ * @param {object} [raw]
  */
 export function normalizeConfig(raw = {}) {
   const src = raw && typeof raw === "object" ? raw : {};
   const fees = { ...DEFAULT_FEE_CONFIG, ...(src.fees && typeof src.fees === "object" ? src.fees : {}) };
   return {
     initialCash: clampNumber(src.initialCash, 10000, 100000000, DEFAULT_CONFIG.initialCash),
-    holdDays: Math.round(clampNumber(src.holdDays, 0, 250, DEFAULT_CONFIG.holdDays)),
-    maxPositions: Math.round(clampNumber(src.maxPositions, 1, 50, DEFAULT_CONFIG.maxPositions)),
-    maxWeightPct: clampNumber(src.maxWeightPct, 1, 100, DEFAULT_CONFIG.maxWeightPct),
-    perTradeCashPct: clampNumber(src.perTradeCashPct, 1, 100, DEFAULT_CONFIG.perTradeCashPct),
     slippage: clampNumber(src.slippage, 0, 0.05, DEFAULT_CONFIG.slippage),
-    stopLossPct: clampNumber(src.stopLossPct, 0, 100, DEFAULT_CONFIG.stopLossPct),
-    takeProfitPct: clampNumber(src.takeProfitPct, 0, 1000, DEFAULT_CONFIG.takeProfitPct),
-    minScore: Math.round(clampNumber(src.minScore, 0, 100, DEFAULT_CONFIG.minScore)),
-    maxPicks: Math.round(clampNumber(src.maxPicks, 1, 5, DEFAULT_CONFIG.maxPicks)),
-    backfillDays: Math.round(clampNumber(src.backfillDays, 0, 250, DEFAULT_CONFIG.backfillDays)),
-    rules: Array.isArray(src.rules) ? src.rules.filter((r) => typeof r === "string") : [],
     fees: {
       commissionRate: clampNumber(fees.commissionRate, 0, 0.01, DEFAULT_FEE_CONFIG.commissionRate),
       commissionMin: clampNumber(fees.commissionMin, 0, 100, DEFAULT_FEE_CONFIG.commissionMin),
@@ -118,19 +87,13 @@ export function createAccount(config = {}, meta = {}) {
     config: cfg,
     /** 可用现金（元） */
     cash: cfg.initialCash,
-    /** 持仓：{ code, name, shares, costPrice, costAmount, openDate, openRules } */
+    /** 持仓：{ code, name, shares, costPrice, costAmount, openDate, lockedDate, lockedShares } */
     positions: [],
-    /** 待次日开盘成交的委托：{ id, side, code, name, shares?, budget?, signalDate, rules, reason } */
-    pending: [],
     /** 成交流水（只增不改） */
     trades: [],
-    /** 每日运行日志 */
-    runs: [],
-    /** 每日净值曲线 */
+    /** 每日净值（同一日期只保留一条） */
     nav: [],
-    /** 最后运行日期（YYYY-MM-DD，本地时区） */
-    lastRunDate: null,
-    /** 选股池：{ code, name, addedAt, source, query? } */
+    /** 自选池：{ code, name, addedAt, source } */
     pool: Array.isArray(meta.pool) ? meta.pool.filter((p) => p && p.code) : [],
   };
 }
@@ -140,537 +103,502 @@ function cloneAccount(acct) {
   return JSON.parse(JSON.stringify(acct));
 }
 
-/** 下一个流水 id */
-function nextId(acct) {
-  return `${acct.trades.length + acct.pending.length + 1}`;
-}
-
 /**
- * 取第 i 根 K 线，并补上 prev_close（撮合判断要用）
- * @param {Array} bars 日 K 数组（按日期升序）
- * @param {number} i
+ * 每日净值：现金 + 持仓市值（缺价退化为成本价并标记）
+ * @param {object} acct
+ * @param {(code: string) => number|null} priceOf
  */
-function barAt(bars, i) {
-  const b = bars[i];
-  if (!b) return null;
-  const prev = bars[i - 1];
-  return {
-    date: b.date,
-    open: nz(b.open),
-    high: nz(b.high),
-    low: nz(b.low),
-    close: nz(b.close),
-    volume: nz(b.volume),
-    prev_close: prev ? nz(prev.close) : null,
-  };
-}
-
-/** 找到某日期的下标（找不到返回 -1） */
-function indexOfDate(bars, date) {
-  if (!Array.isArray(bars) || !date) return -1;
-  for (let i = bars.length - 1; i >= 0; i--) {
-    if (bars[i]?.date === date) return i;
-  }
-  return -1;
-}
-
-/**
- * 持仓已持有的交易日数（openDate 之后、date 之前/当日的 K 线根数）
- * 若 openDate 在序列里找不到（本地 K 线被清理/补跑），退化为按日期字符串计数。
- */
-export function heldTradingDays(bars, openDate, date) {
-  if (!Array.isArray(bars) || !openDate || !date) return 0;
-  const openIdx = indexOfDate(bars, openDate);
-  const nowIdx = indexOfDate(bars, date);
-  if (openIdx >= 0 && nowIdx >= 0) return Math.max(0, nowIdx - openIdx);
-  return bars.filter((b) => b?.date > openDate && b?.date <= date).length;
-}
-
-/**
- * 池内选股：对每只票跑日线规则，返回「当日成立的规则」
- *
- * `analyze` 必须由调用方注入（`useSignalBacktest.js` 的 `analyzeBars`），
- * 这样引擎本身零依赖、可被 `node --test` 直接导入验证。
- *
- * @param {Object<string, Array>} barsByCode code → 日 K 数组（升序）
- * @param {object} [config] 账户配置（用 `rules` 过滤启用的规则；空 = 全部）
- * @param {(bars: Array, code: string) => object} analyze 规则分析函数（analyzeBars）
- * @returns {Object<string, { code, date, close, active: string[], names: string[], bars: number, reason?: string }>}
- */
-export function buildSignals(barsByCode, config = {}, analyze) {
-  const out = {};
-  if (typeof analyze !== "function") return out; // 未注入则不出信号（宁可空仓，不假成交）
-  const cfg = normalizeConfig(config);
-  const enabled = cfg.rules;
-
-  for (const [code, bars] of Object.entries(barsByCode || {})) {
-    const list = Array.isArray(bars) ? bars : [];
-    const res = analyze(list, code);
-    const lastDate = res.asOf || list[list.length - 1]?.date || null;
-
-    if (!res.enough) {
-      out[code] = {
-        code,
-        date: lastDate,
-        close: nz(list[list.length - 1]?.close) || null,
-        active: [],
-        names: [],
-        bars: res.bars,
-        score: 0,
-        scoreParts: null,
-        scoreEnough: false,
-        reason: `日 K 仅 ${res.bars} 根，不足 60 根无法判定（可在回测面板同步更多历史）`,
-      };
-      continue;
-    }
-
-    const hit = res.rules.filter(
-      (r) => r.active && (enabled.length === 0 || enabled.includes(r.id))
-    );
-    // 打分：对**已截断到 signalDate** 的 K 线算分（调用方负责截断，这里不再二次截取，
-    // 以免与 buildSignals 的直接调用（单测/诊断脚本）产生两套口径）
-    const scored = scoreBars(list, code);
-    out[code] = {
-      code,
-      date: lastDate,
-      close: nz(list[list.length - 1]?.close) || null,
-      active: hit.map((r) => r.id),
-      names: hit.map((r) => r.name),
-      bars: res.bars,
-      score: scored.score,
-      scoreParts: scored.parts,
-      scoreEnough: scored.enough,
-      reason: hit.length ? "" : "今日无规则触发",
-    };
-  }
-  return out;
-}
-
-/** 当前总权益（现金 + 持仓市值）。priceOf 返回 null 表示缺价，退化为成本价 */
 function equityOf(acct, priceOf) {
   let mv = 0;
   const missing = [];
-  for (const p of acct.positions) {
+  for (const p of acct.positions || []) {
     const px = priceOf(p.code);
     if (px == null) {
-      mv += p.costPrice * p.shares;
+      mv += nz(p.costPrice) * nz(p.shares);
       missing.push(p.code);
     } else {
-      mv += px * p.shares;
+      mv += px * nz(p.shares);
     }
   }
   return { equity: acct.cash + mv, marketValue: mv, missing };
 }
 
 /**
- * 生成卖出委托（止盈 / 止损 / 到期）
- * 依据 D 日**收盘价**判断，委托在 D+1 开盘成交。
+ * 账户迁移（v1「选股跑批」→ v2「手动交易」）
+ *
+ * 保留：现金、持仓、成交流水、净值曲线、自选池、初始资金/滑点/费率。
+ * 丢弃：`pending`（未成交委托）、`runs`（每日跑批日志）、`lastRunDate`——
+ *   这些在手动盘里没有意义，留着只会让 UI 与统计口径出现两套语义。
+ *
+ * @param {object} raw localStorage 里读到的原始对象
+ * @returns {object|null} 迁移后的账户；结构不认识返回 null
  */
-export function planExits(acct, { date, barsByCode }) {
-  const cfg = acct.config;
-  const orders = [];
-  const held = new Set(acct.positions.map((p) => p.code));
+export function migrateAccount(raw) {
+  if (!raw || typeof raw !== "object") return null;
 
-  for (const pos of acct.positions) {
-    if (pos.openDate === date) continue; // T+1 防御：当日买入当日不可卖
-    if (acct.pending.some((o) => o.side === "sell" && o.code === pos.code)) continue;
-
-    const bars = barsByCode?.[pos.code] || [];
-    const idx = indexOfDate(bars, date);
-    const close = idx >= 0 ? nz(bars[idx].close) : null;
-    if (close == null || close <= 0) continue; // 无当日收盘价 → 不判断（保守）
-
-    const days = heldTradingDays(bars, pos.openDate, date);
-    const pnlPct = pos.costPrice > 0 ? ((close - pos.costPrice) / pos.costPrice) * 100 : 0;
-
-    let reason = "";
-    if (cfg.stopLossPct > 0 && pnlPct <= -cfg.stopLossPct) {
-      reason = `止损：收盘 ${close.toFixed(2)} 较成本 ${pos.costPrice.toFixed(2)} 跌 ${pnlPct.toFixed(2)}%（阈值 -${cfg.stopLossPct}%）`;
-    } else if (cfg.takeProfitPct > 0 && pnlPct >= cfg.takeProfitPct) {
-      reason = `止盈：收盘 ${close.toFixed(2)} 较成本 ${pos.costPrice.toFixed(2)} 涨 ${pnlPct.toFixed(2)}%（阈值 +${cfg.takeProfitPct}%）`;
-    } else if (cfg.holdDays > 0 && days >= cfg.holdDays) {
-      reason = `持有期到：已持有 ${days} 个交易日（配置 ${cfg.holdDays} 日），按次日开盘卖出`;
+  if (raw.version === ACCOUNT_VERSION) {
+    const acct = { ...raw };
+    for (const key of ["positions", "trades", "nav", "pool"]) {
+      if (!Array.isArray(acct[key])) acct[key] = [];
     }
+    acct.config = normalizeConfig(acct.config);
+    acct.cash = nz(acct.cash, acct.config.initialCash);
+    // 早期 v2 账户没有批次：用持仓整体补一个，保证 FIFO 配对可用
+    acct.positions = acct.positions
+      .filter((p) => p && p.code)
+      .map((p) => ({ ...p, lots: normalizeLots(p) }));
+    return acct;
+  }
 
-    if (!reason) continue;
-    const shares = floorSellLot(pos.code, pos.shares, pos.shares);
-    if (shares <= 0) continue;
-    orders.push({
-      id: nextId(acct) + `-${pos.code}-sell`,
-      side: "sell",
-      code: pos.code,
-      name: pos.name,
+  if (raw.version === 1) {
+    const cfg = normalizeConfig(raw.config);
+    const acct = {
+      version: ACCOUNT_VERSION,
+      createdAt: raw.createdAt || null,
+      config: cfg,
+      cash: nz(raw.cash, cfg.initialCash),
+      positions: (Array.isArray(raw.positions) ? raw.positions : []).map((p) => ({
+        code: String(p?.code ?? ""),
+        name: String(p?.name ?? ""),
+        shares: Math.floor(nz(p?.shares)),
+        costPrice: nz(p?.costPrice),
+        costAmount: nz(p?.costAmount, nz(p?.costPrice) * nz(p?.shares)),
+        openDate: p?.openDate || null,
+        lockedDate: null,
+        lockedShares: 0,
+        lots: normalizeLots({ ...p, openDate: p?.openDate || null }),
+      })),
+      trades: Array.isArray(raw.trades) ? raw.trades : [],
+      nav: Array.isArray(raw.nav) ? raw.nav : [],
+      pool: Array.isArray(raw.pool) ? raw.pool.filter((p) => p && p.code) : [],
+      /** 迁移标记：UI 可据此提示「已从旧版账户切换为手动交易」 */
+      migratedFrom: 1,
+    };
+    return acct;
+  }
+
+  return null;
+}
+
+/**
+ * 最大可买股数（含费用、按最小下单单位规整）
+ * @param {object} acct
+ * @param {{ code: string, price: number }} opts
+ * @returns {number}
+ */
+export function maxBuyShares(acct, { code, price }) {
+  const p = Number(price);
+  const cash = nz(acct?.cash);
+  if (!(p > 0) || cash <= 0) return 0;
+  const fees = acct?.config?.fees || DEFAULT_FEE_CONFIG;
+  let shares = floorLot(code, cash / p);
+  let guard = 0;
+  while (shares > 0 && guard++ < 200) {
+    const cost = buyCost(round2(p * shares), fees);
+    if (cost.cash <= cash) return shares;
+    const cheaper = floorLot(code, shares - 1);
+    if (cheaper === shares) break;
+    shares = cheaper;
+  }
+  return 0;
+}
+
+/** 持仓可卖股数（扣除当日买入被 T+1 锁定的部分） */
+export function sellableShares(pos, date) {
+  const total = Math.floor(nz(pos?.shares));
+  if (total <= 0) return 0;
+  const locked = pos?.lockedDate && pos.lockedDate === date ? Math.floor(nz(pos.lockedShares)) : 0;
+  return Math.max(0, total - locked);
+}
+
+/**
+ * 归一化持仓批次（FIFO）
+ *
+ * 老账户（v1/v2 早期）没有 `lots`，用持仓整体补一个批次（日期取 `openDate`）——
+ * 这样 FIFO 配对不会因为「没有批次」而退化成按加权成本算，历史交易的持有天数仍可追溯。
+ */
+export function normalizeLots(pos) {
+  if (Array.isArray(pos?.lots) && pos.lots.length) {
+    return pos.lots
+      .filter((l) => l && nz(l.shares) > 0)
+      .map((l) => ({
+        date: String(l.date ?? ""),
+        shares: Math.floor(nz(l.shares)),
+        costPerShare: nz(l.costPerShare, nz(pos.costPrice)),
+        meta: l.meta || null,
+      }));
+  }
+  const shares = Math.floor(nz(pos?.shares));
+  if (shares <= 0) return [];
+  return [
+    {
+      date: String(pos?.openDate ?? ""),
       shares,
-      signalDate: date,
-      rules: [],
-      reason,
-    });
-    held.delete(pos.code);
-  }
-  return orders;
+      costPerShare: nz(pos?.costPrice),
+      meta: null,
+    },
+  ];
+}
+
+/** 两个 YYYY-MM-DD 之间相差的自然日（无法解析返回 null） */
+function daysBetween(from, to) {
+  if (!from || !to) return null;
+  const a = Date.parse(`${from}T00:00:00`);
+  const b = Date.parse(`${to}T00:00:00`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+/** 批次成本合计 */
+function lotsCost(lots) {
+  return round2((lots || []).reduce((s, l) => s + nz(l.costPerShare) * nz(l.shares), 0));
 }
 
 /**
- * 生成买入委托（池内打分达标 → 按分数排序取前 N → 次日开盘成交）
+ * 按 FIFO 消耗批次，算出每段的平仓盈亏（**纯函数**，不改入参）
  *
- * 与旧版的差别（这是用户「莫名其妙的回测」的直接病根）：
- * - 旧版：`active.length > 0` 即买入，按触发规则条数排序 → 门槛形同虚设，每日名额先被弱信号占满
- * - 新版：先卡 `cfg.minScore`，再按分数降序（同分按代码稳定排序），每日最多 `cfg.maxPicks` 只
+ * 卖出费用按股数平摊进 `proceedsPerShare`（净回款/股），因此每段盈亏都是「净额对净额」，
+ * 不会出现「买入算费用、卖出不算」的半截口径。
  *
- * 规则触发退化为「信号确认」而非「入选条件」：仍允许用 `cfg.rules` 过滤，
- * 但**没有规则触发也能凭分数入选**——打分本身已是多指标合成，再要求规则命中会重复过滤。
+ * @param {Array} lots normalizeLots 的结果
+ * @param {{ shares: number, sellDate: string, proceedsPerShare: number }} req
+ * @returns {{ matches: Array, remaining: Array, realized: number }}
  */
-export function planEntries(acct, { date, barsByCode, signals }) {
-  const cfg = acct.config;
-  const orders = [];
-  const pendingBuy = new Set(acct.pending.filter((o) => o.side === "buy").map((o) => o.code));
-  const held = new Set(acct.positions.map((p) => p.code));
-  const { equity } = equityOf(acct, (code) => {
-    const bars = barsByCode?.[code] || [];
-    const idx = indexOfDate(bars, date);
-    return idx >= 0 ? nz(bars[idx].close) || null : null;
-  });
-
-  // 候选：打分达标、未持仓、未在途
-  const candidates = [];
-  for (const item of Object.values(signals || {})) {
-    if (!item) continue;
-    if (held.has(item.code) || pendingBuy.has(item.code)) continue;
-    // K 线不足 60 根时 scoreBars 返回 0 分（不假填充），因此只有把 minScore 调到 0
-    // 才会买「算不出分」的票；默认 60 分时这类票自然被挡在外面。
-    if (!(Number(item.score) >= cfg.minScore)) continue;
-    candidates.push(item);
-  }
-  // 分数高者优先；同分按代码稳定排序，保证逐日回放可复现
-  candidates.sort((a, b) => {
-    const d = Number(b.score) - Number(a.score);
-    if (d !== 0) return d;
-    return String(a.code).localeCompare(String(b.code));
-  });
-
-  const slots = Math.max(0, cfg.maxPositions - held.size - pendingBuy.size);
-  const picks = Math.min(slots, cfg.maxPicks, candidates.length);
-  const budget = Math.min(
-    (equity * cfg.perTradeCashPct) / 100,
-    (equity * cfg.maxWeightPct) / 100,
-    acct.cash
-  );
-
-  for (const c of candidates.slice(0, picks)) {
-    if (budget < 100) break;
-    const ruleText = c.active?.length ? `，规则确认 ${c.active.length} 条` : "";
-    orders.push({
-      id: nextId(acct) + `-${c.code}-buy`,
-      side: "buy",
-      code: c.code,
-      name: c.name || "",
-      budget: Math.round(budget * 100) / 100,
-      signalDate: date,
-      rules: c.active || [],
-      score: Number(c.score) || 0,
-      reason: `打分 ${Number(c.score) || 0} 分（阈值 ${cfg.minScore}）${ruleText}，次日开盘买入`,
+export function consumeLots(lots, { shares, sellDate, proceedsPerShare }) {
+  let need = Math.floor(nz(shares));
+  const matches = [];
+  const remaining = [];
+  let realized = 0;
+  const src = (Array.isArray(lots) ? lots : []).filter((l) => l && nz(l.shares) > 0);
+  for (const lot of src) {
+    if (need <= 0) {
+      remaining.push({ ...lot });
+      continue;
+    }
+    const take = Math.min(need, lot.shares);
+    const pnl = round2((nz(proceedsPerShare) - nz(lot.costPerShare)) * take);
+    matches.push({
+      code: "",
+      shares: take,
+      buyDate: lot.date,
+      buyPrice: round2(nz(lot.costPerShare)),
+      sellDate: String(sellDate ?? ""),
+      sellPrice: round2(nz(proceedsPerShare)),
+      pnl,
+      holdDays: daysBetween(lot.date, sellDate),
+      meta: lot.meta || null,
     });
+    realized += pnl;
+    need -= take;
+    if (lot.shares - take > 0) remaining.push({ ...lot, shares: lot.shares - take });
   }
-  return orders;
+  return { matches, remaining, realized: round2(realized) };
 }
 
 /**
- * 撮合：把上一交易日生成的委托按 D 日开盘价成交
+ * 下单预校验（**不下单**）：把行情与账户约束折算成「能不能成交、成交多少、花多少钱」
  *
- * @param {object} acct 账户（不会被修改，返回的是新对象）
- * @param {{ date: string, barsByCode: Object }} ctx
- * @returns {{ account: object, filled: Array, skipped: Array }}
+ * @param {object} acct
+ * @param {{
+ *   side: "buy"|"sell",
+ *   code: string,
+ *   name?: string,
+ *   quote: { price: number, prevClose?: number, high?: number, low?: number },
+ *   shares: number,
+ *   date: string,
+ * }} req
+ * @returns {{
+ *   ok: boolean, reason: string, side: string, code: string, name: string,
+ *   price: number, shares: number, amount: number,
+ *   fee: object, feeTotal: number, cashDelta: number, realized: number|null, maxShares: number
+ * }}
  */
-export function settlePending(acct, { date, barsByCode }) {
+export function previewOrder(acct, req = {}) {
+  const side = req.side === "sell" ? "sell" : "buy";
+  const code = String(req.code ?? "").trim();
+  const date = String(req.date ?? "");
+  const cfg = acct?.config || normalizeConfig({});
+  const quote = req.quote || {};
+  const fail = (reason, extra = {}) => ({
+    ok: false,
+    reason,
+    side,
+    code,
+    name: String(req.name ?? quote.name ?? ""),
+    price: 0,
+    shares: 0,
+    amount: 0,
+    fee: { commission: 0, stampTax: 0, transferFee: 0, total: 0, rate: 0 },
+    feeTotal: 0,
+    cashDelta: 0,
+    realized: null,
+    matches: [],
+    meta: null,
+    maxShares: 0,
+    ...extra,
+  });
+
+  if (!/^\d{6}$/.test(code)) return fail("请输入 6 位 A 股代码（模拟盘只做 A 股）");
+  if (!(Number(quote.price) > 0)) return fail("行情无效（停牌或未取到报价），暂不能下单");
+  // 成交量 0 = 当日停牌：腾讯对停牌股仍可能返回昨收价，只判 price 会「买到一只没成交的票」
+  const vol = quote.volume == null ? null : Number(quote.volume);
+  if (vol != null && Number.isFinite(vol) && vol <= 0) {
+    return fail("该标的当前成交量为 0（疑似停牌），今日无法成交");
+  }
+
+  const price = fillPrice(side, quote.price, {
+    slippage: cfg.slippage,
+    code,
+    prevClose: quote.prevClose,
+    dayHigh: quote.high,
+    dayLow: quote.low,
+  });
+  if (price == null) return fail("成交价无效，暂不能下单");
+
+  // 涨跌停：模拟盘不假装在板上成交
+  const { upper, lower } = getLimitPrices(code, quote.prevClose);
+  if (side === "buy" && upper != null && Number(quote.price) >= upper - 0.005) {
+    return fail(`已涨停（${upper.toFixed(2)}），涨停板买不进`);
+  }
+  if (side === "sell" && lower != null && Number(quote.price) <= lower + 0.005) {
+    return fail(`已跌停（${lower.toFixed(2)}），跌停板卖不出`);
+  }
+
+  if (side === "buy") {
+    const want = floorLot(code, nz(req.shares));
+    const lot = getLotRule(code);
+    if (want <= 0) return fail(`股数不合法：${lot.lotLabel}`);
+
+    const amount = round2(price * want);
+    const cost = buyCost(amount, cfg.fees);
+    if (cost.cash > nz(acct.cash) + 1e-9) {
+      const max = maxBuyShares(acct, { code, price });
+      return fail(max > 0 ? `可用资金不足，最多可买 ${max} 股` : "可用资金不足一个最小下单单位", {
+        maxShares: max,
+      });
+    }
+    return {
+      ok: true,
+      reason: "",
+      side,
+      code,
+      name: String(req.name ?? quote.name ?? ""),
+      price,
+      shares: want,
+      amount,
+      fee: cost.fee,
+      feeTotal: cost.fee.total,
+      cashDelta: -cost.cash,
+      realized: null,
+      matches: [],
+      meta: req.meta || null,
+      maxShares: want,
+    };
+  }
+
+  const pos = (acct?.positions || []).find((p) => p.code === code);
+  if (!pos) return fail("没有该标的的持仓");
+  const sellable = sellableShares(pos, date);
+  if (sellable <= 0) return fail("T+1：今日买入的股份今日不可卖出");
+
+  const want = floorSellLot(code, nz(req.shares), sellable);
+  if (want <= 0) return fail(`可卖 ${sellable} 股，卖出股数需符合最小单位`, { maxShares: sellable });
+
+  const amount = round2(price * want);
+  const proceeds = sellProceeds(amount, cfg.fees);
+  // 卖出费用按股数平摊到每股，FIFO 每段都是「净回款 vs 含费成本」的同口径比较
+  const proceedsPerShare = want > 0 ? proceeds.cash / want : 0;
+  const fifo = consumeLots(normalizeLots(pos), { shares: want, sellDate: date, proceedsPerShare });
+  const realized = fifo.matches.length
+    ? fifo.realized
+    : round2(proceeds.cash - round2(nz(pos.costAmount) * (want / Math.max(1, nz(pos.shares)))));
+  return {
+    ok: true,
+    reason: "",
+    side,
+    code,
+    name: String(req.name ?? pos.name ?? ""),
+    price,
+    shares: want,
+    amount,
+    fee: proceeds.fee,
+    feeTotal: proceeds.fee.total,
+    cashDelta: proceeds.cash,
+    realized,
+    matches: fifo.matches,
+    meta: null,
+    maxShares: sellable,
+  };
+}
+
+/**
+ * 执行下单（订单必须来自 `previewOrder` 且 `ok === true`）
+ *
+ * @param {object} acct
+ * @param {object} order previewOrder 的返回值
+ * @param {{ date: string, time?: string }} meta
+ * @returns {{ account: object|null, trade: object|null, error: string }}
+ */
+export function applyOrder(acct, order, { date, time = "" } = {}) {
+  if (!order || !order.ok) return { account: null, trade: null, error: order?.reason || "订单无效" };
   const next = cloneAccount(acct);
-  const cfg = next.config;
-  const filled = [];
-  const skipped = [];
-  const keep = [];
+  const d = String(date ?? "");
+  if (!d) return { account: null, trade: null, error: "缺少交易日期" };
 
-  for (const order of next.pending) {
-    const bars = barsByCode?.[order.code] || [];
-    const idx = indexOfDate(bars, date);
-    if (idx < 0) {
-      // 当日无 K 线：可能是停牌、也可能是补跑时该票当日休市 → 顺延一次，超过 3 个交易日作废
-      const age = next.runs.filter((r) => r.date > order.signalDate).length;
-      if (age >= 3) {
-        skipped.push({ code: order.code, side: order.side, reason: "连续 3 个交易日无行情，委托作废" });
-      } else {
-        keep.push(order);
-      }
-      continue;
+  const id = `T${(next.trades?.length || 0) + 1}`;
+  const base = {
+    id,
+    date: d,
+    time: String(time || ""),
+    code: order.code,
+    name: order.name || "",
+    side: order.side,
+    price: order.price,
+    shares: order.shares,
+    amount: order.amount,
+    fee: order.fee,
+    feeTotal: order.feeTotal,
+    cashDelta: order.cashDelta,
+    realized: order.realized ?? null,
+    /** 平仓配对明细（FIFO，仅卖出有）：[{ shares, buyDate, buyPrice, sellDate, sellPrice, pnl, holdDays, meta }] */
+    matches: [],
+    /** 下单时附带的参考信息（分数/命中战法），仅买入有，用于复盘归因 */
+    meta: order.meta || null,
+  };
+
+  if (order.side === "buy") {
+    if (order.cashDelta + nz(next.cash) < -1e-9) {
+      return { account: null, trade: null, error: "可用资金不足" };
     }
-    const bar = barAt(bars, idx);
+    next.cash = round2(next.cash + order.cashDelta);
 
-    const gate = canFill(order.side, bar, order.code);
-    if (!gate.ok) {
-      skipped.push({ code: order.code, side: order.side, reason: gate.reason });
-      continue; // 无法成交 → 作废（不追单，模拟盘宁可少成交也不假成交）
-    }
-
-    const price = fillPrice(order.side, bar.open, {
-      slippage: cfg.slippage,
-      code: order.code,
-      prevClose: bar.prev_close,
-      dayHigh: bar.high,
-      dayLow: bar.low,
-    });
-    if (price == null) {
-      skipped.push({ code: order.code, side: order.side, reason: "开盘价无效，无法撮合" });
-      continue;
-    }
-
-    if (order.side === "buy") {
-      // 预算按实际成交价重算股数（价格越高于预期，买得越少）
-      const slotCash = Math.min(nz(order.budget), next.cash);
-      // 先按「费用后仍需 <= 现金」反解，再规整到合法股数
-      const guessShares = floorLot(order.code, slotCash / price);
-      let shares = guessShares;
-      while (shares > 0) {
-        const cost = buyCost(price * shares, cfg.fees);
-        if (cost.cash <= next.cash) break;
-        // 减一个最小单位
-        const cheaper = floorLot(order.code, shares - 1);
-        if (cheaper === shares) break;
-        shares = cheaper;
+    const actualCost = Math.abs(order.cashDelta); // 成交金额 + 费用
+    const costPerShare = order.shares > 0 ? actualCost / order.shares : 0;
+    const existing = (next.positions || []).find((p) => p.code === order.code);
+    if (existing) {
+      const lots = [...normalizeLots(existing), { date: d, shares: order.shares, costPerShare, meta: order.meta || null }];
+      existing.lots = lots;
+      existing.shares += order.shares;
+      existing.costAmount = lotsCost(lots);
+      existing.costPrice = Math.round((existing.costAmount / existing.shares) * 10000) / 10000;
+      if (existing.lockedDate === d) existing.lockedShares = nz(existing.lockedShares) + order.shares;
+      else {
+        existing.lockedDate = d;
+        existing.lockedShares = order.shares;
       }
-      if (shares <= 0) {
-        skipped.push({ code: order.code, side: "buy", reason: "资金不足一个最小下单单位" });
-        continue;
-      }
-      const amount = Math.round(price * shares * 100) / 100;
-      const cost = buyCost(amount, cfg.fees);
-      if (cost.cash > next.cash) {
-        skipped.push({ code: order.code, side: "buy", reason: "资金不足" });
-        continue;
-      }
-      next.cash = Math.round((next.cash - cost.cash) * 100) / 100;
-
-      const existing = next.positions.find((p) => p.code === order.code);
-      if (existing) {
-        const totalShares = existing.shares + shares;
-        const totalCost = existing.costAmount + cost.cash;
-        existing.shares = totalShares;
-        existing.costAmount = Math.round(totalCost * 100) / 100;
-        existing.costPrice = Math.round((totalCost / totalShares) * 10000) / 10000;
-      } else {
-        next.positions.push({
-          code: order.code,
-          name: order.name || "",
-          shares,
-          costPrice: Math.round((cost.cash / shares) * 10000) / 10000,
-          costAmount: cost.cash,
-          openDate: date,
-          openRules: order.rules || [],
-        });
-      }
-
-      const trade = {
-        id: `T${next.trades.length + 1}`,
-        date,
+      if (!existing.name && order.name) existing.name = order.name;
+    } else {
+      next.positions.push({
         code: order.code,
         name: order.name || "",
-        side: "buy",
-        price,
-        shares,
-        amount,
-        fee: cost.fee,
-        feeTotal: cost.fee.total,
-        cashDelta: -cost.cash,
-        rules: order.rules || [],
-        score: Number(order.score) || 0,
-        reason: order.reason || "",
-        signalDate: order.signalDate,
-        realized: null,
-      };
-      next.trades.push(trade);
-      filled.push(trade);
-    } else {
-      const pos = next.positions.find((p) => p.code === order.code);
-      if (!pos) {
-        skipped.push({ code: order.code, side: "sell", reason: "无持仓（可能已被其他委托卖出）" });
-        continue;
-      }
-      const shares = floorSellLot(order.code, order.shares, pos.shares);
-      if (shares <= 0) {
-        skipped.push({ code: order.code, side: "sell", reason: "可卖股数不足最小单位" });
-        continue;
-      }
-      const amount = Math.round(price * shares * 100) / 100;
-      const proceeds = sellProceeds(amount, cfg.fees);
-      next.cash = Math.round((next.cash + proceeds.cash) * 100) / 100;
+        shares: order.shares,
+        costPrice: Math.round(costPerShare * 10000) / 10000,
+        costAmount: actualCost,
+        openDate: d,
+        lockedDate: d,
+        lockedShares: order.shares,
+        lots: [{ date: d, shares: order.shares, costPerShare, meta: order.meta || null }],
+      });
+    }
+  } else {
+    const pos = (next.positions || []).find((p) => p.code === order.code);
+    if (!pos) return { account: null, trade: null, error: "没有该标的的持仓" };
+    if (sellableShares(pos, d) < order.shares) return { account: null, trade: null, error: "可卖股数不足（T+1）" };
 
-      // 已实现盈亏 = 净回款 - 按比例分摊的成本（含买入费用）
-      const costBasis = Math.round((pos.costAmount * (shares / pos.shares)) * 100) / 100;
-      const realized = Math.round((proceeds.cash - costBasis) * 100) / 100;
-
-      pos.shares -= shares;
-      pos.costAmount = Math.round((pos.costAmount - costBasis) * 100) / 100;
-      if (pos.shares <= 0) {
-        next.positions = next.positions.filter((p) => p.code !== pos.code);
-      }
-
-      const trade = {
-        id: `T${next.trades.length + 1}`,
-        date,
-        code: order.code,
-        name: order.name || pos.name || "",
-        side: "sell",
-        price,
-        shares,
-        amount,
-        fee: proceeds.fee,
-        feeTotal: proceeds.fee.total,
-        cashDelta: proceeds.cash,
-        rules: [],
-        reason: order.reason || "",
-        signalDate: order.signalDate,
-        realized,
-      };
-      next.trades.push(trade);
-      filled.push(trade);
+    next.cash = round2(next.cash + order.cashDelta);
+    // FIFO 消耗批次：每段都留下「买入日 / 持有天数 / 盈亏」，复盘才能按持有期与战法归因
+    const proceedsPerShare = order.shares > 0 ? order.cashDelta / order.shares : 0;
+    const fifo = consumeLots(normalizeLots(pos), {
+      shares: order.shares,
+      sellDate: d,
+      proceedsPerShare,
+    });
+    pos.lots = fifo.remaining;
+    pos.shares -= order.shares;
+    pos.costAmount = lotsCost(fifo.remaining);
+    pos.costPrice = pos.shares > 0 ? Math.round((pos.costAmount / pos.shares) * 10000) / 10000 : 0;
+    if (fifo.matches.length) {
+      base.matches = fifo.matches.map((m) => ({ ...m, code: order.code, name: order.name || pos.name || "" }));
+      base.realized = fifo.realized;
+    }
+    if (pos.shares <= 0) {
+      next.positions = next.positions.filter((p) => p.code !== order.code);
     }
   }
 
-  next.pending = keep;
-  return { account: next, filled, skipped };
+  next.trades = [...(next.trades || []), base];
+  return { account: next, trade: base, error: "" };
 }
 
 /**
- * 计算并追加当日净值（用 D 日收盘价）
- * @returns {{ account: object, nav: object }}
+ * 记录当日净值（同一日期覆盖）
+ * @param {object} acct
+ * @param {{ date: string, prices: Object<string, number> }} ctx
  */
-export function recordNav(acct, { date, barsByCode }) {
+export function recordNav(acct, { date, prices, at = "" } = {}) {
   const next = cloneAccount(acct);
+  const map = prices && typeof prices === "object" ? prices : {};
   const priceOf = (code) => {
-    const bars = barsByCode?.[code] || [];
-    const idx = indexOfDate(bars, date);
-    if (idx >= 0) {
-      const c = nz(bars[idx].close);
-      return c > 0 ? c : null;
-    }
-    return null;
+    const p = Number(map[code]);
+    return Number.isFinite(p) && p > 0 ? p : null;
   };
   const { equity, marketValue, missing } = equityOf(next, priceOf);
   const nav = {
-    date,
-    equity: Math.round(equity * 100) / 100,
-    cash: Math.round(next.cash * 100) / 100,
-    marketValue: Math.round(marketValue * 100) / 100,
-    positionCount: next.positions.length,
+    date: String(date ?? ""),
+    /** 记录时刻 HH:mm：用于判断「今天是否已经记过收盘点」 */
+    at: String(at || ""),
+    equity: round2(equity),
+    cash: round2(next.cash),
+    marketValue: round2(marketValue),
+    positionCount: (next.positions || []).length,
     missing,
     partial: missing.length > 0,
   };
-  const existing = next.nav.findIndex((r) => r.date === date);
+  if (!nav.date) return { account: next, nav: null };
+  const existing = (next.nav || []).findIndex((r) => r.date === nav.date);
   if (existing >= 0) next.nav[existing] = nav;
-  else next.nav.push(nav);
+  else next.nav = [...(next.nav || []), nav];
+  // 只保留最近 800 个交易日，避免 localStorage 膨胀
+  if (next.nav.length > 800) next.nav = next.nav.slice(-800);
   return { account: next, nav };
 }
 
-/** 截取到指定日期（含）为止的 K 线，避免规则看到「未来」数据 */
-function sliceToDate(bars, date) {
-  if (!Array.isArray(bars)) return [];
-  const out = [];
-  for (const b of bars) {
-    if (!b || !b.date) continue;
-    if (b.date <= date) out.push(b);
-    else break;
-  }
-  return out;
-}
-
 /**
- * 每日一步（向前累积的核心）：撮合昨日委托 → 记净值 → 生成次日委托
- *
- * 顺序很重要：**先撮合（用今日开盘）→ 再记净值（用今日收盘）→ 最后按今日收盘出信号**。
- *
- * 防前视：跑规则前把 K 线截到 `date` 当天为止。否则补跑历史时规则会看到未来 K 线，
- * 整条净值曲线都会骗人（这是本引擎最容易犯且最难发现的错）。
- *
- * @param {object} acct 账户
- * @param {{ date: string, barsByCode: Object<string, Array>, analyze?: Function }} ctx
- * @returns {{ account: object, report: object }}
- */
-export function stepDay(acct, { date, barsByCode, analyze }) {
-  const map = barsByCode && typeof barsByCode === "object" ? barsByCode : {};
-
-  // 1) 撮合（昨日收盘后生成的委托，今日开盘成交）
-  const settled = settlePending(acct, { date, barsByCode: map });
-  let next = settled.account;
-
-  // 2) 记净值（今日收盘）
-  const navRes = recordNav(next, { date, barsByCode: map });
-  next = navRes.account;
-
-  // 3) 选股 + 出单（今日收盘后 → 次日开盘成交）
-  const truncated = {};
-  for (const [code, bars] of Object.entries(map)) truncated[code] = sliceToDate(bars, date);
-  const signals = buildSignals(truncated, next.config, analyze);
-  const poolCodes = new Set(next.pool.map((p) => p.code));
-  // 池外的持仓仍需管（用户可能已把该票移出池）→ 卖出照算，买入只看池内
-  const poolSignals = {};
-  for (const [code, sig] of Object.entries(signals)) {
-    if (poolCodes.size === 0 || poolCodes.has(code)) {
-      poolSignals[code] = { ...sig, name: next.pool.find((p) => p.code === code)?.name || "" };
-    }
-  }
-  const exits = planExits(next, { date, barsByCode: map });
-  const entries = planEntries(next, { date, barsByCode: map, signals: poolSignals });
-
-  next.pending = [...next.pending, ...exits, ...entries];
-  next.lastRunDate = date;
-
-  const report = {
-    date,
-    filled: settled.filled,
-    skipped: settled.skipped || [],
-    scanned: Object.keys(poolSignals).length,
-    signalCodes: Object.values(poolSignals).filter((s) => s.active?.length).map((s) => s.code),
-    /** 当日打分最高的一批（供 UI / 运行日志展示「为什么买/没买」） */
-    scores: Object.values(poolSignals)
-      .filter((s) => s.scoreEnough)
-      .map((s) => ({ code: s.code, score: Number(s.score) || 0 }))
-      .sort((a, b) => b.score - a.score || String(a.code).localeCompare(String(b.code)))
-      .slice(0, 10),
-    exitOrders: exits,
-    entryOrders: entries,
-    nav: navRes.nav,
-    equity: navRes.nav.equity,
-  };
-
-  next.runs.push({
-    date,
-    scanned: report.scanned,
-    signalCodes: report.signalCodes,
-    scored: report.scores.length,
-    /** 当日打分前 10（供 UI 展示「为什么买 / 为什么没买」） */
-    scores: report.scores,
-    picked: entries.map((o) => ({ code: o.code, score: o.score })),
-    filledCount: settled.filled.length,
-    exitCount: exits.length,
-    entryCount: entries.length,
-    equity: navRes.nav.equity,
-    partial: navRes.nav.partial,
-    skipped: report.skipped,
-  });
-  // 只保留最近 400 条运行日志，避免 localStorage 膨胀
-  if (next.runs.length > 400) next.runs = next.runs.slice(-400);
-
-  return { account: next, report };
-}
-
-/**
- * 账户绩效汇总（纯函数，UI 与提示词共用）
- *
- * 口径：
- * - 总收益 = 最新净值 / 初始资金 - 1
- * - 最大回撤按净值曲线峰值计算
- * - 胜率只统计**已平仓**的卖出记录（`realized != null`），平盘不计入分母
- * - 样本 < 10 笔时 `enough = false`，UI 必须标「样本不足，仅供参考」（§7.19/§7.26）
- *
+ * 持仓逐只估值（UI 用；纯计算，不改账户）
  * @param {object} acct
- * @returns {object}
+ * @param {Object<string, number>} prices code → 最新价
+ * @returns {{ rows: Array, marketValue: number, missing: string[] }}
+ */
+export function valuePositions(acct, prices = {}) {
+  const rows = [];
+  let mv = 0;
+  const missing = [];
+  for (const p of acct?.positions || []) {
+    const px = Number(prices?.[p.code]);
+    const hasPrice = Number.isFinite(px) && px > 0;
+    if (!hasPrice) missing.push(p.code);
+    const cost = nz(p.costPrice) * nz(p.shares);
+    const value = hasPrice ? px * nz(p.shares) : cost;
+    mv += value;
+    rows.push({
+      ...p,
+      price: hasPrice ? px : null,
+      marketValue: round2(value),
+      costAmount: round2(cost),
+      pnl: round2(value - cost),
+      pnlPct: cost > 0 ? round2(((value - cost) / cost) * 100) : null,
+    });
+  }
+  return { rows, marketValue: round2(mv), missing };
+}
+
+/**
+ * 账户绩效汇总（纯函数，UI 共用）
+ *
+ * - 总收益 = 最新净值 / 初始资金 - 1
+ * - 最大回撤按净值峰值
+ * - 胜率只统计**已平仓**的卖出记录（`realized != null`），平盘不进分母
+ * - 样本 < 10 笔时 `enough = false`，UI 必须标「样本不足，仅供参考」
  */
 export function summarizeAccount(acct) {
   const cfg = acct?.config || normalizeConfig({});
@@ -708,9 +636,8 @@ export function summarizeAccount(acct) {
     winCount: wins,
     lossCount: losses,
     winRate: decided > 0 ? (wins / decided) * 100 : null,
-    feeTotal: Math.round(feeTotal * 100) / 100,
-    realizedTotal: Math.round(realizedTotal * 100) / 100,
-    /** 样本不足标记（UI 必须据此标注） */
+    feeTotal: round2(feeTotal),
+    realizedTotal: round2(realizedTotal),
     enough: closed.length >= 10,
     lastDate: last ? last.date : null,
     partial: !!last?.partial,
@@ -718,11 +645,7 @@ export function summarizeAccount(acct) {
   };
 }
 
-/**
- * 单日收益（用于 UI 概览卡片）
- * @param {object} acct
- * @returns {{ delta: number|null, pct: number|null }}
- */
+/** 单日收益（概览卡片用） */
 export function dayChange(acct) {
   const navs = Array.isArray(acct?.nav) ? acct.nav : [];
   if (navs.length < 2) return { delta: null, pct: null };
@@ -730,18 +653,8 @@ export function dayChange(acct) {
   const prev = navs[navs.length - 2];
   if (!prev || !(prev.equity > 0)) return { delta: null, pct: null };
   const delta = cur.equity - prev.equity;
-  return { delta: Math.round(delta * 100) / 100, pct: (delta / prev.equity) * 100 };
+  return { delta: round2(delta), pct: (delta / prev.equity) * 100 };
 }
 
-/**
- * 计算某只票在给定日期之后的下一个交易日（用于「补跑」场景的提示，不做真实日历依赖）
- * @param {Array} bars 日 K
- * @param {string} date
- */
-export function nextBarDate(bars, date) {
-  if (!Array.isArray(bars)) return null;
-  const hit = bars.find((b) => b?.date > date);
-  return hit ? hit.date : null;
-}
-
-export { getLimitPrices };
+/** 供 UI 复用的规则辅助（避免组件各自实现手数/涨跌停口径） */
+export { floorLot, floorSellLot, getLimitPrices, getLotRule };

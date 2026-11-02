@@ -93,7 +93,7 @@ function clearKey() {
           <button v-if="apiKey" class="btn-key" @click="clearKey">清除</button>
         </span>
       </div>
-      <p class="setting-desc key-hint">Key 获取：fuyao.aicubes.cn/admin（同花顺账号登录后生成）</p>
+      <p class="setting-desc key-hint">Key 获取：fuyao.aicubes.cn/admin（同花顺账号登录后生成）。配置后用于：交易日历、标的检索、日/周/月 K 线、热榜；未配置或请求失败时自动回退腾讯数据源。</p>
     </div>
   </div>
 </template>

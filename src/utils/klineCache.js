@@ -3,6 +3,7 @@
  * 避免两个系统各自请求同一股票的日 K，也避免 30s 行情刷新触发高频 K 线请求。
  */
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "./fuyao.js";
 
 const KLINE_CACHE_TTL = 5 * 60 * 1000; // 日 K 缓存 5 分钟
 const KLINE_CACHE_MAX = 100;           // LRU 上限，防无界增长
@@ -21,7 +22,7 @@ export async function fetchDayKlineCached(code) {
     return cached.data;
   }
   try {
-    const data = await invoke("get_stock_kline", { code, period: "day" });
+    const data = await invoke("get_stock_kline", { code, period: "day", apiKey: getFuyaoKey() });
     if (Array.isArray(data) && data.length > 0) {
       if (cache.size >= KLINE_CACHE_MAX) {
         const oldest = cache.keys().next().value;

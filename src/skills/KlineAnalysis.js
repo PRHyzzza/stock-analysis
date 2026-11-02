@@ -3,6 +3,7 @@
  * 获取 K 线数据用于技术分析：均线、MACD、KDJ、RSI、布林带等
  */
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "../utils/fuyao.js";
 
 /** 最近 n 根收盘价均值（数据不足返回 null） */
 function maOf(bars, n) {
@@ -44,7 +45,7 @@ export default {
   toolImpl: {
     async get_stock_kline({ code, period }) {
       try {
-        const data = await invoke("get_stock_kline", { code, period });
+        const data = await invoke("get_stock_kline", { code, period, apiKey: getFuyaoKey() });
         if (!Array.isArray(data) || data.length === 0) {
           return `[空结果] ${code} ${period} 无 K 线数据`;
         }

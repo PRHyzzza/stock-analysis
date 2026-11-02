@@ -2,7 +2,7 @@ use crate::api::{
     call_llm as call_llm_api, fetch_hot_list, fetch_index_quote, fetch_industry_analysis,
     fetch_industry_name, fetch_intraday_data, fetch_kline_data, fetch_money_flow,
     fetch_money_flow_eastmoney, fetch_money_flow_history, fetch_search_results, fetch_stock_quote,
-    fetch_stock_quotes_batch, fetch_trading_days, parse_industry_analysis,
+    fetch_stock_quotes_batch, fetch_trading_days, fuyao, parse_industry_analysis,
 };
 use crate::db;
 use crate::types::{
@@ -24,6 +24,11 @@ where
     tauri::async_runtime::spawn_blocking(f)
         .await
         .map_err(|e| format!("{}任务执行失败: {}", what, e))?
+}
+
+/// 取出可用的同花顺 API Key（空串/纯空白视为未配置）
+fn fuyao_key(api_key: &Option<String>) -> Option<&str> {
+    api_key.as_deref().map(str::trim).filter(|k| !k.is_empty())
 }
 
 /// 用户画像持久化路径（app data dir 下的 user-profile.md）
@@ -70,10 +75,32 @@ pub async fn get_stock_kline(
     code: String,
     period: String,
     limit: Option<u32>,
+    api_key: Option<String>,
 ) -> Result<Vec<KlineItem>, String> {
     // 周期先归一化（白名单），落库也统一用规范值，避免 "DAY"/"day" 混成两份历史
     let period = crate::api::tencent::normalize_period(&period)?;
-    let items = fetch_kline_data(&code, period, limit).await?;
+    // 日/周/月：配了同花顺 Key 就走官方 K 线（前复权、最长 10 年、周月本地聚合）；
+    // 分钟 K 官方不提供，仍走腾讯。任何失败都降级到腾讯，绝不让图表空掉。
+    // 只对「6 位裸码 A 股」走同花顺：港股（5 位）与带 sh/sz 前缀的指数代码一律留在腾讯，
+    // 否则 `sh000001` 会被误当成 000001.SZ（平安银行）拉到完全错误的 K 线
+    let is_plain_a_share = {
+        let c = code.trim();
+        c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())
+    };
+    let items = match fuyao_key(&api_key) {
+        Some(key) if matches!(period, "day" | "week" | "month") && is_plain_a_share => {
+            let want = limit.unwrap_or(120).clamp(1, 1000);
+            match fuyao::fetch_kline(&code, period, want, key).await {
+                Ok(v) if !v.is_empty() => v,
+                Ok(_) => fetch_kline_data(&code, period, limit).await?,
+                Err(e) => {
+                    eprintln!("[fuyao] K 线降级到腾讯: {e}");
+                    fetch_kline_data(&code, period, limit).await?
+                }
+            }
+        }
+        _ => fetch_kline_data(&code, period, limit).await?,
+    };
     // 历史库是旁路：落库失败只记日志，不影响本次返回
     let code_for_db = code.clone();
     let period_for_db = period.to_string();
@@ -272,7 +299,18 @@ pub async fn get_stock_quotes_batch(codes: Vec<String>) -> Result<Vec<StockQuote
 
 /// 搜索股票
 #[tauri::command]
-pub async fn search_stocks(keyword: String) -> Result<Vec<SearchResult>, String> {
+pub async fn search_stocks(
+    keyword: String,
+    api_key: Option<String>,
+) -> Result<Vec<SearchResult>, String> {
+    // 同花顺搜索返回规范 thscode / 交易所，能区分沪深北；无 Key 或失败回退腾讯联想
+    if let Some(key) = fuyao_key(&api_key) {
+        match fuyao::fetch_search(&keyword, key, 10).await {
+            Ok(items) if !items.is_empty() => return Ok(items),
+            Ok(_) => {}
+            Err(e) => eprintln!("[fuyao] 搜索降级到腾讯: {e}"),
+        }
+    }
     fetch_search_results(&keyword).await
 }
 
@@ -328,7 +366,15 @@ pub async fn get_stock_money_flow_history(
 
 /// 获取热榜数据
 #[tauri::command]
-pub async fn get_hot_list() -> Result<HotListData, String> {
+pub async fn get_hot_list(api_key: Option<String>) -> Result<HotListData, String> {
+    // 官方榜单替代抓 10jqka 页面；官方挂了/无 Key 时回退旧实现
+    if let Some(key) = fuyao_key(&api_key) {
+        match fuyao::fetch_hot_list(key, 50).await {
+            Ok(v) if !v.stock_list.is_empty() => return Ok(v),
+            Ok(_) => {}
+            Err(e) => eprintln!("[fuyao] 热榜降级到 10jqka: {e}"),
+        }
+    }
     fetch_hot_list().await
 }
 

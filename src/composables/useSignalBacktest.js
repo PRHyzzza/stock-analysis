@@ -13,6 +13,7 @@
  */
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "../utils/fuyao.js";
 import { calcMACD, calcKDJ, calcRSI } from "./useTechIndicators.js";
 import { calcSupportResistance } from "./useSupportResistance.js";
 import { getLimitPct } from "../utils/limit.js";
@@ -381,7 +382,7 @@ export function useSignalBacktest() {
         syncing.value = true;
         try {
           // 该命令落库为旁路，返回远端全量 K 线（含比本地更早的历史）
-          const remote = await invoke("get_stock_kline", { code, period: "day" });
+          const remote = await invoke("get_stock_kline", { code, period: "day", apiKey: getFuyaoKey() });
           if (mySeq !== loadSeq) return;
           if (Array.isArray(remote) && remote.length > bars.length) bars = remote;
         } catch (e) {

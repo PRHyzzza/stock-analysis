@@ -16,8 +16,8 @@ stock-analysis/
 │   ├── composables/            34 个（§3.1）
 │   ├── skills/                 12 skill / 17 工具（§3.2）
 │   ├── prompts/                system-prompt.md（AI 提示词模板，§3.4）
-│   └── utils/                  format（数值/涨跌色/千分位统一入口）/ market（市场与代码判定唯一入口 isHKCode·isBJCode·inferMarket）/ marketTime（交易日历+时段）/ limit（涨跌停按板块，ST 与所属板块一致、无需名称）/ refreshInterval（轮询降频唯一入口，§7.29）/ indicators（EMA 等指标统一预热口径）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）/ paperFees（模拟盘费用：佣金万2.5、最低5元、印花税卖出0.05%、过户费双向）/ paperRules（模拟盘可回测的日线规则集，复用 useSignalBacktest.analyzeBars）/ paperEngine（模拟盘撮合引擎：信号→次日开盘成交、T+1、涨跌停不成交、滑点、费用、净值序列，§7.35）/ paperScore（模拟盘选股打分：趋势/位置/动量/量能/MACD/RSI 六因子满分 100，K 线不足 60 根不打分，§7.35）/ paperAuto（模拟盘自动选股的纯逻辑：运行时刻判定、多策略命中合并、池更新模式，§7.36）
-├── scripts/                    本地诊断与 node:test 用例（diagnose-intraday / indicator-tightness.test / trap-signals.test / paper-engine.test / paper-score.test / paper-auto.test，`pnpm test`）
+│   └── utils/                  format（数值/涨跌色/千分位统一入口）/ market（市场与代码判定唯一入口 isHKCode·isBJCode·inferMarket）/ marketTime（交易日历+时段）/ limit（涨跌停按板块，ST 与所属板块一致、无需名称）/ refreshInterval（轮询降频唯一入口，§7.29）/ indicators（EMA 等指标统一预热口径）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）/ paperFees（模拟盘费用：佣金万2.5、最低5元、印花税卖出0.05%、过户费双向）/ paperRules（模拟盘交易规则：最小下单单位按板块、涨跌停价、可成交判定、成交价=最新价±滑点）/ paperEngine（手动模拟盘引擎：下单预校验+即时成交+记账，费用/手数/T+1/涨跌停/停牌/净值，FIFO 批次与平仓配对，账户 v1→v2 迁移，§7.35）/ paperReview（复盘统计：FIFO 归因按持有期·战法·参考分，隔夜缺口）/ fuyao（前端侧同花顺 Key 取值：`getFuyaoKey` / `withFuyaoKey`，命令需 Key 时统一从这里取，禁止各调用点自己读 localStorage） / scoreMath（打分体系共用 clamp/round1/分段插值/ATR，避免 paperScore 与 paperPatterns 各写一份）/ paperScore（模拟盘选股打分：趋势/位置/动量/量能/MACD/RSI 六因子满分 100，因子用分段线性连续计分；另叠加追高·波动·放量滞涨·长上影风险扣分（≤30），K 线不足 60 根不打分，§7.35）/ paperPatterns（模拟盘战法识别：趋势跟随·一进二·突破缩量·低吸放量，日线可判、纯逻辑，命中 ≥2 个给共振加成，§7.35）
+├── scripts/                    本地诊断与 node:test 用例（diagnose-intraday / indicator-tightness.test / trap-signals.test / paper-engine.test / paper-score.test / paper-patterns.test / paper-review.test，`pnpm test`）
 ├── .github/
 │   ├── workflows/ci.yml         CI：pnpm build + pnpm test + cargo test（PR/push 自动跑）
 │   └── copilot-instructions.md  Copilot 摘要（细节以本文档为准）
@@ -60,8 +60,8 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `useIwencaiRobot` + `iwencaiClient` | 问财窗口 + 共享凭证模块（chameleon.js 生成 Cookie v、403 换 v、LRU 50 缓存，**缓存 key = 归一化问题 + perpage**——服务端忽略 page、perpage 决定行数，故不能只按问题缓存；窗口与 AI 工具共用） | `get_iwencai_robot` |
 | `useSignalBacktest` | 信号回测：读本地日 K 跑 8 条日线规则 × 4 持有期（非重叠交易，口径见 §7.19），本地不足 60 根或手动同步时补拉远端一次并落库；纯函数 `analyzeBars(bars, code)` 可单测；返回值另含每条规则的**当前状态**（`active` 末根是否触发 / `barsAgo` 距今天数 / `lastHitDate`），供面板「当前状态」区显示 | `get_kline_history` / `get_db_stats`（+ `get_stock_kline`） |
 | `useSignalHistory` | 历史信号胜率：读本地库 `signal_event`（**此前只写不读**）+ 逐只取日 K，按信号方向算 1/3/5/10 日持有期胜率 / 平均收益 / 盈亏比。纯函数 `inferDirection` / `forwardReturn` / `summarizeSamples` 可单测。与 `useSignalBacktest` 的区别和口径要求见 §7.26 | `get_signal_events` / `get_kline_history` |
-| `usePaperAccount` | 模拟盘（**单例**，§7.12）：选股池 + 资金账户 + 每日向前累积跑批。池与账户存 localStorage（`stock-analysis-paper-pool` / `-paper-account`）；跑批时逐只取本地日 K（不足 60 根补拉远端一次），按 `tradingDates` 逐日 `stepDay` 累积，`runSeq` 代际守卫防换池竞态；池可来自问财窗口（跨窗口只能靠 `reloadPool()` 从 localStorage 重读）、手动添加或**自动选股**；`latestCloses` 仅供展示参考价。另含自动选股部分：`autoConfig` / `lastAuto` / `runAuto()` / `setPool()` / `autoDoneOn()`，配置落 `stock-analysis-paper-auto`，口径见 §7.36 | `get_kline_history`（+ `get_stock_kline`） |
-| `usePaperAutoRun` | 模拟盘自动运行调度器（**单例**）：1min tick（间隔走 `refreshInterval.effectiveInterval`）→ `shouldRunAuto` 判定 → 逐条顺序查问财（`queryIwencai`，不并发以免 403）→ `runAuto`（先换池再跑批）→ 系统通知。`App.vue` 主窗口 `onMounted` 启动、`onUnmounted` 停止，子窗口不启动（多窗口会重复下单）。失败 15min 退避重试、成功当天不再跑（跨重启靠 localStorage）。口径见 §7.36 | `get_iwencai_robot`（经 `iwencaiClient`） |
+| `usePaperAccount` | 手动模拟盘账户（**单例**，§7.12）：现金/持仓/成交/净值 + 自选池。账户与自选存 localStorage（`stock-analysis-paper-account` / `-paper-pool`），**不落 SQLite、不进 AI 上下文**；下单前取实时行情（`get_stock_quote`）→ `previewOrder` 校验（资金/手数/涨跌停/T+1）→ `applyOrder` 即时成交 → `refreshNav` 记当日快照；持仓报价走 `get_stock_quotes_batch`，缺价标 `partial` 不写假点。旧 v1 账户由 `migrateAccount` 自动迁移（保留资金/持仓/成交/净值/池，丢弃 `pending`/`runs`）。参考打分走 `loadScore`（本地日 K 优先，不足 60 根不评分）；`maybeRecordNav()` 5 分钟节流补净值点（只记账不下单，盘外跳过）；`exportLedger`/`importLedger` 账本 JSON 备份（导入整份校验，不做部分导入）；`review`/`loadOvernightReview` 复盘 | `get_stock_quote` / `get_stock_quotes_batch` / `get_kline_history`（+ `get_stock_kline`） |
+
 
 **纯计算**：`useTechIndicators`（MACD/KDJ/RSI/WR，交叉信号标注「N 根前」；AI 预计算注入复用）、`useChipDistribution`（筹码：最近 ≤480 根 K 线按价格分布，档位自适应保证每档 ≥0.01 元；**日K + 有换手率时按换手率衰减**——各根换手率 = 最新换手率 ×（该根量 ÷ 最新根量），无需流通股本，逐根留存系数 = 1 − 衰减系数×该根换手率，衰减系数默认 1；其余周期/缺换手率则不衰减并在 UI/AI 标注）、`useSupportResistance`（支撑/阻力）、`useT0Signals` + `useTrapSignals` + `useVolumeSignals`（T+0 信号/量价陷阱/量价信号，细节见文件注释；**趋势与 MACD 背离只吃日K**——非日K周期经 `klineCache` 取日K，取不到则跳过并披露）、`aiContext`（提示词构建，§3.4；周期口径随 `klinePeriod` 注入）
 
@@ -97,8 +97,8 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——落库全部走旁路（§7.18）；表结构 / 保留期 / 日期口径见 §4.4
 - **历史信号胜率面板**: `SignalHistoryModal.vue` + `useSignalHistory.js` — 消费此前只写不读的 `signal_event`：把**真实落库过的**信号与之后真实走出的日 K 对照，给 1/3/5/10 日持有期的胜率 / 平均收益 / 盈亏比，并按信号名与股票分组。**胜负按信号方向判定**（看涨信号涨了算胜、看跌信号跌了算胜），方向未知的不计入胜率并单独披露；缺价格 / 缺日 K / 持有期超出 K 线长度的样本一律排除并展示覆盖度。口径与标注要求见 §7.26
 - **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），非重叠交易统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；顶部另有**当前状态**区（截至 `asOf` 末根 K 线，按「现在成立 / 近 10 日内出现过 / 未触发」分组，只含上述 8 条可回测规则），口径与标注要求见 §7.19
-- **模拟盘（选股驱动 · 每日向前累积）**: `PaperTradingModal.vue` + `usePaperAccount.js` + `utils/paperEngine.js` / `paperRules.js` / `paperFees.js` / `paperScore.js` — 选股池（问财窗口「加入模拟盘」/ 详情页按钮 / 手动输码）→ **每个交易日收盘**按 6 因子打分（趋势 25 / 位置 20 / 动量 20 / 量能 15 / MACD 10 / RSI 10，满分 100）→ 取**达标分数前 N 只** → **次日开盘**按开盘价 + 滑点撮合，T+1、涨跌停/停牌不成交、计全额费用（佣金万2.5 最低 5 元 + 印花税卖出 0.05% + 过户费双向 0.001%），逐日累积净值曲线与成交/运行日志；账户与选股池是**本地 localStorage 单例**，不写 SQLite 也不进 AI 上下文。引擎是纯函数（可单测、无前视），口径与标注要求见 §7.35
-- **模拟盘自动选股（每日定时）**: `usePaperAutoRun.js`（调度）+ `utils/paperAuto.js`（判定纯逻辑）+ 面板「自动选股」标签页 — 用户保存若干**问财策略语句**，主窗口每 1min tick 判定「已启用 / 有策略 / 是交易日 / 已过运行时刻（默认 15:30，收盘后日 K 稳定）/ 当天没跑过（幂等落 localStorage）」，满足则**逐条顺序**跑问财 → 命中合并去重 → 按 `replace`（跟随策略，当日命中即当日池）或 `merge`（只增不减）更新选股池 → 立刻 `runForward` 向前累积 → 系统通知（不写 `alert_event`）。空命中绝不清池、失败 15min 退避、只在主窗口跑（子窗口会重复下单）。口径见 §7.36
+- **模拟盘（手动交易）**: `PaperTradingModal.vue` + `usePaperAccount.js` + `utils/paperEngine.js` / `paperRules.js` / `paperFees.js` / `paperScore.js` / `paperPatterns.js` — 你在「总览」输入代码（或从持仓/自选点买卖）→ 按**下单那一刻的最新价 ± 滑点**即时成交 → 记账（现金/持仓/成交/净值快照）。**没有自动选股、没有委托队列、没有定时任务、没有自动止盈止损**。校验：只在交易时段可下单、涨停不买跌停不卖、最小下单单位按板块、A 股 T+1（当日买入锁定）、全额费用（佣金万2.5 最低 5 元 + 印花税卖出 0.05% + 过户费双向 0.001%）。6 因子打分 + 风险扣分 + 5 战法识别（趋势跟随 / 一进二 / 突破缩量 / 低吸放量 / 一夜持股）保留为**参考信息**，不参与任何成交判定。另有：复盘页（FIFO 归因按持有期/战法/参考分 + 隔夜缺口）、账本 JSON 导出导入、持仓「今日盈亏」列、大额买入二次确认、按金额下单。账户与自选池是 localStorage 单例。引擎是纯函数（可单测），口径见 §7.35
+
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **K线周期口径**: `utils/klinePeriod.js` 是周期标签 / 均线口径 / 非日K提示的唯一真源（§7.21）；技术分析、AI 分析、筹码弹窗均按当前周期标注口径，T+0 趋势与 MACD 背离只吃日K
 - **全局设置**: 5 标签页实时生效
@@ -130,10 +130,11 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 
 | 命令 | 数据源 | 说明 |
 |------|--------|------|
-| `get_stock_quote(s_batch)` / `get_stock_kline` / `get_stock_intraday` | Tencent | 行情 / 批量（A 股 50 只/批，港股 `buffer_unordered(4)` 并发但**按输入下标保序回填**，单批失败不再丢整批）/ K线（日周月+分钟，§4.2；可选 `limit` 夹到 1..=1000、默认 120、分钟线再 `min(320)`；`period` 走白名单，未知值不再静默落 `qfqday`）/ 分时 |
+| `get_stock_quote(s_batch)` / `get_stock_intraday` | Tencent | 行情 / 批量（A 股 50 只/批，港股 `buffer_unordered(4)` 并发但**按输入下标保序回填**，单批失败不再丢整批）/ K线（日周月+分钟，§4.2；可选 `limit` 夹到 1..=1000、默认 120、分钟线再 `min(320)`；`period` 走白名单，未知值不再静默落 `qfqday`）/ 分时 |
 | `get_stock_money_flow(_history)` | Tencent → 东财备选 | 资金 5 档 / 近 N 日历史（默认 30，万元，升序勿反转；双数据源 §7.4） |
 | `get_stock_industry` / `get_market_indices` | 东财 / Tencent | 行业（港股空）/ 六大指数（上证/深证/创业板/沪深300/科创50/中证500，失败兜底真实名称） |
-| `search_stocks` / `get_hot_list` | Tencent / 同花顺 | 搜索 / 热榜 |
+| `get_stock_kline` | Fuyao（有 Key，日/周/月）→ Tencent（分钟 K 与降级） | 前复权日 K 最长 10 年；周/月由日 K 本地聚合（周标签=该周最后一个交易日）；分钟 K 官方不提供，恒走腾讯 |
+| `search_stocks` / `get_hot_list` | Fuyao（有 Key）→ Tencent / 10jqka | 检索返回规范 thscode+交易所（沪深北可区分）；热榜走官方日榜并用批量快照补涨跌幅，失败回退抓 10jqka |
 | `get_trading_calendar` | 同花顺 Fuyao | A 股交易日历（近一年，`yyyy-MM-dd` 升序；需 `X-api-key`，无 Key 报 `[NO_API_KEY]`） |
 | `call_llm` / `call_llm_stream` | DeepSeek | 非流式 / SSE 流式（§4.2）；可选 `max_tokens`（前端 invoke 传 camelCase `maxTokens`；缺省 393216，>393216 夹到 393216） |
 | `read/save_user_profile` / `web_search` / `web_fetch` / `get_fx_rate` | 本地 / 东财 / URL / Frankfurter | 画像 / 新闻搜索 / 正文抓取（SSRF 防护 §4.2）/ 汇率 |
@@ -154,6 +155,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `iwencai.rs` | UTF-8 | 路径 `data.answer[0].txt[0].content.components[0].data`；**同 v 4-6 次 → 403（换 v 恢复）；带 condition 必 403**；风控带 `[RATE_LIMITED]` 标记 |
 | `hotlist.rs` | UTF-8 | JSON API |
 | `calendar.rs` | UTF-8 | 同花顺 Fuyao：需 `X-api-key`；**无参数**，固定返回 `[今日-1年, 今日]` 交易日（`yyyyMMdd` → 转 `yyyy-MM-dd` 升序去重）；**仅 A 股，无港股**；业务错误走 HTTP 200 + `code≠0`（2001 无 Key / 2003 无权限 / 4001 限流） |
+| `fuyao.rs` | UTF-8 | 同花顺官方 REST（`https://fuyao.aicubes.cn`，需 `X-api-key`）：标的检索 / 历史日 K（仅 `1d`，周月**本地聚合**）/ 热榜。**单位约定**：`volume` 股→手（÷100）；`KlineItem.turnover` 恒 0（不引入第二套成交额单位）；快照不返回 `name`/换手率/PE/振幅，故实时行情**不**走 Fuyao。业务错误码 2001/2003/4001 与 `calendar.rs` 同口径 |
 
 ### 4.3 代码转换 (helpers.rs)
 
@@ -277,31 +279,38 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
 32. **Rust 侧不阻塞 async 运行时**: 所有触 DB（同步 rusqlite + 全局 `Mutex`）与本地文件 IO 的命令必须经 `commands.rs` 的 `blocking()`（`tauri::async_runtime::spawn_blocking`）后再 `.await`，禁止在 async 命令体里直接锁 DB 或 `std::fs`（`MutexGuard` 也不能跨 `await`）。同理禁止在命令体里 `std::thread::sleep` / 同步重活
 33. **流式终态必须可判定**: `call_llm_stream` 用 `DoneGuard` 保证每轮**恰好一次** `llm-done`——正常 `{}`，中断 `{status:"partial", partial:true, reason, warning}`；前端 `llmClient` 必须把 `status==="partial"`（或旧版 `warning`）转成 `interrupted`，上层据此标「已中断，内容可能不完整」并允许重试。**禁止**把半截回答静默当成功收尾
 34. **外部 URL 抓取必须钉 IP**: `web_fetch` 先解析并校验全部地址（任一私网即拒），再用 `resolve_to_addrs` 把已校验 IP 钉进 client，重定向手动逐跳（≤5 跳、禁跨主机、每跳复检+重新钉 IP）；主机名用 `url::Url` 解析（兼容 `[::1]`），`is_private_ip` 必须覆盖 IPv4-mapped IPv6。理由：先校验后由 reqwest 二次解析存在 DNS 重绑定窗口
-35. **模拟盘口径必须无前视、且与回测面板区分**:
-    - **成交时点**：信号在 **D 日收盘**用 `analyzeBars` 判定（只吃 D 日及之前的 K 线），委托**次日 D+1 开盘价**成交（`settlePending`）。**禁止用信号日的收盘价/最低价成交**——那是前视偏差，会让模拟收益显著虚高
-    - **不可成交必须如实跳过，不许追单**：一字涨停买不进、一字跌停卖不出、停牌无 K 线，都记 `skipped` + 原因（`canFill`，涨跌停幅度走 `utils/limit.js`，不传名称）；连续 3 个交易日无行情则委托作废。宁可少成交也不假成交
-    - **费用一律计入**：`paperFees.js` 为唯一口径（佣金万 2.5 且最低 5 元、印花税仅卖出 0.05%、过户费双向 0.001%），`DEFAULT_FEE_CONFIG` 与 UI 默认值必须同源；`buyCost`/`sellProceeds` 的现金方向（买入为支出、卖出为净回款）不得写反——同价往返必然亏损，任何「同价往返不亏」的结果都说明费用漏算
+35. **模拟盘是手动交易：成交与记账口径必须诚实**:
+    - **只做手动交易，禁止再引入自动下单**：用户点「买入/卖出」才成交。不得恢复「每日跑批 / 自动选股 / 按分数自动买入 / 自动止盈止损」——那套口径（D 日收盘打分 → 次日开盘撮合）已随 v1 账户一并废弃，引擎里不再有 `pending` 委托队列与 `runs` 日志
+    - **成交价 = 下单那一刻的最新价 ± 单边滑点**（`paperRules.fillPrice`，夹在当日最高/最低与涨跌停之间）。**禁止**用面板打开时的旧价、或日 K 收盘价成交——前者是过期价，后者等于事后成交
+    - **只在交易时段可下单**：`marketTime.getMarketStatus()` 的 `state === "open"` 才允许；判定只走该模块，禁止组件手写 9:30/15:00，也禁止引擎自己读时钟（纯函数才能被单测）
+    - **涨停不可买、跌停不可卖**：`getLimitPrices(code, 昨收)`，涨跌停幅度只走 `utils/limit.js`（不传名称）。宁可少成交，也不假装在板上成交
+    - **费用一律计入**：`paperFees.js` 为唯一口径（佣金万 2.5 且最低 5 元、印花税仅卖出 0.05%、过户费双向 0.001%），`DEFAULT_FEE_CONFIG` 与 UI 默认值必须同源；`buyCost`/`sellProceeds` 的现金方向不得写反——同价往返必然亏损，任何「同价往返不亏」都说明费用漏算
     - **最小下单单位按板块**：主板/创业板 100 股整数倍，科创板 200 股起后按 1 股递增，北交所 100 股起后按 1 股递增；卖出允许零股一次性清仓。**不得统一按 100 股取整**
-    - **缺价不许用成本价冒充**：持仓在当前日缺收盘价时标 `partial` 并计入 `missing`，`dayChangePct` 置 `null`（同 §7.24）
-    - **与 `useSignalBacktest` 的口径差异必须写明**：回测面板是「信号日收盘买入 / 持有 N 日收盘卖出 / 不计费用」；模拟盘是「次日开盘 + 滑点 / 计全额费用 / 实际撮合约束」。两处数字**不可直接比较**，模拟盘天然更难看——正因如此它才有参考价值。UI 必须标注「非重叠交易 + 固定持有期 + 样本 <10 笔仅供参考」
-    - **存储边界**：模拟盘账户/选股池只存 localStorage（`stock-analysis-paper-account` / `-paper-pool`），**不落 SQLite、不注入 AI 上下文**；跨窗口（问财独立窗口）共享只能靠打开面板时 `reloadPool()` 重读，禁止假设响应式状态跨窗口同步
-    - **日期口径**：一律 `marketTime.getToday()` 的本地日期字符串，禁止 `toISOString()`（§7.13）；`nav`/`runs`/`trades` 只增不改，重置账户必须显式确认（两次点击）
-    - **买入只由打分决定，规则触发降为「信号确认」**：`paperScore.scoreBars` 用 6 个因子（趋势 25 / 位置 20 / 动量 20 / 量能 15 / MACD 10 / RSI 10，满分合计 100）打分，`planEntries` 只买 `score >= config.minScore` 且按分数**降序**取前 `config.maxPicks` 只。**禁止**退回到「规则触发即买 / 按触发规则条数优先」——旧口径下门槛形同虚设，每日名额先被弱信号占满（实测 250 日 −23% 回撤、胜率 35.6%）。打分所用的 K 线必须**先截断到 signalDate**（`scoreWindow`/`stepDay` 内的 `sliceToDate`），否则就是前视偏差
-    - **K 线不足 60 根不打分、不买入**：`scoreBars` 返回 `enough:false` 且 `score:0`，不得用 0 分 K 线凑数、也不得因规则命中就放行。分数必须落在 0-100 且各分项不超自身权重（`scripts/paper-score.test.mjs` 已锁）
-    - **打分结果必须可见**：`runs[].scores`（当日分数前 10）与 `runs[].picked`（入选 + 分数）落进运行日志，`trades[].score` 记在成交上，总览有「最近一次打分排名」卡片。理由：按分数选股若不给用户看分数，「为什么买这只」就无法复盘，用户只能看到结果
-36. **模拟盘自动选股必须「到点才跑、跑过不再跑、失败不清池」**:
-    - **判定顺序与短路**：`paperAuto.shouldRunAuto` 依次查「已启用 → 有启用策略 → 当天是交易日（`marketTime.getMarketStatus()`，不传 code 即 A 股口径）→ 已过 `time` → 当天没跑过」。任一不满足直接返回 `{run:false, reason}`，UI 要能显示 `reason`（回答「为什么今天还没跑」）
-    - **幂等靠 localStorage 而非内存**：`lastAuto.date` 落 `stock-analysis-paper-auto-result`，重启后当天仍然不重跑。**禁止**只用一个内存变量判重——那会让「反复开关应用」变成反复跑批
-    - **手动「立即执行一次」只在运行时刻之后才顶替当天任务**：`autoDoneOn(date, now)` 对 `manual: true` 的记录额外校验「该次运行是否已过 `time`」——上午 10:00 手动验证策略不该顶替收盘后那次跑批（否则当天收盘数据要等第二天才进账），收盘后手动跑过则等价于当天任务，不必再让定时器重复打问财、重复拉全池日 K。手动运行照常记录结果、但不发系统通知（用户正在看面板）
-    - **先更新池、再跑批**（`runAuto` 内部顺序）：反过来的话今天新选出的票要等到明天才被引擎看到
-    - **空命中绝不清池**：`applyPoolMode` 在 `hits` 为空时原样返回旧池并置 `skipped=true`，`setPool([])` 直接拒绝写入。理由：「策略今天命中 0 只」和「问财挂了」在调用侧无法区分，用空集合覆盖会让引擎把全部持仓当池外（只卖不买）
-    - **策略逐条顺序查**：并发打问财极易 403 限流；一条都没成功则本轮**不更新池**，只记失败
-    - **定时器只在主窗口**（`usePaperAutoRun.start()` 由 `App.vue` 的 `onMounted` 调用，子窗口早退）：多窗口各跑一份会重复下单。tick 间隔走 `refreshInterval.effectiveInterval`（§7.29），但窗口不可见**不阻止执行**——自动跑批与行情轮询不同
-    - **失败退避**：失败不记日期，`AUTO_RETRY_MS`（15 分钟）后重试，避免每分钟打问财被限流。成功通知不传 `meta`（不往 `alert_event` 写假价格提醒）
-    - **存储键**：`stock-analysis-paper-auto`（配置）/ `stock-analysis-paper-auto-result`（最近结果）。与账户同属 localStorage 边界，**不落 SQLite、不进 AI 上下文**（同 §7.35）
-37. **所有 HTTP JSON 响应必须经 `api::read_json` 读，禁止裸 `resp.json()`**:
+    - **T+1 按锁定股数精确记账**：当日买入记 `lockedDate` / `lockedShares`，最多只能卖「持仓 − 当日买入」；**禁止**用 `openDate === date` 一刀切——那会让「昨天买 500 股、今天加 300 股」变成连昨仓都卖不了。次日自动解锁
+    - **净值是快照，不是收盘价**：`recordNav` 同一交易日覆盖，当天点 = 最近一次刷新（打开面板 / 成交后）的权益快照；非交易日不记点；持仓缺价时**不写点**（不拿成本价冒充，同 §7.24），UI 标 `partial`。禁止把净值曲线描述成「收盘净值」
+    - **停牌必须拒单**：`previewOrder` 要校验成交量（`quote.volume <= 0` → 「疑似停牌，今日无法成交」）。腾讯对停牌股仍可能返回昨收价，只判 `price > 0` 会让你「买到一只当天根本没成交的票」；行情里**没有** `volume` 字段时不拦，避免误判
+    - **FIFO 批次是复盘的基础**：买入写入 `positions[].lots`（含含费成本 `costPerShare` 与下单时的 `meta`），卖出按先买先出消耗并生成 `trades[].matches`（买入日 / 持有天数 / 盈亏 / 战法）。`realized` 必须等于 `matches` 盈亏之和；**禁止**退回加权平均成本——那样算不出持有天数，也无法按战法归因。老持仓没有 `lots` 时补一个整体批次，**不得伪造**历史配对
+    - **复盘口径**（`paperReview.summarizeMatches` / `overnightGaps`）：只统计带 `matches` 的卖出，老成交单列 `legacySells` 且不进胜率；战法归因取买入时**首个**战法（一笔只落一个桶，禁止重复计数）；平盘不进分母；样本 <10 标「不足」。隔夜缺口只在用户点「计算」时才拉日 K（逐只串行），取买入日之后**第一根** K 线的开盘价，缺 K 线记 `missing`，不猜价格
+    - **账本必须可导出**：`exportLedger()` 输出 `{app,type,version,exportedAt,account,pool}`；`importLedger()` 只接受 `migrateAccount` 认得出且持仓/成交为数组的结构，**整份拒绝**、不做部分导入（半套数据比没有数据更危险），覆盖前要两次点击确认
+    - **净值补点只记账、不下单**：`maybeRecordNav()` 5 分钟节流，只在盘中或收盘后 1 小时窗口内记点；非交易日、盘外、持仓缺价一律不写点。禁止借它做任何交易动作（手动交易的前提不能被「自动记账」偷偷扩大）
+    - **存储边界**：账户与自选只存 localStorage（`stock-analysis-paper-account` / `-paper-pool`），**不落 SQLite、不注入 AI 上下文**；跨窗口（问财独立窗口）共享只能靠打开面板时 `reloadPool()` 重读，禁止假设跨窗口响应式同步
+    - **日期口径**：一律 `marketTime.getToday()` 的本地日期字符串，禁止 `toISOString()`（§7.13）；`trades`/`nav` 只增不改，重置账户必须显式确认（两次点击）
+    - **账户版本迁移必须保留数据**：`ACCOUNT_VERSION = 2`；`migrateAccount` 读到 v1 账户要保留资金/持仓/成交/净值/自选，丢弃 `pending`/`runs`/`lastRunDate` 并置 `migratedFrom` 供 UI 提示一次。**禁止**遇到版本不符就静默新建账户（那是直接丢用户数据）
+    - **打分与战法只做参考，不得参与成交**：`paperScore` / `paperPatterns` 保留 6 因子、风险扣分与 5 战法识别，仅在面板「参考打分」卡展示；**禁止**用它拦截或触发下单。打分的连续计分、扣分上限、战法硬条件仍受本节各条约束，改动需同步 `scripts/paper-score.test.mjs` / `paper-patterns.test.mjs`
+    - **「一夜持股」只识别形态，不产生委托**：手动盘里「尾盘买、次日开盘卖」由用户自己下单，战法层只判断当日收盘形态是否适合持股过夜（硬条件：收阳 + 收盘在当日振幅 ≥65% 处 + 未涨停；涨停尾盘买不进，次日溢价日线无法判断）。它**不计入共振加成**（`countsForResonance: false`）——它描述持有节奏而非选股强度，计入会让每个「趋势里的强势收盘」无差别 +3，加成失去区分度；UI 命中时要提示「尾盘买、次日开盘卖」，且必须写明是形态识别、不是买卖建议
+    - **不得与回测面板混比**：回测面板是「信号日收盘买 / 持有 N 日收盘卖 / 不计费用」；模拟盘是「实时价 + 滑点 + 全额费用 + T+1」。两处数字**不可直接比较**，UI 必须并列披露
+36. **所有 HTTP JSON 响应必须经 `api::read_json` 读，禁止裸 `resp.json()`**:
     - 统一的 `api/mod.rs::read_json(resp, what)` 会**先校验 HTTP 状态码再解析**：非 2xx 报 `{what} HTTP {status}（响应非 JSON）: <响应体前 160 字>`，2xx 但解析失败报 `{what} JSON 解析失败: <err> | 原始响应: <前 160 字>`
     - 理由：行情接口被 WAF/网关拦截时返回的是 **HTTP 4xx/5xx + HTML 拦截页**，裸 `resp.json()` 只会抛 `error decoding response body`——把「被拦截」误报成「数据格式错」，把排查方向带偏（2026-10 腾讯 `web.ifzq.gtimg.cn` 的 `fqkline` 被 WAF 501 拦截就是这么被误报成 JSON 解析失败的）
-    - 已接入：`tencent.rs`（港股实时行情 / K 线 / 分时 / 汇率）、`eastmoney.rs`（行业分析）、`hotlist.rs`（热榜）。**新增数据源必须走同一入口**，并在 `what` 里写清是哪个数据（错误信息要能定位到接口）
+    - 已接入：`tencent.rs`（港股实时行情 / K 线 / 分时 / 汇率）、`eastmoney.rs`（行业分析）、`hotlist.rs`（热榜）、`fuyao.rs`（检索 / 日 K / 热榜 / 日历）。**新增数据源必须走同一入口**，并在 `what` 里写清是哪个数据（错误信息要能定位到接口）
     - 例外：`calendar.rs` 需要自己区分 401/403/429 业务语义（`[INVALID_KEY]`/`[RATE_LIMITED]`），保留自带的状态码分支；`llm.rs` 走流式响应，不适用
+37. **外部数据源「官方 API 优先、腾讯兜底」，同一份数据禁止两套口径**:
+    - **分工固定**（改动必须同时更新本节与 §4.2 / 命令表）：同花顺 Fuyao（需 `X-api-key`）—— 标的检索、日/周/月 K、热榜、交易日历；腾讯 —— 实时行情（含名称/换手率/PE/振幅）、分时、分钟 K、指数，以及 Fuyao 不可用时的**全部**兜底；东财 —— 行业与资金流备选；问财 —— 选股
+    - **有 Key 才走 Fuyao，失败必须降级**：`commands.rs` 用 `fuyao_key()` 判空，调用失败打印 `[fuyao] … 降级到腾讯` 后回退；**禁止**让「无 Key / 接口挂了」表现为图表空白或热榜为空
+    - **实时行情不许换 Fuyao**：官方快照不返回 `name` / 换手率 / PE / 振幅，替换会让行情卡与 AI 上下文缺字段——那是降级，不是标准化
+    - **单位只认一套**：Fuyao `volume` 是**股**，进入 `KlineItem` 前 ÷100 转手；`KlineItem.turnover` 恒 0（腾讯日 K 无该字段，全项目按 `volume×close` 兜底），**禁止**在 Fuyao 支路单独改成元
+    - **周/月 K 由日 K 本地聚合**（官方仅 `1d`）：open 取首、close 取末、high/low 取极值、volume 求和，周标签取该周**最后一个交易日**；聚合必须在 `fuyao::aggregate` 内并有单测
+    - **代码格式**：内部一律 6 位裸码；thscode 只在 Rust 侧 `fuyao::to_thscode` 生成（43/82/83/87/88/92 → BJ、6/9 → SH、其余 SZ），前端禁止传带后缀代码
+    - **Key 只在本地**：存 localStorage `stock-analysis-fuyao-api-key`（与交易日历共用），前端统一经 `utils/fuyao.js` 的 `getFuyaoKey()` 读取；**禁止**写进源码、配置文件、日志或提交记录
+    - **主力资金不接 Fuyao**：官方文档明确「当前不作为端外接入入口」
 

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "../utils/fuyao.js";
 import { inferMarket } from "../utils/market";
 import { effectiveInterval, onIntervalModeChange } from "../utils/refreshInterval";
 
@@ -35,7 +36,7 @@ async function loadHotList() {
   loading.value = true;
   error.value = "";
   try {
-    const data = await invoke("get_hot_list");
+    const data = await invoke("get_hot_list", { apiKey: getFuyaoKey() });
     hotList.value = data.stock_list || [];
   } catch (e) {
     error.value = String(e);

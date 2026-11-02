@@ -1,6 +1,7 @@
 <script setup>
 import { onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "../utils/fuyao.js";
 import { useAiAnalysis } from "../composables/useAiAnalysis";
 import { HOT_STOCK_LIMIT } from "../composables/aiContext";
 import AiApiKeySetup from "./ai/AiApiKeySetup.vue";
@@ -88,7 +89,7 @@ async function analyzeHotList() {
   const round = ++hotScanRound;
   try {
     // 1. 获取热榜（全部股票）
-    const hot = await invoke("get_hot_list");
+    const hot = await invoke("get_hot_list", { apiKey: getFuyaoKey() });
     const list = hot.stock_list || [];
     if (round !== hotScanRound) return;
     if (!list.length) {
@@ -115,7 +116,7 @@ async function analyzeHotList() {
     const flowMap = new Map(scanCodes.map((c, i) => [c, flows[i]]));
 
     const klines = await mapLimit(scanCodes, 6, (code) =>
-      round !== hotScanRound ? null : invoke("get_stock_kline", { code, period: "day" })
+      round !== hotScanRound ? null : invoke("get_stock_kline", { code, period: "day", apiKey: getFuyaoKey() })
     );
     if (round !== hotScanRound) return;
     const klineMap = new Map(scanCodes.map((c, i) => [c, klines[i]]));

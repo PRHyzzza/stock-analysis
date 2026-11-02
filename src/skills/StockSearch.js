@@ -4,6 +4,7 @@
  * 用于用户提到模糊名称/代码时确认目标股票
  */
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "../utils/fuyao.js";
 
 export default {
   name: "stock-search",
@@ -34,7 +35,7 @@ export default {
   toolImpl: {
     async search_stocks({ keyword }) {
       try {
-        return JSON.stringify(await invoke("search_stocks", { keyword }), null, 2);
+        return JSON.stringify(await invoke("search_stocks", { keyword, apiKey: getFuyaoKey() }), null, 2);
       } catch (e) {
         return `[错误] 股票搜索失败: ${e}`;
       }

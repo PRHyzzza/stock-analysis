@@ -41,7 +41,6 @@ import { useGlobalShortcuts } from "./composables/useGlobalShortcuts";
 import { useSettings } from "./composables/useSettings";
 import { useTradingCalendar } from "./composables/useTradingCalendar";
 import { usePaperAccount } from "./composables/usePaperAccount.js";
-import { usePaperAutoRun } from "./composables/usePaperAutoRun.js";
 import { isTradingHours } from "./utils/marketTime.js";
 import { inferMarket } from "./utils/market.js";
 import { setWindowHidden, effectiveInterval as effectiveRefreshInterval } from "./utils/refreshInterval.js";
@@ -182,12 +181,10 @@ const showPaperModal = ref(false);
 function openPaperModal() { showPaperModal.value = true; }
 function closePaperModal() { showPaperModal.value = false; }
 // 模拟盘账户是单例（§7.12）；这里取池与持仓用于「点标的→切详情」时取中文名
-const { pool: paperPool, addToPool: paperAddToPool, removeFromPool: paperRemoveFromPool } = usePaperAccount();
-// 模拟盘「每日定时自动选股 + 自动跑批」调度器（单例）。只在主窗口启动：
-// 子窗口（迷你盯盘/问财）不会持有账户，且多窗口各跑一份会重复下单。
-const paperAutoRun = usePaperAutoRun();
+const paperAccount = usePaperAccount();
+const { pool: paperPool, addToPool: paperAddToPool, removeFromPool: paperRemoveFromPool } = paperAccount;
 
-/** 当前详情页股票是否已在模拟盘选股池（DetailActionBar 的按钮态） */
+/** 当前详情页股票是否已在模拟盘自选（DetailActionBar 的按钮态） */
 const selectedInPaperPool = computed(() => {
   const code = selectedStock.value?.code;
   if (!code) return false;
@@ -456,6 +453,8 @@ let indicesTimer;
 let quotesTimer;
 let klineTimer;
 let intradayTimer;
+/** 模拟盘净值补点（只记账不下单）：5 分钟一次，盘外自动跳过 */
+let paperNavTimer;
 
 // ── 交易时段感知轮询 ──
 // 盘外（收盘/午休/周末/节假日）自动停请求，开盘自动恢复：
@@ -510,6 +509,7 @@ function rescheduleTimers() {
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
   clearInterval(intradayTimer);
+  clearInterval(paperNavTimer);
 
   if (settings.indicesRefreshMs > 0) {
     indicesTimer = setInterval(() => sessionTick(loadIndices), effectiveInterval(settings.indicesRefreshMs));
@@ -618,8 +618,11 @@ onMounted(() => {
   loadIndices();
   // 初始设置定时器
   rescheduleTimers();
-  // 模拟盘每日自动选股调度：启动即先 tick 一次（应用在运行时刻之后才打开时会立刻补上当天）
-  paperAutoRun.start();
+  // 模拟盘净值补点：打开应用先记一次，之后每 5 分钟一次（盘外跳过、同日覆盖）
+  paperAccount.maybeRecordNav();
+  if (!isMiniMode && !isIwencaiMode) {
+    paperNavTimer = setInterval(() => paperAccount.maybeRecordNav(), 5 * 60 * 1000);
+  }
   // 左侧所有自选股刷新实时数据
   refreshAllQuotes();
   // 右侧选中股票加载数据
@@ -715,8 +718,7 @@ onUnmounted(() => {
   clearInterval(quotesTimer);
   clearInterval(klineTimer);
   clearInterval(intradayTimer);
-  // 模拟盘自动选股调度器（幂等 stop，注销 tick 与可见性订阅）
-  paperAutoRun.stop();
+  clearInterval(paperNavTimer);
 });
 </script>
 
@@ -887,7 +889,7 @@ onUnmounted(() => {
       @open-detail="handlePortfolioOpenDetail"
     />
 
-    <!-- 模拟盘弹窗（选股池驱动 · 每日向前累积） -->
+    <!-- 模拟盘弹窗（手动交易） -->
     <PaperTradingModal
       :show="showPaperModal"
       @close="closePaperModal"

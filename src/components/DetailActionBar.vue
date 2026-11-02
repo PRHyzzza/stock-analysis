@@ -12,7 +12,7 @@ defineProps({
   selectedStock: { type: Object, default: null },
   /** 当前股票是否在自选 */
   inWatchlist: { type: Boolean, default: false },
-  /** 当前股票是否在模拟盘选股池 */
+  /** 当前股票是否在模拟盘自选 */
   inPaperPool: { type: Boolean, default: false },
 });
 
@@ -89,7 +89,7 @@ const emit = defineEmits([
       v-if="!isHK"
       class="btn btn-paper"
       :class="{ 'in-paper': inPaperPool }"
-      :title="inPaperPool ? '已在模拟盘选股池（点击移出）' : '加入模拟盘选股池（每日向前累积自动记账）'"
+      :title="inPaperPool ? '已在模拟盘自选（点击移出）' : '加入模拟盘自选（手动买卖，不再自动交易）'"
       @click="selectedStock && emit('toggle-paper-pool', selectedStock)"
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

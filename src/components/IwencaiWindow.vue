@@ -273,7 +273,7 @@ function onAddWatchlist(row) {
   starred.add(parsed.code);
 }
 
-// ── 模拟盘选股池 ──────────────────────────────────────
+// ── 模拟盘自选 ──────────────────────────────────────
 // 本窗口与主窗口共用同一个 localStorage key（stock-analysis-paper-pool），
 // 直接写池即可，主窗口打开模拟盘面板时会 reloadPool() 同步。
 const paper = usePaperAccount();
@@ -301,7 +301,7 @@ function onAddPaper(row) {
   const name = String(row["股票简称"] ?? "");
   const added = paper.addToPool([{ code: parsed.code, name, source: "iwencai" }]);
   for (const a of added) inPaperPool.add(a.code);
-  if (added.length) markPaperHint(`已加入模拟盘选股池：${name || parsed.code}`);
+  if (added.length) markPaperHint(`已加入模拟盘自选：${name || parsed.code}`);
 }
 
 /** 整批加入（当前页所有行）→ 一次写池 */
@@ -319,12 +319,12 @@ function onAddPaperBatch() {
     });
   }
   if (!candidates.length) {
-    markPaperHint("本页标的都已在模拟盘选股池中");
+    markPaperHint("本页标的都已在模拟盘自选中");
     return;
   }
   const added = paper.addToPool(candidates);
   for (const a of added) inPaperPool.add(a.code);
-  markPaperHint(`已加入模拟盘选股池 ${added.length} 只（池内共 ${paper.pool.value.length} 只）`);
+  markPaperHint(`已加入模拟盘自选 ${added.length} 只（池内共 ${paper.pool.value.length} 只）`);
 }
 
 /** 单元格显示：空值 → --；数值列按列类型/单位格式化（长小数、大数读起来更直观） */
@@ -446,7 +446,7 @@ function cellText(v, col) {
           <button
             class="paper-batch-btn"
             :disabled="!normalized.rows.length"
-            title="把本页所有 A 股加入模拟盘选股池（主窗口「模拟盘」面板据此逐日交易）"
+            title="把本页所有 A 股加入模拟盘自选（主窗口「模拟盘」面板可从这里快速下单）"
             @click="onAddPaperBatch"
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -488,7 +488,7 @@ function cellText(v, col) {
                     class="star-btn paper-btn"
                     :class="{ added: inPaperPool.has(rowCode(row)) }"
                     :disabled="inPaperPool.has(rowCode(row))"
-                    title="加入模拟盘选股池（A 股，主窗口「模拟盘」面板据此逐日自动交易）"
+                    title="加入模拟盘自选（A 股，主窗口「模拟盘」面板可从这里快速下单）"
                     @click.stop="onAddPaper(row)"
                   >{{ inPaperPool.has(rowCode(row)) ? "✓ 已入池" : "模拟盘" }}</button>
                 </td>

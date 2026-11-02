@@ -1,6 +1,7 @@
 /// API 客户端模块 — 按数据源拆分
 pub mod calendar;
 pub mod eastmoney;
+pub mod fuyao;
 pub mod hotlist;
 pub mod iwencai;
 pub mod llm;

@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "../utils/fuyao.js";
 
 /**
  * 股票搜索逻辑（含防抖），与 StockList 解耦
@@ -36,7 +37,7 @@ export function useStockSearch(getWatchlist) {
     searching.value = true;
     showResults.value = true;
     try {
-      const results = await invoke("search_stocks", { keyword });
+      const results = await invoke("search_stocks", { keyword, apiKey: getFuyaoKey() });
       if (seq !== searchSeq) return; // 已被更新的请求取代，丢弃旧结果
       // 已存在的自选股排在后面
       results.sort((a, b) => {

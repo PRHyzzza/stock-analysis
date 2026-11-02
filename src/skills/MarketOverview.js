@@ -4,6 +4,7 @@
  * 用于判断当日热点题材、市场情绪
  */
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "../utils/fuyao.js";
 
 export default {
   name: "market-overview",
@@ -28,7 +29,7 @@ export default {
   toolImpl: {
     async get_hot_list() {
       try {
-        return JSON.stringify(await invoke("get_hot_list"), null, 2);
+        return JSON.stringify(await invoke("get_hot_list", { apiKey: getFuyaoKey() }), null, 2);
       } catch (e) {
         return `[错误] 获取热榜失败: ${e}`;
       }

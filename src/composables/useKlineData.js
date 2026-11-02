@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { getFuyaoKey } from "../utils/fuyao.js";
 
 /**
  * K 线数据加载 + 周期切换
@@ -26,6 +27,7 @@ export function useKlineData() {
       const data = await invoke("get_stock_kline", {
         code: stock.code,
         period: klinePeriod.value,
+        apiKey: getFuyaoKey(),
       });
       if (seq !== requestSeq) return; // 已被更新的请求取代，丢弃
       klineData.value = data;

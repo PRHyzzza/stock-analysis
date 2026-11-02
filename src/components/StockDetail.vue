@@ -36,7 +36,7 @@ const props = defineProps({
   klineStale: { type: Boolean, default: false },
   intradayFetchedAt: { type: Number, default: 0 },
   intradayStale: { type: Boolean, default: false },
-  // 当前股票是否在模拟盘选股池（由父组件从单例池计算后传入）
+  // 当前股票是否在模拟盘自选（由父组件从单例池计算后传入）
   inPaperPool: { type: Boolean, default: false },
 });
 
