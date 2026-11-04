@@ -8,19 +8,21 @@
  *   用户自己决定买卖 → 取**当前实时价** → `previewOrder` 校验（资金/手数/涨跌停/T+1）→
  *   `applyOrder` 立即成交 → `recordNav` 记当日净值。没有信号、没有委托队列、没有自动平仓、
  *   没有定时任务——「什么时候买、买多少」完全由用户决定。
+ *   15:05-15:30 盘后固定价格交易：成交价恒为**当日收盘价**、不加滑点（`session: "afterHours"`）。
  *
  * 铁律遵守：
  *   - 单例（§7.12）：多组件共享同一份 ref，避免两处各记一套账
  *   - 失败保留旧数据（§7.16）：取价/下单失败不清空账户，只回错误文案
  *   - 本地日期（§7.13）：日期一律走 `marketTime.getToday()`，禁止 `toISOString()`
- *   - 交易时段只走 `marketTime.getMarketStatus()`（§7.15），不在组件里手写 9:30/15:00
+ *   - 交易时段只走 `marketTime`（§7.15）：连续竞价用 `getMarketStatus`，
+ *     盘后固定价用 `getAfterHoursStatus`，不在组件里手写 9:30/15:05/15:30
  *   - 金额/百分比口径走 `utils/format.js`（组件层），本文件只出数值
  */
 import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getFuyaoKey } from "../utils/fuyao.js";
 
-import { getMarketStatus, getToday } from "../utils/marketTime.js";
+import { getAfterHoursStatus, getMarketStatus, getToday } from "../utils/marketTime.js";
 import {
   ACCOUNT_VERSION,
   applyOrder,
@@ -170,7 +172,30 @@ export function usePaperAccount() {
   const liveEquity = computed(() => summary.value.cash + valuation.value.marketValue);
 
   /** 今日是否可下单（只认 marketTime，状态为 open 才允许） */
-  const canTrade = computed(() => marketStatus.value?.state === "open");
+  /**
+   * 当前时刻该标的允许的交易会话（**实时读时钟**，不依赖缓存）
+   * @returns {"continuous"|"afterHours"|""} "" = 不可下单
+   */
+  function currentSession(code, at = new Date()) {
+    const s = getMarketStatus(code, at);
+    if (s.state === "open") return "continuous";
+    if (s.state !== "post") return "";
+    return getAfterHoursStatus(code, at).available ? "afterHours" : "";
+  }
+
+  /** 当前会话（响应式；依赖 marketStatus，由面板的状态定时器刷新） */
+  const tradeSession = computed(() => {
+    if (!marketStatus.value) return "";
+    return currentSession(ticket.value.code || "");
+  });
+
+  const canTrade = computed(() => tradeSession.value !== "");
+
+  /** 盘后窗口信息（UI 显示剩余时间 / 不适用原因），判定只走 marketTime */
+  const afterHoursInfo = computed(() => {
+    if (!marketStatus.value) return getAfterHoursStatus("");
+    return getAfterHoursStatus(ticket.value.code || "");
+  });
 
   /** 不可下单的原因（UI 直接展示） */
   const tradeBlockedReason = computed(() => {
@@ -178,9 +203,13 @@ export function usePaperAccount() {
     if (!s) return "交易时段未知";
     if (s.state === "open") return "";
     if (s.state === "holiday") return `今日非交易日${s.holidayName ? `（${s.holidayName}）` : ""}`;
-    if (s.state === "pre") return "未开盘（9:30 开盘）";
-    if (s.state === "break") return "午间休市（13:00 恢复）";
-    if (s.state === "post") return "已收盘（15:00 收盘）";
+    if (s.state === "pre") return `未开盘（${s.openAt} 开盘）`;
+    if (s.state === "break") return `午间休市（${s.resumeAt} 恢复）`;
+    if (s.state === "post") {
+      const ah = afterHoursInfo.value;
+      if (ah.available) return "";
+      return ah.reason || `已收盘（${s.closeAt} 收盘）`;
+    }
     return "当前不可交易";
   });
 
@@ -299,8 +328,9 @@ export function usePaperAccount() {
    * 按当前票据预估一笔委托（**不下单**，UI 用来显示成交价/金额/费用/上限）
    * @param {"buy"|"sell"} side
    * @param {number} shares
+   * @param {"continuous"|"afterHours"|""} [session] 当前会话（由 UI 传入，保证时段切换时预估重算）
    */
-  function preview(side, shares) {
+  function preview(side, shares, session) {
     const t = ticket.value;
     if (!t?.code || !(Number(t.price) > 0)) return null;
     return previewOrder(account.value, {
@@ -310,6 +340,8 @@ export function usePaperAccount() {
       quote: { price: t.price, prevClose: t.prevClose, high: t.high, low: t.low, volume: t.volume },
       shares,
       date: getToday(),
+      // 盘后窗口的预估必须用收盘价（不滑点），否则预览价与实际成交价对不上
+      session: session || currentSession(t.code) || "continuous",
     });
   }
 
@@ -501,8 +533,9 @@ export function usePaperAccount() {
   /**
    * 下单（买/卖）
    *
-   * 顺序很重要：**先判交易时段，再取最新价，再校验，最后成交**。
+   * 顺序很重要：**先判交易时段（连续竞价 / 盘后固定价），再取最新价，再校验，最后成交**。
    * 用「下单这一刻」的报价算成交价——拿面板打开时的旧价成交就是自欺欺人。
+   * 盘后窗口取到的 `price` 就是当日收盘价（腾讯收盘后不再变动），引擎按固定价成交。
    *
    * @param {"buy"|"sell"} side
    * @param {{ code: string, shares: number, name?: string }} req
@@ -510,11 +543,20 @@ export function usePaperAccount() {
    */
   async function placeOrder(side, req = {}) {
     if (busy.value) return { ok: false, reason: "上一笔委托还在处理中" };
-    const status = refreshStatus();
-    if (status?.state !== "open") return { ok: false, reason: tradeBlockedReason.value || "当前不在交易时段" };
-
     const code = String(req.code ?? "").trim();
     if (!/^\d{6}$/.test(code)) return { ok: false, reason: "请输入 6 位 A 股代码" };
+
+    refreshStatus();
+    // 用**真实代码 + 真实时刻**判会话：票据可能指向别的标的，且 15:05/15:30 是硬边界，
+    // 不能拿面板 computed 的缓存结果（北交所还要单独排除）。
+    const session = currentSession(code);
+    if (!session) {
+      const reason =
+        marketStatus.value?.state === "post"
+          ? getAfterHoursStatus(code).reason || tradeBlockedReason.value
+          : tradeBlockedReason.value;
+      return { ok: false, reason: reason || "当前不在交易时段" };
+    }
 
     busy.value = true;
     error.value = "";
@@ -530,6 +572,7 @@ export function usePaperAccount() {
         quote: { price: q.price, prevClose: q.prev_close, high: q.high, low: q.low, volume: q.volume },
         shares: req.shares,
         date,
+        session,
         // 买入时把「参考分 + 命中战法」附在流水上，复盘才能按战法归因
         meta: req.meta || null,
       });
@@ -702,6 +745,8 @@ export function usePaperAccount() {
     ticket,
     scoreInfo,
     marketStatus,
+    tradeSession,
+    afterHoursInfo,
     canTrade,
     tradeBlockedReason,
     // 自选池

@@ -18,6 +18,7 @@
 - **股票代码**：A 股 6 位 / 港股 5 位 / 北交所 43|82|83|87|88|92 开头；外部来源（问财）代码必须剥离 `.SH/.SZ/.BJ` 后缀；「代码→市场」只走 `src/utils/market.js`（`inferMarket`/`isHKCode`/`isBJCode`）
 - **AI 数据真实性**：行情/资金/财务数值必须来自工具返回，禁止模型编造
 - **市场判定唯一入口**：盘中/交易日只走 `src/utils/marketTime.js`；涨跌停幅度只走 `src/utils/limit.js`（按代码判板块，**ST 与所属板块一致、不要传名称**）
+- **盘后固定价格交易**：15:05–15:30（沪深全部 A 股，北交所/港股不开放）按**当日收盘价**成交、不加滑点，判定只走 `marketTime.getAfterHoursStatus`；`getMarketStatus().state` 保持 `post`（别动 `isTradingHours`），下单必须用真实代码当下重判；成交落 `trades[].session`，UI 必须写明「不模拟时间优先排队、未成交部分 15:30 作废」（§7.35）
 - **刷新失败保留旧数据**：不清空已有数据（仅换标的/换周期时清空），置 `stale=true` 交 `src/components/DataFreshness.vue` 标注
 - **窗口不可见必降频**：隐藏信号 = `document.visibilitychange` + Rust `main-window-hidden`/`main-window-shown`；新增轮询一律走 `src/utils/refreshInterval.js`（`effectiveInterval` / `onIntervalModeChange`）
 - **本地历史库是旁路**：`db.rs` 的 `record_*` 只 eprintln，绝不向命令层返错；新埋点写 `db.rs` + 命令转发，前端走 `src/utils/history.js`；Rust 命令碰 DB/本地文件必须走 `commands.rs` 的 `blocking()`（`spawn_blocking`），不得在 async 体里直接锁 DB

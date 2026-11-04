@@ -6,9 +6,11 @@
  *   没有信号、没有委托队列、没有次日开盘撮合、没有自动平仓。
  *
  * 口径（与 PROJECT.md §7.35 一致）：
- * 1. **成交价 = 最新价 ± 滑点**，按 tick 对齐并夹在当日高低与涨跌停之间（`paperRules.fillPrice`）。
+ * 1. **连续竞价成交价 = 最新价 ± 滑点**，按 tick 对齐并夹在当日高低与涨跌停之间（`paperRules.fillPrice`）。
  *    「市价单」在真实交易里就是吃掉盘口，滑点是对这件事的最低限度补偿。
- * 2. **只在交易时段内允许下单**（由调用方用 `marketTime.getMarketStatus` 判定后传入），
+ *    **盘后固定价格交易（15:05-15:30）例外**：成交价恒为当日收盘价，`slippage` 不生效、
+ *    不夹当日高低（收盘价本身就是当日已成交价格），费用照计。由调用方传 `session: "afterHours"`。
+ * 2. **只在允许的交易时段内下单**（连续竞价 / 盘后固定价，由调用方用 `marketTime` 判定后传入），
  *    引擎自身不读时钟——纯函数才能被单测。
  * 3. **涨停不可买、跌停不可卖**：模拟盘宁可少成交，也不假装在涨停板上买到了。
  * 4. **A 股 T+1**：当日买入的股份当日不可卖出。这里按「锁定股数」精确记账——
@@ -22,7 +24,7 @@
  * 8. 日期一律 `YYYY-MM-DD` 本地日期字符串，禁止 `toISOString()`（§7.13）。
  */
 import { DEFAULT_FEE_CONFIG, buyCost, sellProceeds } from "./paperFees.js";
-import { floorLot, floorSellLot, getLimitPrices, getLotRule } from "./paperRules.js";
+import { floorLot, floorSellLot, getLimitPrices, getLotRule, roundPrice } from "./paperRules.js";
 import { fillPrice } from "./paperRules.js";
 
 /** 账户模型版本（localStorage 迁移用）；v1 = 选股跑批，v2 = 手动交易 */
@@ -319,9 +321,12 @@ export function previewOrder(acct, req = {}) {
   const date = String(req.date ?? "");
   const cfg = acct?.config || normalizeConfig({});
   const quote = req.quote || {};
+  /** 交易会话：continuous = 连续竞价（最新价±滑点），afterHours = 盘后固定价（收盘价） */
+  const session = req.session === "afterHours" ? "afterHours" : "continuous";
   const fail = (reason, extra = {}) => ({
     ok: false,
     reason,
+    session,
     side,
     code,
     name: String(req.name ?? quote.name ?? ""),
@@ -346,14 +351,19 @@ export function previewOrder(acct, req = {}) {
     return fail("该标的当前成交量为 0（疑似停牌），今日无法成交");
   }
 
-  const price = fillPrice(side, quote.price, {
-    slippage: cfg.slippage,
-    code,
-    prevClose: quote.prevClose,
-    dayHigh: quote.high,
-    dayLow: quote.low,
-  });
-  if (price == null) return fail("成交价无效，暂不能下单");
+  // 盘后固定价格交易：唯一成交价 = 当日收盘价，不能自主定价、不设滑点。
+  // 连续竞价：最新价 ± 滑点，并夹在当日高低与涨跌停之间。
+  const price =
+    session === "afterHours"
+      ? roundPrice(quote.price)
+      : fillPrice(side, quote.price, {
+          slippage: cfg.slippage,
+          code,
+          prevClose: quote.prevClose,
+          dayHigh: quote.high,
+          dayLow: quote.low,
+        });
+  if (price == null || !(price > 0)) return fail("成交价无效，暂不能下单");
 
   // 涨跌停：模拟盘不假装在板上成交
   const { upper, lower } = getLimitPrices(code, quote.prevClose);
@@ -380,6 +390,7 @@ export function previewOrder(acct, req = {}) {
     return {
       ok: true,
       reason: "",
+      session,
       side,
       code,
       name: String(req.name ?? quote.name ?? ""),
@@ -415,6 +426,7 @@ export function previewOrder(acct, req = {}) {
   return {
     ok: true,
     reason: "",
+    session,
     side,
     code,
     name: String(req.name ?? pos.name ?? ""),
@@ -453,6 +465,8 @@ export function applyOrder(acct, order, { date, time = "" } = {}) {
     code: order.code,
     name: order.name || "",
     side: order.side,
+    /** 成交会话：continuous = 连续竞价，afterHours = 盘后固定价（收盘价成交） */
+    session: order.session || "continuous",
     price: order.price,
     shares: order.shares,
     amount: order.amount,

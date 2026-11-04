@@ -23,7 +23,10 @@ export const A_TICK = 0.01;
 export function roundPrice(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
-  return Math.round(n / A_TICK) * A_TICK;
+  // 先取整到 tick 数，再回到「分」：直接 Math.round(n / 0.01) * 0.01 会留下
+  // 10.200000000000001 这类浮点尾数，落进账本和成交价展示都很难看。
+  const ticks = Math.round(n / A_TICK);
+  return Math.round(ticks * A_TICK * 100) / 100;
 }
 
 /**

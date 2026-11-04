@@ -6,9 +6,11 @@
  * 状态判定复用 utils/marketTime.js 的 getMarketStatus，与轮询口径同源 ——
  * 因此「胶囊显示开盘中」与「App 正在轮询」始终一致，不会出现口径分叉。
  *
- * 计时策略：盘中/午休 1 秒刷新（跑倒计时），盘外对齐到下一个整分钟唤醒
+ * 计时策略：盘中/午休/盘后固定价窗口 1 秒刷新（跑倒计时），盘外对齐到下一个整分钟唤醒
  *           （状态只会在分钟边界变化，最多 60 秒一次）。
  *           纯本地时间计算，不产生任何网络请求，符合「盘外零请求」的设计。
+ * 盘后：15:05-15:30 是独立成交时段，状态仍是 `post`，用 `status.afterHours` 单独标注；
+ *       港股无此机制（该字段恒 false）。
  * 交互：点击（或回车/空格）→ emit("refresh") 让上层刷新全部行情，刷新中显示「刷新中…」。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
@@ -30,7 +32,9 @@ let timer = null;
 const isHk = computed(() => props.market === "HK");
 const label = computed(() => (isHk.value ? "港股" : "A股"));
 const status = computed(() => getMarketStatus(isHk.value ? "00700" : "", now.value));
-const isLive = computed(() => status.value.state === "open" || status.value.state === "break");
+const isLive = computed(
+  () => status.value.state === "open" || status.value.state === "break" || status.value.afterHours
+);
 
 const STATE_TEXT = {
   pre: "未开盘",
@@ -40,7 +44,9 @@ const STATE_TEXT = {
   holiday: "休市",
 };
 
-const stateText = computed(() => STATE_TEXT[status.value.state] || "");
+const stateText = computed(() =>
+  status.value.afterHours ? "盘后固定价" : STATE_TEXT[status.value.state] || ""
+);
 
 /** 距收盘倒计时 "HH:mm:ss"（分钟粒度按分钟数、秒数取本地秒，避免额外计时器） */
 const countdown = computed(() => {
@@ -58,7 +64,9 @@ const detail = computed(() => {
   const s = status.value;
   if (s.state === "open" || s.state === "break") return `距收盘 ${countdown.value}`;
   if (s.state === "pre") return `${s.openAt} 开盘`;
-  if (s.state === "post") return `${s.closeAt} 收盘`;
+  if (s.state === "post") {
+    return s.afterHours ? `收盘价成交 · ${s.afterHoursEndAt} 结束` : `${s.closeAt} 收盘`;
+  }
   return s.holidayName;
 });
 
@@ -69,9 +77,12 @@ const tooltip = computed(() => {
     ? "（港股假期表未收录该年份，暂按工作日判定）"
     : "（A 股交易日历未加载或未覆盖，暂按工作日判定）";
   const stateLine = s.state === "holiday" ? `${s.dateStr} 休市 · ${s.holidayName}` : `${s.dateStr} ${stateText.value}`;
+  const afterLine = s.afterHours
+    ? `\n盘后固定价格交易 ${s.afterHoursStartAt}-${s.afterHoursEndAt} · 成交价恒为当日收盘价`
+    : "";
   return `${label.value} ${stateLine}\n交易时段 ${s.openAt}-${s.morningEndAt} / ${s.resumeAt}-${s.closeAt}${
     s.dayUnknown ? `\n${unknownHint}` : ""
-  }\n点击刷新全部行情`;
+  }${afterLine}\n点击刷新全部行情`;
 });
 
 /** 刷新到当前时刻并按新状态重新排程 */
@@ -81,7 +92,7 @@ function tick() {
 }
 
 /**
- * 刷新节奏：盘中/午休 1 秒（跑倒计时）；盘外状态只会在分钟边界变化，
+ * 刷新节奏：盘中/午休/盘后固定价窗口 1 秒（跑倒计时与盘后边界）；盘外状态只会在分钟边界变化，
  * 因此直接对齐到下一个整分钟唤醒（最多 60 秒一次，且纯本地计算、不发请求）。
  */
 function schedule() {

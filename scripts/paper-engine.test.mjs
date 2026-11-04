@@ -459,3 +459,77 @@ test("FIFO — 三批买入后卖出，按先买先出配对并记录持有天�
   assert.equal(pos.lots[0].date, d3, "剩余批次必须是最后买入的那批");
   assert.ok(pos.costPrice > 11, "剩余成本含买入费用，应高于成交价");
 });
+
+// ── 盘后固定价格交易（2026-07-06 新规） ──────────────────
+test("盘后固定价 — 成交价恒为收盘价，滑点不生效", () => {
+  const acct = createAccount({ initialCash: 100000, slippage: 0.001 });
+  const quote = { price: 10, prevClose: 9.8, high: 10.2, low: 9.7, volume: 100000 };
+  const cont = previewOrder(acct, req({ quote }));
+  const after = previewOrder(acct, req({ quote, session: "afterHours" }));
+  assert.equal(cont.session, "continuous");
+  assert.equal(cont.price, 10.01, "连续竞价 = 最新价 + 0.1% 滑点");
+  assert.equal(after.session, "afterHours");
+  assert.equal(after.price, 10, "盘后 = 当日收盘价，不加滑点");
+  assert.equal(after.amount, 10000);
+});
+
+test("盘后固定价 — 不夹当日高低（收盘价是唯一成交价）", () => {
+  const acct = createAccount({ initialCash: 100000, slippage: 0 });
+  const quote = { price: 10.2, prevClose: 10, high: 10.1, low: 9.8, volume: 100000 };
+  const cont = previewOrder(acct, req({ quote }));
+  const after = previewOrder(acct, req({ quote, session: "afterHours" }));
+  assert.equal(cont.price, 10.1, "连续竞价被夹在当日最高价内");
+  assert.equal(after.price, 10.2, "盘后按收盘价，不看当日高低");
+});
+
+test("盘后固定价 — 非法 session 一律回退连续竞价，防止绕过时段校验", () => {
+  const acct = createAccount({ initialCash: 100000, slippage: 0.001 });
+  const o = previewOrder(acct, req({ session: "afterHours<script>" }));
+  assert.equal(o.session, "continuous");
+  assert.equal(o.price, 10.01);
+});
+
+test("盘后固定价 — 买入落 session、全额费用、T+1 当日锁定次日解锁", () => {
+  const acct = createAccount({ initialCash: 100000, slippage: 0.001 });
+  const quote = { price: 10, prevClose: 10, high: 10.3, low: 9.8, volume: 100000 };
+  const order = previewOrder(acct, req({ quote, session: "afterHours", shares: 1000, date: DAY1 }));
+  assert.equal(order.ok, true, order.reason);
+  const res = applyOrder(acct, order, { date: DAY1, time: "15:10" });
+  assert.equal(res.trade.session, "afterHours");
+  assert.equal(res.trade.price, 10);
+  assert.equal(res.trade.time, "15:10");
+  assert.ok(res.trade.feeTotal > 0, "盘后同样计全额费用");
+
+  const pos = res.account.positions[0];
+  assert.equal(pos.lockedDate, DAY1);
+  assert.equal(pos.lockedShares, 1000);
+  assert.equal(sellableShares(pos, DAY1), 0, "盘后买入仍受 T+1");
+  assert.equal(sellableShares(pos, DAY2), 1000, "次日自动解锁");
+
+  const sell = previewOrder(res.account, req({
+    side: "sell", shares: 1000, date: DAY2, quote, session: "afterHours",
+  }));
+  assert.equal(sell.ok, true, sell.reason);
+  assert.equal(sell.price, 10);
+  const sold = applyOrder(res.account, sell, { date: DAY2, time: "15:12" });
+  assert.equal(sold.trade.session, "afterHours");
+  assert.ok(sold.trade.realized < 0, "同价往返含费用必然亏损");
+});
+
+test("盘后固定价 — 仍拒停牌与涨停收盘（不假装有对手盘）", () => {
+  const acct = createAccount({ initialCash: 100000, slippage: 0 });
+  const halted = previewOrder(acct, req({
+    quote: { price: 10, prevClose: 10, high: 10.2, low: 9.8, volume: 0 },
+    session: "afterHours",
+  }));
+  assert.equal(halted.ok, false);
+  assert.match(halted.reason, /停牌|成交量/);
+  assert.equal(halted.session, "afterHours");
+
+  const limitUp = previewOrder(acct, req({
+    quote: { price: 11, prevClose: 10, high: 11, low: 10.5, volume: 100000 },
+    session: "afterHours",
+  }));
+  assert.equal(limitUp.ok, false);
+  assert.match(limitUp.reason, /涨停/);
+});

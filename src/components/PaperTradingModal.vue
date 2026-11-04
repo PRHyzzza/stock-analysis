@@ -10,8 +10,10 @@
  *   新：点「买入/卖出」→ 用**下单这一刻**的报价成交（拿面板打开时的旧价成交是自欺欺人）
  *
  * 口径必须如实披露（面板底部常显）：
- *   - 成交价 = 最新价 ± 单边滑点，夹在当日高低与涨跌停之间
- *   - 只在交易时段可下单（9:30-11:30 / 13:00-15:00，判定只走 `marketTime`）
+ *   - 连续竞价：成交价 = 最新价 ± 单边滑点，夹在当日高低与涨跌停之间
+ *   - 盘后固定价格交易（15:05-15:30）：成交价 = **当日收盘价**，不加滑点、不可自主定价
+ *   - 两个时段只在 `marketTime` 判定（连续竞价 `getMarketStatus` / 盘后 `getAfterHoursStatus`）；
+ *     盘后仅沪深 A 股适用，北交所（实施时间待通知）与港股排除
  *   - 涨停不可买、跌停不可卖（不假装在板上成交）
  *   - 全额费用（佣金万 2.5 最低 5 元 / 印花税卖出 0.05% / 过户费双向 0.001%）
  *   - A 股 T+1：当日买入的股份当日不可卖
@@ -48,6 +50,8 @@ const {
   scoreInfo,
   missingPrices,
   canTrade,
+  tradeSession,
+  afterHoursInfo,
   tradeBlockedReason,
   addToPool,
   removeFromPool,
@@ -74,6 +78,19 @@ const {
   clearAll,
   ackMigrated,
 } = pa;
+
+/** 顶部会话胶囊文案：连续竞价 / 盘后固定价 / 不可交易原因 */
+const sessionLabel = computed(() => {
+  if (!canTrade.value) return tradeBlockedReason.value;
+  if (tradeSession.value === "afterHours") {
+    const left = Number(afterHoursInfo.value.minutesLeft) || 0;
+    return left > 0 ? `盘后固定价 · 剩 ${left} 分钟` : `盘后固定价 · ${afterHoursInfo.value.endAt} 截止`;
+  }
+  return "交易中";
+});
+
+/** 盘后固定价会话（用于下单区文案与成交标签） */
+const isAfterHours = computed(() => tradeSession.value === "afterHours");
 
 const tab = ref("overview");
 const TABS = [
@@ -172,8 +189,9 @@ const sharesNum = computed(() => {
   }
   return Math.max(0, Math.floor(Number(tradeShares.value) || 0));
 });
-const buyPreview = computed(() => preview("buy", sharesNum.value));
-const sellPreview = computed(() => preview("sell", sharesNum.value));
+// 传入 tradeSession 作为依赖：15:05 进入盘后时预估必须重算成收盘价，不能停留在带滑点的旧价
+const buyPreview = computed(() => preview("buy", sharesNum.value, tradeSession.value));
+const sellPreview = computed(() => preview("sell", sharesNum.value, tradeSession.value));
 
 /** 输入代码后查行情 + 参考分（回车/失焦触发，避免每敲一个字符就打接口） */
 async function lookup() {
@@ -444,6 +462,8 @@ function openDetail(code) {
 
 // ── 打开面板时的刷新与轮询 ─────────────────────────────
 let timer = null;
+/** 状态刷新定时器：15:05 / 15:30 是硬边界，只靠 60 秒轮询会让胶囊与按钮延迟一分多钟 */
+let statusTimer = null;
 let unsubscribe = null;
 
 function tick() {
@@ -454,7 +474,12 @@ function tick() {
 
 function schedule() {
   if (timer) clearInterval(timer);
+  if (statusTimer) clearInterval(statusTimer);
   timer = setInterval(tick, effectiveInterval(60 * 1000));
+  // 只重算 marketStatus（纯本地时间计算、零网络请求），让盘后窗口边界在 10 秒内生效
+  statusTimer = setInterval(() => {
+    if (props.show) refreshStatus();
+  }, effectiveInterval(10 * 1000));
 }
 
 watch(
@@ -465,7 +490,9 @@ watch(
       orderHint.value = "";
       poolHint.value = "";
       if (timer) clearInterval(timer);
+      if (statusTimer) clearInterval(statusTimer);
       timer = null;
+      statusTimer = null;
       if (unsubscribe) unsubscribe();
       unsubscribe = null;
       return;
@@ -483,6 +510,7 @@ watch(
 
 onUnmounted(() => {
   if (timer) clearInterval(timer);
+  if (statusTimer) clearInterval(statusTimer);
   if (unsubscribe) unsubscribe();
 });
 </script>
@@ -500,8 +528,8 @@ onUnmounted(() => {
             </svg>
             <span class="modal-title">模拟盘</span>
             <span class="mode-pill">手动交易</span>
-            <span class="session-pill" :class="canTrade ? 'open' : 'closed'">
-              {{ canTrade ? "交易中" : tradeBlockedReason }}
+            <span class="session-pill" :class="canTrade ? (isAfterHours ? 'after' : 'open') : 'closed'">
+              {{ sessionLabel }}
             </span>
           </div>
           <button class="modal-close" @click="emit('close')" title="关闭">
@@ -596,8 +624,14 @@ onUnmounted(() => {
               <div class="trade-card">
                 <div class="trade-head">
                   <span class="sec-title">下单</span>
-                  <span class="trade-sub">
-                    成交价按<b>当前最新价</b> ± {{ (account.config.slippage * 100).toFixed(2) }}% 滑点即时撮合
+                  <span class="trade-sub" :class="{ 'after-hours': isAfterHours }">
+                    <template v-if="isAfterHours">
+                      <b>盘后固定价格交易</b>（{{ afterHoursInfo.startAt }}-{{ afterHoursInfo.endAt }}）：
+                      成交价恒为<b>当日收盘价</b>，不加滑点、不可改价
+                    </template>
+                    <template v-else>
+                      成交价按<b>当前最新价</b> ± {{ (account.config.slippage * 100).toFixed(2) }}% 滑点即时撮合
+                    </template>
                   </span>
                 </div>
 
@@ -681,7 +715,7 @@ onUnmounted(() => {
                       <span v-if="ticketPosition" class="preview-held">已持有 {{ sharesText(ticketPosition.shares) }} 股</span>
                     </div>
                     <template v-if="buyPreview && buyPreview.ok">
-                      <div class="preview-line">成交价 <b>{{ priceText(buyPreview.price) }}</b></div>
+                      <div class="preview-line">{{ isAfterHours ? "收盘价" : "成交价" }} <b>{{ priceText(buyPreview.price) }}</b></div>
                       <div class="preview-line">金额 ¥{{ money(buyPreview.amount) }} · 费用 ¥{{ money(buyPreview.feeTotal) }}</div>
                       <div class="preview-line">现金变动 <b class="down">{{ signedMoney(buyPreview.cashDelta) }}</b></div>
                     </template>
@@ -696,7 +730,7 @@ onUnmounted(() => {
                       </span>
                     </div>
                     <template v-if="sellPreview && sellPreview.ok">
-                      <div class="preview-line">成交价 <b>{{ priceText(sellPreview.price) }}</b></div>
+                      <div class="preview-line">{{ isAfterHours ? "收盘价" : "成交价" }} <b>{{ priceText(sellPreview.price) }}</b></div>
                       <div class="preview-line">金额 ¥{{ money(sellPreview.amount) }} · 费用 ¥{{ money(sellPreview.feeTotal) }}</div>
                       <div class="preview-line">
                         回款 <b class="up">{{ signedMoney(sellPreview.cashDelta) }}</b>
@@ -728,7 +762,11 @@ onUnmounted(() => {
                     {{ busy ? "处理中…" : "卖出" }}
                   </button>
                   <span v-if="!canTrade" class="trade-blocked">{{ tradeBlockedReason }}</span>
-                  <span v-else class="trade-blocked muted">下单即按当前价成交，不支持撤单</span>
+                  <span v-else class="trade-blocked muted">
+                    {{ isAfterHours
+                      ? "按当日收盘价即时成交，不支持撤单；真实盘后按时间优先撮合、未成交部分 15:30 作废，本模拟不模拟排队"
+                      : "下单即按当前价成交，不支持撤单" }}
+                  </span>
                 </div>
               </div>
 
@@ -872,7 +910,10 @@ onUnmounted(() => {
                       <button class="link-btn" @click="openDetail(t.code)">{{ t.name || t.code }}</button>
                       <span class="cell-code">{{ t.code }}</span>
                     </td>
-                    <td><span class="side-tag" :class="t.side === 'buy' ? 'up' : 'down'">{{ t.side === "buy" ? "买入" : "卖出" }}</span></td>
+                    <td>
+                      <span class="side-tag" :class="t.side === 'buy' ? 'up' : 'down'">{{ t.side === "buy" ? "买入" : "卖出" }}</span>
+                      <span v-if="t.session === 'afterHours'" class="session-tag" title="盘后固定价格交易：按当日收盘价成交">盘后</span>
+                    </td>
                     <td class="num">{{ priceText(t.price) }}</td>
                     <td class="num">{{ sharesText(t.shares) }}</td>
                     <td class="num">{{ money(t.amount) }}</td>
@@ -1190,8 +1231,9 @@ onUnmounted(() => {
 
           <!-- ══ 底部口径声明（必须始终可见） ══ -->
           <p class="paper-disclaimer">
-            口径：<b>手动下单</b>，成交价 = 下单时的<b>最新价 ± 单边滑点</b>（{{ (account.config.slippage * 100).toFixed(2) }}%），
-            仅在<b>交易时段</b>（9:30-11:30 / 13:00-15:00，A 股交易日）可成交；<b>涨停不可买、跌停不可卖</b>，避免假装在板上成交。
+            口径：<b>手动下单</b>，连续竞价（9:30-11:30 / 13:00-15:00）成交价 = 下单时的<b>最新价 ± 单边滑点</b>（{{ (account.config.slippage * 100).toFixed(2) }}%）；
+            <b>盘后固定价格交易</b>（15:05-15:30，2026-07-06 新规，沪深全部 A 股；北交所实施时间待通知、港股不适用）成交价恒为<b>当日收盘价</b>，不加滑点、不可自主定价，
+            本模拟按「点单即全额成交」处理，<b>不模拟</b>时间优先排队与未成交作废。两时段均<b>涨停不可买、跌停不可卖</b>，避免假装在板上成交。
             <b>全额计入</b>佣金（万 2.5，最低 5 元）/ 印花税（卖出 0.05%）/ 过户费（双向 0.001%），A 股 <b>T+1</b>（当日买入不可卖），
             最小下单单位按板块校验（主板 100 股整数倍、科创板 200 股起、北交所 100 股起）。
             净值曲线是<b>每日权益快照</b>（同一交易日覆盖，收盘后打开面板即收盘权益），与上面的实时权益口径不同；参考打分只做观察，不参与成交。
@@ -1239,6 +1281,17 @@ onUnmounted(() => {
 }
 .session-pill.open { color: var(--green); background: var(--green-bg); }
 .session-pill.closed { color: var(--text-muted); background: var(--fog); }
+.session-pill.after { color: var(--rust); background: var(--apricot-wash); }
+.trade-sub.after-hours { color: var(--rust); }
+.session-tag {
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  color: var(--rust);
+  background: var(--apricot-wash);
+  white-space: nowrap;
+}
 
 /* ── 工具条 ── */
 .run-bar {
