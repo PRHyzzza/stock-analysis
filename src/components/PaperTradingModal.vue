@@ -1680,8 +1680,13 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 20px 8px;
+  /* 滚动方向（上）不留 padding：sticky 表头贴的是 padding box，
+     留 16px 会让滚过去的行内容从表头上方的缝隙里露出来（首行与表头重叠的 bug） */
+  padding: 0 20px 8px;
+  background: var(--card-bg);
 }
+/* 原 padding-top 改由首个子元素的 margin 提供，视觉不变但不产生滚动缝隙 */
+.tab-body > :first-child { margin-top: 16px; }
 
 /* ── 指标网格 ── */
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
