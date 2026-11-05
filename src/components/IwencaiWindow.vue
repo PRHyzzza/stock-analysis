@@ -7,7 +7,7 @@
  * → 调用 Rust get_iwencai_robot → 渲染结果表格。
  * 点击结果行 → 发送 iwencai-select-stock 事件给主窗口联动选中并聚焦，随后关闭自身。
  */
-import { ref, computed, reactive, onMounted, nextTick } from "vue";
+import { ref, computed, reactive, watch, onMounted, nextTick } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -15,6 +15,7 @@ import {
   useIwencaiRobot,
   normalizeIwencaiResult,
   parseIwencaiCode,
+  pickPaperPoolCandidates,
 } from "../composables/useIwencaiRobot";
 import { useUserProfileSingleton } from "../composables/useUserProfile";
 import { usePaperAccount } from "../composables/usePaperAccount.js";
@@ -327,8 +328,57 @@ function onAddPaperBatch() {
   markPaperHint(`已加入模拟盘自选 ${added.length} 只（池内共 ${paper.pool.value.length} 只）`);
 }
 
-/** 单元格显示：空值 → --；数值列按列类型/单位格式化（长小数、大数读起来更直观） */
-function cellText(v, col) {
+// ── 覆盖模拟盘自选 ────────────────────────────────────
+// 语义：把**本次查询的全部结果**（不只当前页）写进模拟盘自选，并清掉原有池。
+// 会删用户已有数据，所以必须两段式确认 + 明确告知会清空多少只。
+const paperOverwriteConfirm = ref(false);
+
+/** 本次查询全部结果里的 A 股（去重；港股不参与，模拟盘只做沪深北） */
+const paperCandidates = computed(() => pickPaperPoolCandidates(normalized.value.rows));
+
+function cancelPaperOverwrite() {
+  paperOverwriteConfirm.value = false;
+}
+
+/** 覆盖模拟盘自选：第一次点转确认态，第二次才真正写盘 */
+function requestPaperOverwrite() {
+  const list = paperCandidates.value;
+  if (!list.length) {
+    markPaperHint("本次结果里没有可入池的 A 股（模拟盘只做沪深北 6 位代码）");
+    return;
+  }
+  if (!paperOverwriteConfirm.value) {
+    // 跨窗口：主窗口可能刚改过池，先重读再报数，避免拿过期数字骗人
+    const before = paper.reloadPool();
+    paperOverwriteConfirm.value = true;
+    markPaperHint(
+      `覆盖会清空现有 ${before} 只、换成这 ${list.length} 只（含未显示的其他页）；再点一次确认`
+    );
+    return;
+  }
+  const res = paper.replacePool(list);
+  inPaperPool.clear();
+  for (const p of paper.pool.value) inPaperPool.add(p.code);
+  paperOverwriteConfirm.value = false;
+  markPaperHint(
+    (res.before > 0
+      ? `已覆盖模拟盘自选：${res.total} 只（原 ${res.before} 只已移除）`
+      : `已把 ${res.total} 只写入模拟盘自选`) + "；主窗口下次打开模拟盘面板即可看到"
+  );
+}
+
+/** 5 秒不点第二次自动取消，避免误触留着红色的确认按钮 */
+watch(paperOverwriteConfirm, (v) => {
+  if (!v) return;
+  window.setTimeout(() => {
+    if (paperOverwriteConfirm.value) paperOverwriteConfirm.value = false;
+  }, 5000);
+});
+
+/** 重新查询时退出确认态（结果变了，确认的前提也就变了） */
+watch(question, () => cancelPaperOverwrite());
+
+/** 单元格显示：空值 → --；数值列按列类型/单位格式化（长小数、大数读起来更直观） */function cellText(v, col) {
   if (v === null || v === undefined || v === "") return "--";
   if (col?.type === "DOUBLE" || typeof v === "number") {
     const num = Number(v);
@@ -340,6 +390,11 @@ function cellText(v, col) {
     }
   }
   return String(v);
+}
+
+/** 数值列右对齐（只认服务端给的 DOUBLE 类型；缺 type 时不靠列名猜，宁可左对齐也不误导） */
+function isNumCol(col) {
+  return col?.type === "DOUBLE";
 }
 </script>
 
@@ -394,6 +449,7 @@ function cellText(v, col) {
               v-for="ex in examples"
               :key="ex"
               class="example-chip"
+              :title="ex"
               @click="question = ex"
             >{{ ex }}</button>
           </div>
@@ -426,43 +482,65 @@ function cellText(v, col) {
       <!-- 结果区 -->
       <section v-if="data" class="result-card">
         <div class="result-meta">
-          <span class="result-count">共 <b>{{ rowCount }}</b> 条结果</span>
-          <span v-if="normalized.rows.length < rowCount" class="result-hint">
-            仅加载前 {{ normalized.rows.length }} 条（免费接口限制）
-          </span>
-          <span class="result-page">第 {{ page }} / {{ totalPages }} 页</span>
-          <button
-            class="ai-analyze-btn"
-            :class="{ sent: aiSent }"
-            :disabled="!normalized.rows.length"
-            title="把当前筛选结果发送给 AI 解读（打开全局 AI 分析）"
-            @click="onAiAnalyze"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" v-if="!aiSent">
-              <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" stroke="currentColor" stroke-width="0.5"/>
-            </svg>
-            {{ aiSent ? "✓ 已发送 AI 分析" : "AI 分析这批股票" }}
-          </button>
-          <button
-            class="paper-batch-btn"
-            :disabled="!normalized.rows.length"
-            title="把本页所有 A 股加入模拟盘自选（主窗口「模拟盘」面板可从这里快速下单）"
-            @click="onAddPaperBatch"
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <rect x="1.8" y="8.6" width="2.6" height="5" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
-              <rect x="6" y="5.4" width="2.6" height="8.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
-              <rect x="10.2" y="2.4" width="2.6" height="11.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
-            </svg>
-            整页加入模拟盘
-          </button>
-          <span v-if="paperHint" class="paper-hint-text">{{ paperHint }}</span>
+          <div class="result-info">
+            <span class="result-count">共 <b>{{ rowCount }}</b> 条结果</span>
+            <span class="meta-sep">·</span>
+            <span class="result-page">第 {{ page }} / {{ totalPages }} 页</span>
+            <span v-if="normalized.rows.length < rowCount" class="result-hint">
+              仅加载前 {{ normalized.rows.length }} 条（免费接口限制）
+            </span>
+          </div>
+          <div class="result-actions">
+            <button
+              class="meta-btn ai-analyze-btn"
+              :class="{ sent: aiSent }"
+              :disabled="!normalized.rows.length"
+              title="把当前筛选结果发送给 AI 解读（打开全局 AI 分析）"
+              @click="onAiAnalyze"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" v-if="!aiSent">
+                <path d="M12 2L14.09 8.26L20 9.27L15.5 13.97L16.82 20L12 16.77L7.18 20L8.5 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" stroke="currentColor" stroke-width="0.5"/>
+              </svg>
+              {{ aiSent ? "✓ 已发送 AI 分析" : "AI 分析这批股票" }}
+            </button>
+            <button
+              class="meta-btn paper-batch-btn"
+              :disabled="!normalized.rows.length"
+              title="把本页所有 A 股加入模拟盘自选（不清空已有池；主窗口「模拟盘」面板可从这里快速下单）"
+              @click="onAddPaperBatch"
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                <rect x="1.8" y="8.6" width="2.6" height="5" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+                <rect x="6" y="5.4" width="2.6" height="8.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+                <rect x="10.2" y="2.4" width="2.6" height="11.2" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+              本页加入模拟盘
+            </button>
+            <button
+              class="meta-btn paper-replace-btn"
+              :class="{ confirming: paperOverwriteConfirm }"
+              :disabled="!normalized.rows.length"
+              :title="`用本次全部 ${paperCandidates.length} 只 A 股覆盖模拟盘自选（会先清空原有自选池，需两次点击确认）`"
+              @click="requestPaperOverwrite"
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                <path d="M13.2 6.4A5.4 5.4 0 0 0 3.6 4.2M2.8 9.6A5.4 5.4 0 0 0 12.4 11.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                <path d="M13.4 2.6v3.9h-3.9M2.6 13.4V9.5h3.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              {{ paperOverwriteConfirm ? `确认覆盖 ${paperCandidates.length} 只` : "覆盖模拟盘自选" }}
+            </button>
+          </div>
         </div>
+        <div v-if="paperHint" class="paper-hint-line">{{ paperHint }}</div>
         <div class="result-table-wrap">
           <table class="result-table">
             <thead>
               <tr>
-                <th v-for="col in normalized.columns" :key="col.key">
+                <th
+                  v-for="col in normalized.columns"
+                  :key="col.key"
+                  :class="{ 'col-num': isNumCol(col) }"
+                >
                   {{ col.name }}
                 </th>
                 <th class="th-sticky">操作</th>
@@ -475,7 +553,11 @@ function cellText(v, col) {
                 class="result-row"
                 @click="onRowClick(row)"
               >
-                <td v-for="col in normalized.columns" :key="col.key">
+                <td
+                  v-for="col in normalized.columns"
+                  :key="col.key"
+                  :class="{ 'col-num': isNumCol(col) }"
+                >
                   {{ cellText(row[col.key], col) }}
                 </td>
                 <td class="td-sticky">
@@ -493,11 +575,16 @@ function cellText(v, col) {
                   >{{ inPaperPool.has(rowCode(row)) ? "✓ 已入池" : "模拟盘" }}</button>
                 </td>
               </tr>
+              <tr v-if="!localRows.length">
+                <td :colspan="normalized.columns.length + 1" class="table-empty">
+                  本次条件没有选出股票，试试放宽条件或换个问法
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
-        <!-- 分页 -->
-        <div class="pagination">
+        <!-- 分页（只有一页时不显示，页码信息已在标题行） -->
+        <div v-if="totalPages > 1" class="pagination">
           <button class="page-btn" :disabled="page <= 1" @click="changePage(page - 1)">‹ 上一页</button>
           <span class="page-info">{{ page }} / {{ totalPages }}</span>
           <button class="page-btn" :disabled="page >= totalPages" @click="changePage(page + 1)">下一页 ›</button>
@@ -733,13 +820,19 @@ function cellText(v, col) {
 }
 
 .example-chip {
+  max-width: 100%;
   padding: 4px 14px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
   font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
+  /* 预置示例是一整句长条件，单行省略 + title 悬浮看全文，避免把输入卡撑成一堵墙 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: all var(--transition-fast);
 }
 
@@ -868,65 +961,62 @@ function cellText(v, col) {
 .result-meta {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 6px 16px;
+  gap: 8px 12px;
   margin-bottom: 12px;
   flex-shrink: 0;
   font-size: 12px;
   color: var(--text-muted);
 }
 
+/* 左侧信息组：条数 / 页码 / 接口限制提示 */
+.result-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .result-count b {
   color: var(--text-primary);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.meta-sep {
+  color: var(--border);
+}
+
+.result-page {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .result-hint {
-  color: var(--rust);
-  font-size: 12px;
-}
-
-/* ===== AI 分析这批股票按钮 ===== */
-.ai-analyze-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 4px 14px;
+  padding: 2px 8px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--rust);
   background: var(--apricot-wash);
   color: var(--rust);
-  font-size: 12px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all var(--transition-fast);
-}
-.ai-analyze-btn:hover:not(:disabled) {
-  background: var(--rust);
-  color: #fff;
-}
-.ai-analyze-btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-.ai-analyze-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.ai-analyze-btn.sent {
-  border-color: rgba(39, 174, 96, 0.35);
-  background: rgba(39, 174, 96, 0.06);
-  color: var(--green);
+  font-size: 11.5px;
 }
 
-/* ===== 整页加入模拟盘按钮 ===== */
-.paper-batch-btn {
+/* ===== 结果区批量操作（AI 分析 / 本页加入 / 覆盖） ===== */
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 三个按钮统一尺寸与形态，只靠颜色区分轻重 */
+.meta-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 14px;
+  height: 26px;
+  padding: 0 12px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: transparent;
@@ -934,28 +1024,71 @@ function cellText(v, col) {
   font-size: 12px;
   font-weight: 500;
   font-family: inherit;
-  cursor: pointer;
   white-space: nowrap;
+  cursor: pointer;
   transition: all var(--transition-fast);
 }
-.paper-batch-btn:hover:not(:disabled) {
+.meta-btn:hover:not(:disabled) {
   border-color: var(--rust);
   color: var(--rust);
   background: var(--apricot-wash);
 }
-.paper-batch-btn:active:not(:disabled) {
+.meta-btn:active:not(:disabled) {
   transform: scale(0.98);
 }
-.paper-batch-btn:disabled {
+.meta-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
+.meta-btn svg {
+  flex-shrink: 0;
+}
 
-/* 加池结果提示（一次性，自动消失） */
-.paper-hint-text {
+/* 主操作：AI 分析这批股票 */
+.ai-analyze-btn {
+  border-color: var(--rust);
+  background: var(--apricot-wash);
+  color: var(--rust);
+  font-weight: 600;
+}
+.ai-analyze-btn:hover:not(:disabled) {
+  background: var(--rust);
+  color: #fff;
+}
+.ai-analyze-btn.sent {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.06);
+  color: var(--green);
+}
+
+/* 危险操作：覆盖会先清空原有自选池，默认红描边，确认态实心 */
+.paper-replace-btn {
+  border-color: rgba(220, 38, 38, 0.32);
+  color: var(--danger-ink);
+}
+.paper-replace-btn:hover:not(:disabled) {
+  border-color: var(--danger-ink);
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--danger-ink);
+}
+.paper-replace-btn.confirming,
+.paper-replace-btn.confirming:hover:not(:disabled) {
+  border-color: var(--danger-ink);
+  background: var(--danger-ink);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 加池/覆盖结果提示：独占一行，不挤按钮 */
+.paper-hint-line {
+  margin: -4px 0 10px;
+  padding: 7px 12px;
+  border-radius: var(--radius-xs);
+  background: var(--apricot-wash);
   color: var(--rust);
   font-size: 12px;
-  font-weight: 600;
+  line-height: 1.5;
+  flex-shrink: 0;
 }
 
 .result-table-wrap {
@@ -998,6 +1131,44 @@ function cellText(v, col) {
   white-space: nowrap;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+}
+
+/* 数值列右对齐：小数点位对齐后更容易上下比较（列类型由服务端 DOUBLE 判定） */
+.result-table th.col-num,
+.result-table td.col-num {
+  text-align: right;
+}
+
+/* 首列（股票名/代码）横向滚动时吸附在左侧：列很多时滚到右边不会丢掉「这是哪只股」 */
+.result-table thead th:first-child {
+  left: 0;
+  z-index: 4;
+  box-shadow: 1px 0 0 var(--border-light);
+}
+
+.result-table tbody .result-row > td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card-bg);
+  box-shadow: 1px 0 0 var(--border-light);
+}
+
+.result-table tbody .result-row:hover > td:first-child {
+  background: rgba(93, 42, 26, 0.05);
+}
+
+.result-table tbody .result-row:active > td:first-child {
+  background: rgba(93, 42, 26, 0.08);
+}
+
+/* 空结果行（查询有返回但一行都没选中） */
+.result-table td.table-empty {
+  padding: 36px 12px;
+  text-align: center;
+  white-space: normal;
+  color: var(--text-muted);
+  font-size: 12.5px;
 }
 
 .result-table tbody tr:last-child td {

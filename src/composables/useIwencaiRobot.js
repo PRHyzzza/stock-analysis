@@ -8,7 +8,7 @@
 
 import { ref } from "vue";
 import { queryIwencai, resetV, ensureV, isVCredentialError } from "./iwencaiClient.js";
-import { inferMarket } from "../utils/market.js";
+import { inferMarket, isACode } from "../utils/market.js";
 
 /**
  * 问财自然语言选股
@@ -86,4 +86,32 @@ export function parseIwencaiCode(row) {
   if (!m) return null;
   // 市场判定统一走 inferMarket，避免「非 SH 即 SZ」把北交所误判为深市
   return { code: m[1], market: inferMarket(m[1]) };
+}
+
+/**
+ * 从问财结果行中挑出可进模拟盘自选池的标的（去重，保留名称）
+ *
+ * 口径必须与 `usePaperAccount.addToPool` 一致：只要 6 位裸码的沪深北 A 股。
+ * 港股（5 位）一律丢弃——模拟盘按 A 股规则（涨跌停/T+1/手数）撮合，混进港股会把口径搞错。
+ * 网页版问财有时返回带 `.SH/.SZ/.BJ` 后缀的代码，`parseIwencaiCode` 已负责剥离。
+ *
+ * @param {Array<object>} rows 问财结果行（`datas` 数组）
+ * @returns {Array<{ code: string, name: string, source: string }>}
+ */
+export function pickPaperPoolCandidates(rows) {
+  const out = [];
+  const seen = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const parsed = parseIwencaiCode(row);
+    if (!parsed) continue;
+    if (!isACode(parsed.code)) continue;
+    if (seen.has(parsed.code)) continue;
+    seen.add(parsed.code);
+    out.push({
+      code: parsed.code,
+      name: String(row?.["股票简称"] ?? "").trim(),
+      source: "iwencai",
+    });
+  }
+  return out;
 }
