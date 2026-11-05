@@ -618,16 +618,6 @@ pub async fn get_kline_history(
     .await
 }
 
-/// 列出本地已缓存日 K 的代码（打分校准用；只返回 ≥60 根的标的）
-#[tauri::command]
-pub async fn get_kline_codes(period: Option<String>, limit: Option<u32>) -> Result<Vec<String>, String> {
-    let period = period.unwrap_or_else(|| "day".to_string());
-    blocking("列出 K 线代码", move || {
-        db::list_kline_codes(&period, limit.unwrap_or(120))
-    })
-    .await
-}
-
 /// 本地历史库概况（行数 / 日期范围 / 文件大小）
 #[tauri::command]
 pub async fn get_db_stats() -> Result<DbStats, String> {

@@ -77,12 +77,6 @@ const {
   sentimentLoading,
   loadSentiment,
   sentiment,
-  calibration,
-  calibrationBusy,
-  calibrationProgress,
-  calibrationError,
-  loadCalibration,
-  calibrationFor,
   ladderInfo,
   ladderError,
   ladderLoading,
@@ -413,7 +407,6 @@ const poolRows = computed(() => {
       penalty: res?.penalty || 0,
       patterns: Array.isArray(res?.patternHits) ? res.patternHits : [],
       sector: entry?.sector || null,
-      calib: calibrationFor(score),
       // 5 日涨幅：实测（2588 样本）≥8% 的票次日收正仅约 41%，是这套体系里唯一有信号的量
       ret5: res?.metrics?.ret5Pct ?? null,
       scoreText: entry?.text || "",
@@ -436,9 +429,6 @@ const sentimentTone = computed(() => {
   if (s.score < 60) return "tone-mid";
   return "tone-hot";
 });
-
-/** 打分校准的持有期（交易日）：次日起步，因为 A 股 T+1 最早次日才能卖 */
-const calibHorizon = ref(1);
 
 /** 今日连板梯队摘要：2 板 15 · 3 板 2，代表当前高度 */
 const promoToday = computed(() => {
@@ -1279,83 +1269,10 @@ onUnmounted(() => {
                 <div v-else-if="auctionError" class="sentiment-warn auc-warn">{{ auctionError }}</div>
               </div>
 
-              <!-- 打分校准：把「60 分门槛」换成「历史同档表现」 -->
-              <div class="calib-card">
-                <div class="calib-head">
-                  <span class="calib-title">分数校准</span>
-                  <select
-                    v-model.number="calibHorizon"
-                    class="calib-select"
-                    :disabled="calibrationBusy"
-                    title="持有期：信号日次日开盘买入，持有 N 个交易日收盘卖出"
-                    @change="loadCalibration({ force: true, horizon: calibHorizon })"
-                  >
-                    <option :value="1">持有 1 日</option>
-                    <option :value="2">持有 2 日</option>
-                    <option :value="3">持有 3 日</option>
-                    <option :value="5">持有 5 日</option>
-                  </select>
-                  <span v-if="calibrationBusy" class="calib-hint">
-                    回放中 {{ calibrationProgress.done }}/{{ calibrationProgress.total }} 只…
-                  </span>
-                  <span v-else-if="!calibration" class="calib-hint">
-                    用本地历史日 K 回放，看「同样分数的票后来怎样了」
-                  </span>
-                  <span v-else class="calib-hint">
-                    {{ calibration.total }} 个样本 / {{ calibration.codes }} 只票 · {{ calibration.at }}
-                  </span>
-                  <button
-                    class="calib-btn"
-                    :disabled="calibrationBusy"
-                    :title="calibration ? '清缓存重算' : '开始计算（只读本地库，不联网）'"
-                    @click="loadCalibration({ force: !!calibration, horizon: calibHorizon })"
-                  >{{ calibrationBusy ? "…" : calibration ? "重算" : "计算" }}</button>
-                </div>
-
-                <div v-if="calibrationError" class="calib-warn">{{ calibrationError }}</div>
-
-                <template v-if="calibration && calibration.total">
-                  <table class="calib-table">
-                    <thead>
-                      <tr>
-                        <th>分数档</th>
-                        <th class="num">样本</th>
-                        <th class="num">收正</th>
-                        <th class="num">中位收益</th>
-                        <th class="num">扣费后中位</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="b in calibration.buckets" :key="b.id" :class="{ dim: !b.reliable }">
-                        <td>{{ b.label }}</td>
-                        <td class="num">{{ b.n || "—" }}</td>
-                        <td class="num">{{ b.winRatePct == null ? "—" : b.winRatePct.toFixed(0) + "%" }}</td>
-                        <td class="num" :class="b.medianRetPct > 0 ? 'up' : (b.medianRetPct < 0 ? 'down' : '')">
-                          {{ b.medianRetPct == null ? "—" : (b.medianRetPct > 0 ? "+" : "") + b.medianRetPct.toFixed(2) + "%" }}
-                        </td>
-                        <td class="num" :class="b.medianAfterFeePct > 0 ? 'up' : (b.medianAfterFeePct < 0 ? 'down' : '')">
-                          {{ b.medianAfterFeePct == null ? "—" : (b.medianAfterFeePct > 0 ? "+" : "") + b.medianAfterFeePct.toFixed(2) + "%" }}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <p class="calib-note">
-                    {{ calibration.basis }}；灰行 = 样本不足 {{ calibration.minSamples }} 条，只作参考。
-                  </p>
-                  <p v-if="calibration.monotonic === false" class="calib-warn">
-                    ⚠ 本批样本里胜率没有随分数递增——别把高分当保证。
-                  </p>
-                  <p v-else-if="calibration.monotonic === null" class="calib-warn">
-                    可信分数档不足 3 个，暂不判断「分数越高越好」是否成立。
-                  </p>
-                  <p v-else class="calib-note">
-                    样本内分数越高、收正比例越高；样本有限，不代表未来收益。
-                  </p>
-                </template>
-                <div v-else-if="!calibrationBusy && !calibrationError" class="calib-note">
-                  点「计算」开始（只读本地已缓存日 K，不联网）。
-                </div>
-              </div>
+              <!-- 参考分只描述形态：历史回放已证伪其短线预测力，禁止当作选股信号 -->
+              <p class="score-caveat">
+                参考分只描述日线形态，不是短线上涨概率：2588 个历史样本的 IC 约 −0.02，高分档反而偏弱。请勿据此选股。
+              </p>
 
               <div v-if="!pool.length" class="tab-empty">
                 自选是空的
@@ -1421,7 +1338,7 @@ onUnmounted(() => {
                       </td>
                       <td
                         class="num pool-score"
-                        :title="[p.scoreText || p.scoreErr || '未打分', p.calib?.verdict].filter(Boolean).join('；')"
+                        :title="p.scoreText || p.scoreErr || '未打分'"
                       >
                         <template v-if="p.score != null">
                           <span :class="p.score >= DEFAULT_SCORE_CONFIG.minScore ? 'up' : 'muted'">{{ p.score }}</span>
@@ -2015,89 +1932,11 @@ onUnmounted(() => {
 }
 .auc-warn { margin-top: 6px; }
 
-/* ── 打分校准（本地历史 walk-forward） ── */
-.calib-card {
-  margin-bottom: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  background: var(--bg);
-}
-.calib-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.calib-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-.calib-hint { font-size: 11.5px; color: var(--text-muted); }
-.calib-select {
-  height: 22px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 6px);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  font-family: inherit;
-  cursor: pointer;
-}
-.calib-select:focus { border-color: var(--rust); box-shadow: var(--focus-glow); }
-.calib-select:disabled { opacity: 0.5; cursor: not-allowed; }
-.calib-btn {
-  margin-left: auto;
-  height: 22px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.calib-btn:hover:not(:disabled) {
-  border-color: var(--rust);
-  color: var(--rust);
-  background: var(--apricot-wash);
-}
-.calib-btn:active:not(:disabled) { transform: scale(0.96); }
-.calib-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.calib-table {
-  width: 100%;
-  margin-top: 8px;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.calib-table th {
-  padding: 4px 6px;
-  text-align: left;
-  font-weight: 500;
-  font-size: 11px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border-light);
-}
-.calib-table td {
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--border-light);
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-.calib-table tr:last-child td { border-bottom: none; }
-/* 样本不足的档位整体变灰：数字还在，但不允许被当成结论 */
-.calib-table tr.dim td { color: var(--text-muted); }
-.calib-table .num { text-align: right; }
-.calib-note {
-  margin: 8px 0 0;
+/* 参考分口径提示：静态结论，不触发任何计算 */
+.score-caveat {
+  margin: 8px 0 10px;
   font-size: 11.5px;
   color: var(--text-muted);
-  line-height: 1.5;
-}
-.calib-warn {
-  margin: 6px 0 0;
-  font-size: 11.5px;
-  color: var(--warn-ink);
   line-height: 1.5;
 }
 

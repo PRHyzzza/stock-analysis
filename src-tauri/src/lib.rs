@@ -116,7 +116,6 @@ pub fn run() {
             commands::get_hot_list,
             commands::get_market_sentiment,
             commands::get_sector_strength,
-            commands::get_kline_codes,
             commands::get_limit_up_ladder,
             commands::get_auction_opportunities,
             commands::get_trading_calendar,

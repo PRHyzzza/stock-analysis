@@ -38,20 +38,12 @@ import {
 import { overnightGaps, summarizeMatches } from "../utils/paperReview.js";
 import { describeScore, scoreBars } from "../utils/paperScore.js";
 import { sentimentOf, sectorBoostOf } from "../utils/marketSentiment.js";
-import {
-  DEFAULT_FEE_PCT,
-  buildSamples,
-  calibrateScore,
-  summarizeCalibration,
-} from "../utils/paperCalibration.js";
 import { auctionFlagsOf, promotionStats } from "../utils/eventSignals.js";
 
 /** 账户与自选池的持久化键（与项目其它 key 保持一致） */
 const ACCOUNT_KEY = "stock-analysis-paper-account";
 /** 池单独存一份：问财窗口与主窗口共用，账户重置时不应连带清空自选池 */
 const POOL_KEY = "stock-analysis-paper-pool";
-/** 打分校准结果缓存（按日期 + 参数 + 代码清单签名，避免每次开面板都跑几十秒） */
-const CALIBRATION_KEY = "stock-analysis-paper-calibration";
 
 /** 单票最少 K 线根数（与 scoreBars 一致；不足则不给参考分） */
 const MIN_BARS = 60;
@@ -175,12 +167,6 @@ export function usePaperAccount() {
   const auctionError = ref("");
   const auctionLoading = ref(false);
   let auctionFetchedAt = 0;
-
-  /** 打分校准结果（summarizeCalibration 的输出；null = 还没算过） */
-  const calibration = ref(null);
-  const calibrationBusy = ref(false);
-  const calibrationProgress = ref({ done: 0, total: 0 });
-  const calibrationError = ref("");
 
   function nzShares(v) {
     const n = Number(v);
@@ -887,109 +873,6 @@ export function usePaperAccount() {
     return auctionFlags.value.get(String(code ?? "")) || null;
   }
 
-  // ── 打分校准（把 0-100 的分数换成历史同档表现）──────
-  /**
-   * 用**本地历史日 K** 做 walk-forward，把参考分校准成「同档样本数 / 收正比例 / 中位收益」
-   *
-   * 只读本地库（`get_kline_history`），不联网、不打行情接口——所以可以放心跑几十只票。
-   * 代码清单以自选池优先，不够再用库里其它已缓存标的补足（库为空时只算自选池）。
-   *
-   * 为什么必须点按钮才算：单票 2000 根要滚约 1000 次打分，20 只票是秒级到十秒级，
-   * 打开面板就自动跑会让面板「卡住但不知道在干嘛」。
-   *
-   * @param {{ horizon?: number, maxCodes?: number, force?: boolean }} [opts]
-   */
-  async function loadCalibration(opts = {}) {
-    if (calibrationBusy.value) return calibration.value;
-    const horizon = Math.max(1, Math.round(Number(opts.horizon) || 1));
-    const maxCodes = Math.max(1, Math.min(60, Math.round(Number(opts.maxCodes) || 20)));
-
-    let codes = pool.value.map((p) => p.code).filter((c) => /^\d{6}$/.test(c));
-    if (codes.length < maxCodes) {
-      try {
-        const more = await invoke("get_kline_codes", { period: "day", limit: maxCodes * 3 });
-        for (const c of more || []) {
-          if (codes.length >= maxCodes) break;
-          if (!codes.includes(c)) codes.push(c);
-        }
-      } catch {
-        /* 库未初始化：只用自选池 */
-      }
-    }
-    codes = codes.slice(0, maxCodes);
-    if (!codes.length) {
-      calibration.value = null;
-      calibrationError.value = "没有可用的历史 K 线：先打开几只股票，让本地库缓存日 K";
-      return null;
-    }
-
-    // 校准必须与线上打分同口径：线上动量用相对强度，回放也要传基准，
-    // 否则校准出来的分布和面板上的分数不是一回事
-    const bench = await loadBench();
-    const benchOk = Array.isArray(bench) && bench.length >= 21;
-    const sig = `${getToday()}|${horizon}|${benchOk ? "bench" : "abs"}|${codes.join(",")}`;
-    if (!opts.force) {
-      const cached = readJson(CALIBRATION_KEY, null);
-      if (cached?.sig === sig && cached.result) {
-        calibration.value = cached.result;
-        calibrationError.value = "";
-        return cached.result;
-      }
-    }
-
-    calibrationBusy.value = true;
-    calibrationProgress.value = { done: 0, total: codes.length };
-    calibrationError.value = "";
-    const all = [];
-    try {
-      for (let i = 0; i < codes.length; i++) {
-        const code = codes[i];
-        let bars = [];
-        try {
-          bars = await invoke("get_kline_history", { code, period: "day", limit: 2000 });
-        } catch {
-          bars = [];
-        }
-        // 80 根起：60 根预热 + 至少能凑出几个非重叠样本，太短只会污染统计
-        if (Array.isArray(bars) && bars.length >= 80) {
-          all.push(
-            ...buildSamples(bars, {
-              horizon,
-              feePct: DEFAULT_FEE_PCT,
-              code,
-              benchBars: benchOk ? bench : null,
-            })
-          );
-        }
-        calibrationProgress.value = { done: i + 1, total: codes.length };
-      }
-      const result = summarizeCalibration(all, {
-        horizon,
-        feePct: DEFAULT_FEE_PCT,
-        codes: codes.length,
-      });
-      result.at = getToday();
-      result.sig = sig;
-      calibration.value = result;
-      writeJson(CALIBRATION_KEY, { sig, result });
-      if (!result.total) {
-        calibrationError.value = "本地样本不足：多打开一些股票（每只至少 80 根日 K）再算";
-      }
-      return result;
-    } finally {
-      calibrationBusy.value = false;
-    }
-  }
-
-  /**
-   * 某只票的分数对应的历史同档表现
-   * @returns {object|null} `calibrateScore` 的结果（含 verdict 文案）
-   */
-  function calibrationFor(score) {
-    if (!calibration.value || score == null) return null;
-    return calibrateScore(score, calibration.value.buckets);
-  }
-
   // ── 下单 ──────────────────────────────────────────────
   /**
    * 下单（买/卖）
@@ -1245,13 +1128,6 @@ export function usePaperAccount() {
     sectorLoading,
     loadSectorStrength,
     sectorBoostFor,
-    // 打分校准（本地历史 walk-forward，把分数换成同档表现）
-    calibration,
-    calibrationBusy,
-    calibrationProgress,
-    calibrationError,
-    loadCalibration,
-    calibrationFor,
     // 短线事件（连板晋级率 / 竞价异动）
     ladder,
     ladderInfo,
