@@ -279,3 +279,86 @@ test("打分强化 — 有扣分时描述必须写出风险项", () => {
   assert.match(text, /风险扣/);
   assert.match(text, /放量滞涨/);
 });
+
+test("情绪/题材 — 缺省 context 时不改变旧口径（中性 1 与 0）", () => {
+  const bars = rampBars(120);
+  const a = scoreBars(bars);
+  const b = scoreBars(bars, "600519", {});
+  assert.equal(a.score, b.score);
+  assert.equal(a.regimeFactor, 1);
+  assert.equal(a.sectorBoost, 0);
+  assert.equal(a.rawScore, a.score);
+});
+
+test("情绪/题材 — 先加题材再乘情绪，顺序不能反", () => {
+  const bars = rampBars(120);
+  const base = scoreBars(bars);
+  const withBoost = scoreBars(bars, "", { sectorBoost: 6 });
+  const withFactor = scoreBars(bars, "", { regimeFactor: 1.1 });
+  const both = scoreBars(bars, "", { sectorBoost: 6, regimeFactor: 1.1 });
+
+  assert.equal(withBoost.sectorBoost, 6);
+  assert.ok(withBoost.rawScore >= base.rawScore);
+  // 题材先加到原始分，再整体乘系数
+  assert.ok(
+    Math.abs(both.score - Math.min(100, both.rawScore * 1.1)) < 0.15,
+    `both=${both.score} raw=${both.rawScore}`
+  );
+  assert.ok(both.score >= withBoost.score - 0.1);
+  assert.ok(withFactor.score >= base.score - 0.1);
+});
+
+test("情绪/题材 — 系数与加成越界会被夹住，不会被外部数据放大成杠杆", () => {
+  const bars = rampBars(120);
+  const hi = scoreBars(bars, "", { regimeFactor: 99, sectorBoost: 999 });
+  assert.equal(hi.regimeFactor, 1.1);
+  assert.equal(hi.sectorBoost, 8);
+
+  const lo = scoreBars(bars, "", { regimeFactor: 0.01, sectorBoost: -50 });
+  assert.equal(lo.regimeFactor, 0.9);
+  assert.equal(lo.sectorBoost, 0);
+});
+
+test("情绪/题材 — 描述里必须写出题材与情绪，否则分数会显得凭空变化", () => {
+  const text = describeScore(scoreBars(rampBars(120), "", { sectorBoost: 6, regimeFactor: 1.05 }));
+  assert.match(text, /题材 \+6/);
+  assert.match(text, /情绪 ×1\.05/);
+});
+
+test("情绪/题材 — K 线不足时仍回传系数，但不给题材加成", () => {
+  const res = scoreBars(rampBars(10), "", { regimeFactor: 1.08, sectorBoost: 4 });
+  assert.equal(res.enough, false);
+  assert.equal(res.regimeFactor, 1.08);
+  assert.equal(res.sectorBoost, 0, "没有分数时不该展示题材加成");
+});
+
+test("相对强度 — 同样涨幅下基准越强，动量分越低", () => {
+  const bars = rampBars(120, { step: 0.006 });
+  const noBench = scoreBars(bars);
+  const flatBench = scoreBars(bars, "", { benchRet20Pct: 0 });
+  const hotBench = scoreBars(bars, "", { benchRet20Pct: 15 });
+  assert.ok(
+    flatBench.parts.momentum > hotBench.parts.momentum,
+    `基准持平 ${flatBench.parts.momentum} 应高于基准大涨 ${hotBench.parts.momentum}`
+  );
+  assert.ok(noBench.parts.momentum >= hotBench.parts.momentum);
+  // 无基准时走绝对涨幅老口径（12.7% 涨幅在老控制点里已满分）
+  assert.equal(noBench.parts.momentum, 20);
+});
+
+test("相对强度 — 跑输大盘时动量分显著低于原地踏步", () => {
+  const bars = rampBars(120, { step: 0.002 });
+  const flat = scoreBars(bars, "", { benchRet20Pct: 0 });
+  const lag = scoreBars(bars, "", { benchRet20Pct: 12 });
+  assert.ok(flat.parts.momentum > lag.parts.momentum);
+  assert.ok(lag.parts.momentum <= 8, `跑输 8 个点后动量分应很低，实际 ${lag.parts.momentum}`);
+});
+
+test("追高 — 5 日涨幅超 5% 起扣，上限 16", () => {
+  const hot = scoreBars(rampBars(120, { step: 0.02 }));
+  assert.ok(hot.penalties.chase > 8, `实际扣分 ${hot.penalties.chase}`);
+  assert.ok(hot.penalties.chase <= 16);
+
+  const warm = scoreBars(rampBars(120, { step: 0.001 }));
+  assert.equal(warm.penalties.chase, 0, "温和上涨不该扣追高分");
+});

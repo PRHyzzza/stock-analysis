@@ -18,6 +18,10 @@
  * - 再叠加**战法共振加成**（趋势跟随 / 一进二 / 突破缩量 / 低吸放量，命中 ≥2 个 +3~+9）：
  *   单一战法命中属常态不加分；加成只奖励「多个独立战法同时成立」，不能替代因子分。
  *   「一夜持股」只做形态识别并计入 `patternHits`，但**不计入共振计数**（见 paperPatterns）
+ * - 可选叠加**题材加成（0–8）+ 市场情绪系数（0.90–1.10）**：由 `context` 传入，
+ *   数据来自 `marketSentiment.js`（同花顺涨停统计 / 个股所属板块涨幅）。
+ *   **缺省时两者都是中性（0 / 1.00）**，即没有情绪数据时打分与旧口径完全一致；
+ *   顺序固定为「先加题材、后乘情绪」——环境系数是整体温度调节，不该被题材加成放大
  * - 指标缺失（预热不足）一律按 0 分计，不做假值填充
  * - 打分只用于**排序与过滤**，不是收益预测；分数高低与未来涨跌没有因果关系
  *
@@ -62,7 +66,7 @@ export const SCORE_FACTORS = Object.freeze([
  * 两者混在一个因子里会让「强势但已透支」的票看起来和「强势且刚启动」的一样好。
  */
 export const SCORE_RISK_FACTORS = Object.freeze([
-  { id: "chase", name: "追高", max: 10, hint: "偏离 MA20 超 12% 或 5 日涨幅超 10%" },
+  { id: "chase", name: "追高", max: 16, hint: "偏离 MA20 超 8% 或 5 日涨幅超 5%" },
   { id: "volatility", name: "波动过大", max: 8, hint: "ATR14 占价格超 5%" },
   { id: "volumeStall", name: "放量滞涨", max: 6, hint: "量比放大但当日涨幅小甚至收跌" },
   { id: "upperShadow", name: "长上影", max: 6, hint: "上影线占振幅过半且冲高回落超 1.5%" },
@@ -70,7 +74,6 @@ export const SCORE_RISK_FACTORS = Object.freeze([
 
 /** 风险扣分合计上限（防止四项叠加把分数打成负数，掩盖因子之间的差异） */
 export const MAX_PENALTY = 30;
-
 /** 默认打分参数 */
 export const DEFAULT_SCORE_CONFIG = Object.freeze({
   /** 入选最低分（0-100）；低于此分数不买 */
@@ -83,6 +86,13 @@ function clampNumber(v, min, max, fallback) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
+}
+
+/** 取数字，缺失/非法回退（`Number(null)` 是 0，所以必须先挡空值） */
+function pickNum(v, fallback) {
+  if (v === null || v === undefined || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 /**
@@ -166,12 +176,40 @@ function scorePosition(closes, ma20, i) {
   return s;
 }
 
-/** 动量分（满分 20）：20 日涨幅 8%~25% 满分，过热与下跌递减 */
-function scoreMomentum(closes, i) {
+/**
+ * 动量分（满分 20）：优先用**相对强度**（20 日涨幅 − 基准同期涨幅），缺基准时退回绝对涨幅
+ *
+ * 为什么改成相对的：绝对涨幅里混着大盘 beta。普涨月里随便一只票都能有 +15%，
+ * 那不是「强」，只是「水涨船高」；而校准实测（2026-11）显示绝对涨幅越高的票次日越弱，
+ * 说明原口径实际上在奖励「已经涨完的票」。减去基准后剩下的才是这只票自己的强度。
+ *
+ * 超额收益的控制点比绝对涨幅更严、更对称：躺平（0%）只给 12 分，跑赢 8% 才满分，
+ * 落后大盘 10% 以上直接归零。
+ */
+function scoreMomentum(closes, i, benchRet20Pct) {
   if (i < 20) return 0;
   const base = closes[i - 20];
   if (!(base > 0)) return 0;
   const ret = (closes[i] / base - 1) * 100;
+
+  // 用 pickNum 而不是 Number()：Number(null) 是 0，会把「没有基准」误当成「基准涨 0%」
+  const bench = pickNum(benchRet20Pct, NaN);
+  if (Number.isFinite(bench)) {
+    const rel = ret - bench;
+    return curve(rel, [
+      [-25, 0],
+      [-10, 2],
+      [-3, 8],
+      [0, 12],
+      [3, 16],
+      [8, 20],
+      [20, 20],
+      [35, 12],
+      [50, 4],
+    ]);
+  }
+
+  // 无基准（老调用方 / 基准 K 线缺失）：维持原口径，保证行为可预测
   return curve(ret, [
     [-15, 0],
     [0, 2],
@@ -261,10 +299,13 @@ function riskPenalties({ closes, opens, highs, lows, vols, i, ma20, volMa20 }) {
   const base = ma20[i];
   const dev20 = base > 0 ? ((close / base) - 1) * 100 : null;
   const ret5 = i >= 5 && closes[i - 5] > 0 ? (close / closes[i - 5] - 1) * 100 : null;
-  // 偏离 12% 起扣，每多 1% 扣 0.8；5 日涨 10% 起扣，每多 1% 扣 0.6
-  const chaseByDev = dev20 != null ? clamp((dev20 - 12) * 0.8, 0, 10) : 0;
-  const chaseByRet = ret5 != null ? clamp((ret5 - 10) * 0.6, 0, 10) : 0;
-  out.chase = Math.min(10, Math.max(chaseByDev, chaseByRet));
+  // 口径（2026-11 实测后收紧）：偏离 8% 起扣、每多 1% 扣 1 分；5 日涨 5% 起扣、每多 1% 扣 1。
+  // 依据：2588 个非重叠样本里，5 日涨幅 5~10% 的票次日收正仅 41.1%（均值 -0.26%），
+  // >10% 是 43.8%（均值 -0.55%），而 0~5% 与 -10~-5% 都在 52% 左右。
+  // 原来的 12%/10% 起扣、上限 10 明显太松，等于把「已经涨完的票」还留在高分段。
+  const chaseByDev = dev20 != null ? clamp((dev20 - 8) * 1.0, 0, 16) : 0;
+  const chaseByRet = ret5 != null ? clamp((ret5 - 5) * 1.0, 0, 16) : 0;
+  out.chase = Math.min(16, Math.max(chaseByDev, chaseByRet));
 
   // ② 波动过大：ATR14 占价格超 5% 起扣（1.5 倍系数），封顶 8
   const atrPct = atrPctOf(highs, lows, closes, i);
@@ -301,19 +342,30 @@ function riskPenalties({ closes, opens, highs, lows, vols, i, ma20, volMa20 }) {
  * @param {Array<{date:string, open:number, high:number, low:number, close:number, volume:number}>} bars
  *   必须是**升序且截止到信号日**的数组（调用方负责防前视）
  * @param {string} [code] 股票代码（保留位，当前打分不区分板块）
- * @returns {{ enough: boolean, score: number, baseScore: number,
+ * @param {object} [context] 情绪 / 题材 / 基准（可选，缺失一律按中性或旧口径）
+ *   - `regimeFactor` 市场情绪环境系数（0.90–1.10，来自 `sentimentOf().factor`）
+ *   - `sectorBoost`  个股题材加成（0–8，来自 `sectorBoostOf().boost`）
+ *   - `benchRet20Pct` 基准指数同期 20 日涨幅（%）；给了就按**相对强度**算动量，缺失回退绝对涨幅
+ *   - `sentimentLabel` 情绪标签（仅用于文案，不参与计算）
+ * @returns {{ enough: boolean, score: number, rawScore: number, baseScore: number,
  *             parts: Object<string, number>, penalties: Object<string, number>,
- *             penalty: number, bars: number, code: string, asOf: string|null,
- *             metrics: object|null }}
+ *             penalty: number, patternBonus: number, regimeFactor: number, sectorBoost: number,
+ *             bars: number, code: string, asOf: string|null, metrics: object|null }}
  */
-export function scoreBars(bars, code = "") {
+export function scoreBars(bars, code = "", context = {}) {
   const list = Array.isArray(bars) ? bars : [];
   const clean = list.filter((b) => b && Number(b.close) > 0);
   const n = clean.length;
+  // 情绪/题材缺失一律按中性处理：没有 Fuyao Key 时打分必须与旧口径完全一致
+  // 系数保留 2 位小数——round1 会把它压成 0.9/1.0/1.1 三档，情绪调节就失去意义
+  const regimeFactor =
+    Math.round(clamp(pickNum(context?.regimeFactor, 1), 0.9, 1.1) * 100) / 100;
+  const sectorBoost = round1(clamp(pickNum(context?.sectorBoost, 0), 0, 8));
   if (n < MIN_SCORE_BARS) {
     return {
       enough: false,
       score: 0,
+      rawScore: 0,
       baseScore: 0,
       parts: { trend: 0, position: 0, momentum: 0, volume: 0, macd: 0, rsi: 0 },
       penalties: { chase: 0, volatility: 0, volumeStall: 0, upperShadow: 0 },
@@ -321,6 +373,8 @@ export function scoreBars(bars, code = "") {
       patterns: [],
       patternHits: [],
       patternBonus: 0,
+      regimeFactor,
+      sectorBoost: 0,
       bars: n,
       code,
       asOf: null,
@@ -344,7 +398,7 @@ export function scoreBars(bars, code = "") {
   const parts = {
     trend: round1(scoreTrend(ma5, ma10, ma20, i)),
     position: round1(scorePosition(closes, ma20, i)),
-    momentum: round1(scoreMomentum(closes, i)),
+    momentum: round1(scoreMomentum(closes, i, context?.benchRet20Pct)),
     volume: round1(scoreVolume(vols, volMa20, i)),
     macd: round1(scoreMacd(ind.dif, ind.dea, i, closes[i])),
     rsi: round1(scoreRsi(rsi, i)),
@@ -366,9 +420,15 @@ export function scoreBars(bars, code = "") {
   const patterns = detectPatterns(clean, code);
   const patternBonus = patternBonusOf(patterns);
 
+  // 先算「原始分」（因子 − 风险 + 共振 + 题材），再乘情绪系数：
+  // 顺序不能反——环境系数是整体温度调节，不该被题材加成放大成杠杆
+  const rawScore = round1(clamp(baseScore - penalty + patternBonus + sectorBoost, 0, 100));
+  const score = round1(clamp(rawScore * regimeFactor, 0, 100));
+
   return {
     enough: true,
-    score: round1(clamp(baseScore - penalty + patternBonus, 0, 100)),
+    score,
+    rawScore,
     baseScore,
     parts,
     penalties,
@@ -376,6 +436,8 @@ export function scoreBars(bars, code = "") {
     patterns,
     patternHits: hitPatterns(patterns).map((p) => p.name),
     patternBonus,
+    regimeFactor,
+    sectorBoost,
     bars: n,
     code,
     asOf: clean[i]?.date || null,
@@ -426,6 +488,13 @@ export function describeScore(res) {
   const hits = Array.isArray(res.patternHits) ? res.patternHits : [];
   const tail = [];
   if (bonus > 0) tail.push(`战法共振 +${bonus}（${hits.join("、")}）`);
+  // 题材与环境必须写出来：用户看到的分数已含这两项，不写就是「数字凭空变了」
+  const sectorBoost = Number(res.sectorBoost) || 0;
+  if (sectorBoost > 0) tail.push(`题材 +${sectorBoost}`);
+  const factor = Number(res.regimeFactor);
+  if (Number.isFinite(factor) && Math.abs(factor - 1) >= 0.005) {
+    tail.push(`情绪 ×${factor.toFixed(2)}`);
+  }
   if (penalty > 0) {
     const hit = SCORE_RISK_FACTORS.filter((f) => Number(res.penalties?.[f.id]) > 0)
       .map((f) => `${f.name} -${res.penalties[f.id]}`)

@@ -488,6 +488,27 @@ pub fn query_kline(code: &str, period: &str, limit: u32) -> Result<Vec<KlineItem
     })
 }
 
+/// 列出本地已缓存日 K 的代码（按根数降序）
+///
+/// 打分校准要用「够长的历史」做 walk-forward：少于 60 根的票连打分预热都不够，
+/// 直接在 SQL 里滤掉，避免前端拿到一堆算不出样本的代码。
+pub fn list_kline_codes(period: &str, limit: u32) -> Result<Vec<String>, String> {
+    let limit = limit.clamp(1, 300) as i64;
+    fallible("列出 K 线代码", |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT code FROM kline WHERE period = ?1
+             GROUP BY code HAVING COUNT(*) >= 60
+             ORDER BY COUNT(*) DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![period, limit], |row| row.get::<_, String>(0))?;
+        let mut out: Vec<String> = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    })
+}
+
 /// 读取信号事件（按时间倒序，可选按代码/类型过滤），供历史信号胜率统计。
 ///
 /// 说明：`signal_event` 原先只写不读；本查询是「实盘信号胜率」的数据入口。

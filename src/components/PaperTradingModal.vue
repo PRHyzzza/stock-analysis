@@ -28,6 +28,7 @@ import { getToday } from "../utils/marketTime.js";
 import { effectiveInterval, onIntervalModeChange } from "../utils/refreshInterval.js";
 import { DEFAULT_CONFIG, floorLot, maxBuyShares, sellableShares } from "../utils/paperEngine.js";
 import { DEFAULT_SCORE_CONFIG } from "../utils/paperScore.js";
+import { describeAuction, MIN_PROMOTION_SAMPLES } from "../utils/eventSignals.js";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -55,6 +56,7 @@ const {
   tradeBlockedReason,
   addToPool,
   removeFromPool,
+  removeFromPoolBatch,
   reloadPool,
   refreshStatus,
   refreshPrices,
@@ -70,6 +72,25 @@ const {
   poolScoreBusy,
   poolScoreProgress,
   loadPoolScores,
+  sentimentInfo,
+  sentimentError,
+  sentimentLoading,
+  loadSentiment,
+  sentiment,
+  calibration,
+  calibrationBusy,
+  calibrationProgress,
+  calibrationError,
+  loadCalibration,
+  calibrationFor,
+  ladderInfo,
+  ladderError,
+  ladderLoading,
+  auctionError,
+  auctionLoading,
+  auctionOf,
+  sectorError,
+  sectorLoading,
   loadOvernightReview,
   exportLedger,
   importLedger,
@@ -104,6 +125,8 @@ const TABS = [
 
 // 切到「自选」就补打分：每只按天缓存，重复进入不会重复拉 K 线
 watch(tab, (v) => {
+  // 换页就把勾选与待确认态清掉，避免「看不见的选中」在下一次删除时被一起删掉
+  clearPoolSelection();
   if (v === "pool" && pool.value.length) loadPoolScores();
 });
 
@@ -382,11 +405,17 @@ const poolRows = computed(() => {
   const rows = pool.value.map((p) => {
     const entry = poolScores.value[p.code];
     const res = entry?.res;
+    const score = res?.enough ? res.score : null;
     return {
       ...p,
-      score: res?.enough ? res.score : null,
+      score,
+      rawScore: res?.enough ? res.rawScore : null,
       penalty: res?.penalty || 0,
       patterns: Array.isArray(res?.patternHits) ? res.patternHits : [],
+      sector: entry?.sector || null,
+      calib: calibrationFor(score),
+      // 5 日涨幅：实测（2588 样本）≥8% 的票次日收正仅约 41%，是这套体系里唯一有信号的量
+      ret5: res?.metrics?.ret5Pct ?? null,
       scoreText: entry?.text || "",
       scoreErr: entry?.error || "",
     };
@@ -397,6 +426,26 @@ const poolRows = computed(() => {
     const bv = b.score == null ? -1 : b.score;
     return bv - av || String(a.code).localeCompare(String(b.code));
   });
+});
+
+/** 情绪标签配色：冰点/偏弱 = 冷、中性 = 中性、回暖/高潮 = 热 */
+const sentimentTone = computed(() => {
+  const s = sentimentInfo.value;
+  if (!s?.available) return "tone-mid";
+  if (s.score < 40) return "tone-cold";
+  if (s.score < 60) return "tone-mid";
+  return "tone-hot";
+});
+
+/** 打分校准的持有期（交易日）：次日起步，因为 A 股 T+1 最早次日才能卖 */
+const calibHorizon = ref(1);
+
+/** 今日连板梯队摘要：2 板 15 · 3 板 2，代表当前高度 */
+const promoToday = computed(() => {
+  const parts = ladderInfo.value.levels
+    .filter((b) => b.todayCount > 0)
+    .map((b) => `${b.label} ${b.todayCount}`);
+  return parts.length ? parts.join(" · ") : "今日无连板";
 });
 
 // ── 自选池 ────────────────────────────────────────────
@@ -421,6 +470,78 @@ async function submitManual() {
   manualName.value = "";
   if (added.length) loadPoolScores();
 }
+
+// ── 自选勾选批量移出 ───────────────────────────────────
+/** 勾选的代码（数组而非 Set：数组天然可被 ref 追踪，赋值即触发重渲染） */
+const poolSelected = ref([]);
+/** 两段式确认：第一次点变成「确认移出 N 只」，5 秒不点自动退回 */
+const poolDeleteConfirm = ref(false);
+
+const selectedSet = computed(() => new Set(poolSelected.value));
+const selectedCount = computed(() => poolSelected.value.length);
+const allPoolSelected = computed(
+  () => poolRows.value.length > 0 && poolRows.value.every((r) => selectedSet.value.has(r.code))
+);
+const partialSelected = computed(() => selectedCount.value > 0 && !allPoolSelected.value);
+/** 选中项里仍在持仓的只数：移出自选不影响持仓，只在确认文案里点一句 */
+const selectedHeldCount = computed(
+  () => poolSelected.value.filter((code) => heldShares(code) > 0).length
+);
+
+function isPoolChecked(code) {
+  return selectedSet.value.has(code);
+}
+
+function togglePoolOne(code, checked) {
+  poolDeleteConfirm.value = false;
+  const set = new Set(poolSelected.value);
+  if (checked) set.add(code);
+  else set.delete(code);
+  poolSelected.value = [...set];
+}
+
+/** 全选/取消全选：只作用于当前展示的行（按分排序后顺序变了也不影响） */
+function togglePoolAll(checked) {
+  poolDeleteConfirm.value = false;
+  poolSelected.value = checked ? poolRows.value.map((r) => r.code) : [];
+}
+
+function clearPoolSelection() {
+  poolSelected.value = [];
+  poolDeleteConfirm.value = false;
+}
+
+/** 移出选中：第一次点只亮确认文案，第二次才真正删（防手滑） */
+function requestPoolDelete() {
+  if (!selectedCount.value) return;
+  if (!poolDeleteConfirm.value) {
+    poolDeleteConfirm.value = true;
+    poolHint.value =
+      selectedHeldCount.value > 0
+        ? `其中 ${selectedHeldCount.value} 只仍持仓，移出自选不影响持仓与成交记录；再点一次确认`
+        : `再点一次确认移出 ${selectedCount.value} 只`;
+    return;
+  }
+  const removed = removeFromPoolBatch([...poolSelected.value]);
+  clearPoolSelection();
+  poolHint.value = removed ? `已移出自选 ${removed} 只` : "没有可移出的标的（可能已在其他窗口被删除）";
+}
+
+/** 5 秒不点第二次就取消确认 */
+watch(poolDeleteConfirm, (v) => {
+  if (!v) return;
+  setTimeout(() => {
+    if (poolDeleteConfirm.value) poolDeleteConfirm.value = false;
+  }, 5000);
+});
+
+/** 自选池被别处改动（问财窗口 / 单只移出）时，剔除已经不存在的勾选项 */
+watch(pool, () => {
+  if (!poolSelected.value.length) return;
+  const alive = new Set(pool.value.map((p) => p.code));
+  const next = poolSelected.value.filter((c) => alive.has(c));
+  if (next.length !== poolSelected.value.length) poolSelected.value = next;
+});
 
 // ── 配置 ──────────────────────────────────────────────
 const confirming = ref("");
@@ -489,6 +610,7 @@ watch(
       confirming.value = "";
       orderHint.value = "";
       poolHint.value = "";
+      clearPoolSelection();
       if (timer) clearInterval(timer);
       if (statusTimer) clearInterval(statusTimer);
       timer = null;
@@ -783,6 +905,11 @@ onUnmounted(() => {
                     <span class="score-num" :class="scoreInfo.res.score >= DEFAULT_SCORE_CONFIG.minScore ? 'up' : 'muted'">{{ scoreInfo.res.score }}</span>
                     <span class="score-bar"><span class="score-bar-fill" :style="{ width: `${scoreInfo.res.score}%` }"></span></span>
                     <span class="score-tag muted" v-if="scoreInfo.res.penalty > 0">风险 -{{ scoreInfo.res.penalty }}</span>
+                    <span
+                      class="score-tag theme"
+                      v-if="scoreInfo.sector?.boost > 0"
+                      :title="`题材加成 +${scoreInfo.sector.boost}：${scoreInfo.sector.reason}`"
+                    >题材+{{ scoreInfo.sector.boost }}</span>
                     <span
                       class="score-tag pattern"
                       v-if="(scoreInfo.res.patternHits || []).length"
@@ -1086,6 +1213,150 @@ onUnmounted(() => {
               </div>
               <div v-if="poolHint" class="pool-hint-line">{{ poolHint }}</div>
 
+              <!-- 市场情绪：日 K 打分之外的另一半信息（今天的钱往哪儿走） -->
+              <div class="sentiment-card">
+                <div class="sentiment-head">
+                  <span class="sentiment-title">市场情绪</span>
+                  <template v-if="sentimentInfo.available">
+                    <span class="sentiment-score" :class="sentimentTone">{{ sentimentInfo.score }}</span>
+                    <span class="sentiment-badge" :class="sentimentTone">{{ sentimentInfo.label }}</span>
+                    <span class="schip">封板率 {{ sentimentInfo.sealRatePct == null ? "--" : sentimentInfo.sealRatePct.toFixed(0) + "%" }}</span>
+                    <span class="schip">涨停 {{ sentiment?.limit_up ?? "--" }}</span>
+                    <span class="schip">跌停 {{ sentiment?.limit_down == null ? "--" : sentiment.limit_down }}</span>
+                    <span class="schip">最高 {{ sentiment?.max_board ? sentiment.max_board + " 板" : "--" }}</span>
+                    <span class="schip">炸板率 {{ sentimentInfo.breakRatePct == null ? "--" : sentimentInfo.breakRatePct.toFixed(0) + "%" }}</span>
+                    <span
+                      class="sentiment-factor"
+                      :title="`情绪只做温和调节：分数 ×${sentimentInfo.factor}（0.90–1.10）`"
+                    >系数 ×{{ sentimentInfo.factor.toFixed(2) }}</span>
+                  </template>
+                  <span v-else class="sentiment-empty">
+                    {{ sentimentLoading ? "情绪数据加载中…" : (sentimentError || "情绪数据不可用") }}
+                  </span>
+                  <button
+                    class="sentiment-refresh"
+                    :disabled="sentimentLoading"
+                    title="重新拉取当日情绪（盘中 5 分钟缓存）"
+                    @click="loadSentiment(true)"
+                  >⟳</button>
+                </div>
+                <div v-if="sentimentInfo.available" class="theme-row">
+                  <span class="theme-label">涨停题材</span>
+                  <template v-if="sentiment?.themes?.length">
+                    <span v-for="t in sentiment.themes.slice(0, 6)" :key="t.name" class="theme-chip">
+                      {{ t.name }}<i>{{ t.count }}</i>
+                    </span>
+                  </template>
+                  <span v-else class="sentiment-warn">涨停原因暂未归因（上游盘中多为占位词），题材榜待更新</span>
+                  <span v-if="sectorLoading" class="sentiment-warn">题材强度加载中…</span>
+                  <span v-else-if="sectorError" class="sentiment-warn">{{ sectorError }}</span>
+                  <span v-if="sentimentInfo.missing.length" class="sentiment-warn">
+                    缺 {{ sentimentInfo.missing.join(" / ") }}，按中性计
+                  </span>
+                </div>
+
+                <!-- 连板晋级率：短线高度最直接的可观察量（只算已有次日结果的样本） -->
+                <div class="promo-row">
+                  <span class="theme-label">连板晋级</span>
+                  <template v-if="ladderInfo.totalSamples">
+                    <span
+                      v-for="b in ladderInfo.levels"
+                      :key="b.id"
+                      class="promo-chip"
+                      :class="{ weak: !b.reliable }"
+                      :title="`${b.label}：${b.promoted}/${b.samples} 次日继续封板${b.reliable ? '' : `（样本不足 ${MIN_PROMOTION_SAMPLES} 条）`}`"
+                    >
+                      {{ b.label }}
+                      <b>{{ b.ratePct == null ? "--" : b.ratePct + "%" }}</b>
+                      <i>{{ b.promoted }}/{{ b.samples }}</i>
+                    </span>
+                    <span class="sentiment-warn">今日在板：{{ promoToday }}</span>
+                  </template>
+                  <span v-else-if="ladderLoading" class="sentiment-warn">连板数据加载中…</span>
+                  <span v-else class="sentiment-warn">{{ ladderError || "暂无连板数据" }}</span>
+                </div>
+                <div v-if="auctionLoading" class="sentiment-warn auc-warn">竞价异动加载中…</div>
+                <div v-else-if="auctionError" class="sentiment-warn auc-warn">{{ auctionError }}</div>
+              </div>
+
+              <!-- 打分校准：把「60 分门槛」换成「历史同档表现」 -->
+              <div class="calib-card">
+                <div class="calib-head">
+                  <span class="calib-title">分数校准</span>
+                  <select
+                    v-model.number="calibHorizon"
+                    class="calib-select"
+                    :disabled="calibrationBusy"
+                    title="持有期：信号日次日开盘买入，持有 N 个交易日收盘卖出"
+                    @change="loadCalibration({ force: true, horizon: calibHorizon })"
+                  >
+                    <option :value="1">持有 1 日</option>
+                    <option :value="2">持有 2 日</option>
+                    <option :value="3">持有 3 日</option>
+                    <option :value="5">持有 5 日</option>
+                  </select>
+                  <span v-if="calibrationBusy" class="calib-hint">
+                    回放中 {{ calibrationProgress.done }}/{{ calibrationProgress.total }} 只…
+                  </span>
+                  <span v-else-if="!calibration" class="calib-hint">
+                    用本地历史日 K 回放，看「同样分数的票后来怎样了」
+                  </span>
+                  <span v-else class="calib-hint">
+                    {{ calibration.total }} 个样本 / {{ calibration.codes }} 只票 · {{ calibration.at }}
+                  </span>
+                  <button
+                    class="calib-btn"
+                    :disabled="calibrationBusy"
+                    :title="calibration ? '清缓存重算' : '开始计算（只读本地库，不联网）'"
+                    @click="loadCalibration({ force: !!calibration, horizon: calibHorizon })"
+                  >{{ calibrationBusy ? "…" : calibration ? "重算" : "计算" }}</button>
+                </div>
+
+                <div v-if="calibrationError" class="calib-warn">{{ calibrationError }}</div>
+
+                <template v-if="calibration && calibration.total">
+                  <table class="calib-table">
+                    <thead>
+                      <tr>
+                        <th>分数档</th>
+                        <th class="num">样本</th>
+                        <th class="num">收正</th>
+                        <th class="num">中位收益</th>
+                        <th class="num">扣费后中位</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="b in calibration.buckets" :key="b.id" :class="{ dim: !b.reliable }">
+                        <td>{{ b.label }}</td>
+                        <td class="num">{{ b.n || "—" }}</td>
+                        <td class="num">{{ b.winRatePct == null ? "—" : b.winRatePct.toFixed(0) + "%" }}</td>
+                        <td class="num" :class="b.medianRetPct > 0 ? 'up' : (b.medianRetPct < 0 ? 'down' : '')">
+                          {{ b.medianRetPct == null ? "—" : (b.medianRetPct > 0 ? "+" : "") + b.medianRetPct.toFixed(2) + "%" }}
+                        </td>
+                        <td class="num" :class="b.medianAfterFeePct > 0 ? 'up' : (b.medianAfterFeePct < 0 ? 'down' : '')">
+                          {{ b.medianAfterFeePct == null ? "—" : (b.medianAfterFeePct > 0 ? "+" : "") + b.medianAfterFeePct.toFixed(2) + "%" }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p class="calib-note">
+                    {{ calibration.basis }}；灰行 = 样本不足 {{ calibration.minSamples }} 条，只作参考。
+                  </p>
+                  <p v-if="calibration.monotonic === false" class="calib-warn">
+                    ⚠ 本批样本里胜率没有随分数递增——别把高分当保证。
+                  </p>
+                  <p v-else-if="calibration.monotonic === null" class="calib-warn">
+                    可信分数档不足 3 个，暂不判断「分数越高越好」是否成立。
+                  </p>
+                  <p v-else class="calib-note">
+                    样本内分数越高、收正比例越高；样本有限，不代表未来收益。
+                  </p>
+                </template>
+                <div v-else-if="!calibrationBusy && !calibrationError" class="calib-note">
+                  点「计算」开始（只读本地已缓存日 K，不联网）。
+                </div>
+              </div>
+
               <div v-if="!pool.length" class="tab-empty">
                 自选是空的
                 <span class="tab-empty-sub">手动输入代码、或在问财选股窗口把标的加入模拟盘；这里只是方便你快速下单</span>
@@ -1097,10 +1368,31 @@ onUnmounted(() => {
                     按参考分排序
                   </label>
                   <span class="pool-score-hint">参考分 = 6 因子 + 风险扣分 + 战法共振，每天算一次；不参与买卖判定</span>
+                  <div v-if="selectedCount" class="pool-del">
+                    <span class="pool-sel-count">已选 {{ selectedCount }} 只</span>
+                    <button
+                      class="ghost-btn tiny"
+                      :class="{ danger: poolDeleteConfirm }"
+                      @click="requestPoolDelete"
+                    >{{ poolDeleteConfirm ? `确认移出 ${selectedCount} 只` : "移出自选" }}</button>
+                    <button class="link-btn pool-sel-cancel" @click="clearPoolSelection">取消</button>
+                  </div>
                 </div>
                 <table class="paper-table">
                   <thead>
                     <tr>
+                      <th class="sel-col">
+                        <input
+                          type="checkbox"
+                          class="pool-check"
+                          :checked="allPoolSelected"
+                          :indeterminate="partialSelected"
+                          :disabled="!poolRows.length"
+                          title="全选 / 取消全选"
+                          aria-label="全选自选"
+                          @change="togglePoolAll($event.target.checked)"
+                        />
+                      </th>
                       <th>名称</th>
                       <th class="num">参考分</th>
                       <th class="num">持仓</th>
@@ -1108,16 +1400,43 @@ onUnmounted(() => {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="p in poolRows" :key="p.code">
+                    <tr v-for="p in poolRows" :key="p.code" :class="{ 'row-checked': isPoolChecked(p.code) }">
+                      <td class="sel-col">
+                        <input
+                          type="checkbox"
+                          class="pool-check"
+                          :checked="isPoolChecked(p.code)"
+                          :aria-label="`选择 ${p.name || p.code}`"
+                          @change="togglePoolOne(p.code, $event.target.checked)"
+                        />
+                      </td>
                       <td>
                         <button class="link-btn" @click="openDetail(p.code)">{{ p.name || p.code }}</button>
                         <span class="cell-code">{{ p.code }}</span>
+                        <span
+                          v-if="auctionOf(p.code)"
+                          class="auc-chip"
+                          :title="describeAuction(auctionOf(p.code))"
+                        >{{ auctionOf(p.code).primary.warn_name || "竞价异动" }}</span>
                       </td>
-                      <td class="num pool-score" :title="p.scoreText || p.scoreErr || '未打分'">
+                      <td
+                        class="num pool-score"
+                        :title="[p.scoreText || p.scoreErr || '未打分', p.calib?.verdict].filter(Boolean).join('；')"
+                      >
                         <template v-if="p.score != null">
                           <span :class="p.score >= DEFAULT_SCORE_CONFIG.minScore ? 'up' : 'muted'">{{ p.score }}</span>
                           <span v-if="p.penalty > 0" class="score-tag risk">-{{ p.penalty }}</span>
                           <span v-if="p.patterns.length" class="score-tag pattern" :title="p.patterns.join('、')">{{ p.patterns[0] }}</span>
+                          <span
+                            v-if="p.sector?.boost > 0"
+                            class="score-tag theme"
+                            :title="`题材加成 +${p.sector.boost}：${p.sector.reason}`"
+                          >题材+{{ p.sector.boost }}</span>
+                          <span
+                            v-if="p.ret5 != null && p.ret5 >= 8"
+                            class="hot-dot"
+                            :title="`短期过热：5 日涨幅 ${p.ret5}%。实测该区间次日收正仅约 41%、均值 -0.26%，追高吃亏`"
+                          ></span>
                         </template>
                         <span v-else-if="poolScoreBusy" class="muted">…</span>
                         <span v-else class="muted">{{ p.scoreErr ? "—" : "--" }}</span>
@@ -1532,6 +1851,250 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 题材加成：与「风险 / 战法」并列，但用主题色区分（这是加分项） */
+.score-tag.theme {
+  color: var(--rust);
+  background: var(--apricot-wash);
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 短期过热小圆点：5 日涨幅 ≥8%（实测该区间次日明显偏弱），只占 4px 不挤压列宽 */
+.hot-dot {
+  flex-shrink: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--danger-ink);
+  opacity: 0.85;
+  cursor: help;
+}
+
+/* ── 市场情绪卡（短线环境） ── */
+.sentiment-card {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.sentiment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sentiment-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.sentiment-score {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.sentiment-badge {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+}
+.sentiment-badge.tone-hot { color: var(--rust); background: var(--apricot-wash); }
+.sentiment-badge.tone-mid { color: var(--text-secondary); background: var(--hover-bg); }
+.sentiment-badge.tone-cold { color: var(--text-secondary); background: var(--fog); }
+.schip {
+  padding: 2px 8px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-full);
+  font-variant-numeric: tabular-nums;
+}
+.sentiment-factor { font-size: 11.5px; color: var(--text-muted); }
+.sentiment-empty { font-size: 12px; color: var(--text-muted); }
+.sentiment-refresh {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-full);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.sentiment-refresh:hover:not(:disabled) { color: var(--rust); border-color: var(--rust); }
+.sentiment-refresh:active:not(:disabled) { transform: scale(0.94); }
+.sentiment-refresh:disabled { opacity: 0.45; cursor: not-allowed; }
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-light);
+}
+.theme-label { font-size: 11.5px; color: var(--text-muted); }
+.theme-chip {
+  padding: 2px 8px;
+  font-size: 11.5px;
+  color: var(--rust);
+  background: var(--apricot-wash);
+  border-radius: var(--radius-full);
+}
+.theme-chip i {
+  font-style: normal;
+  margin-left: 4px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+.sentiment-warn { font-size: 11.5px; color: var(--text-muted); }
+
+/* 连板晋级率 */
+.promo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-light);
+}
+.promo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.promo-chip b {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.promo-chip i {
+  font-style: normal;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+/* 样本不足：数字还在，但不许被当成结论 */
+.promo-chip.weak { opacity: 0.55; }
+.auc-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--hover-bg);
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.auc-warn { margin-top: 6px; }
+
+/* ── 打分校准（本地历史 walk-forward） ── */
+.calib-card {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.calib-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.calib-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.calib-hint { font-size: 11.5px; color: var(--text-muted); }
+.calib-select {
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.calib-select:focus { border-color: var(--rust); box-shadow: var(--focus-glow); }
+.calib-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.calib-btn {
+  margin-left: auto;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.calib-btn:hover:not(:disabled) {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--apricot-wash);
+}
+.calib-btn:active:not(:disabled) { transform: scale(0.96); }
+.calib-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.calib-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.calib-table th {
+  padding: 4px 6px;
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-light);
+}
+.calib-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.calib-table tr:last-child td { border-bottom: none; }
+/* 样本不足的档位整体变灰：数字还在，但不允许被当成结论 */
+.calib-table tr.dim td { color: var(--text-muted); }
+.calib-table .num { text-align: right; }
+.calib-note {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.calib-warn {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--warn-ink);
+  line-height: 1.5;
+}
 
 /* ── 表格 ── */
 .paper-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -1712,11 +2275,29 @@ onUnmounted(() => {
 .ledger-title { margin-top: 16px; }
 .ledger-row { display: flex; gap: 8px; margin-bottom: 8px; }
 /* ── 自选打分 ── */
-.pool-tools { display: flex; align-items: center; gap: 12px; margin: 0 0 8px; }
+.pool-tools { display: flex; align-items: center; gap: 12px; margin: 0 0 8px; flex-wrap: wrap; }
 .pool-sort { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
 .pool-score-hint { font-size: 11.5px; color: var(--text-muted); }
 .pool-score { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pool-score .score-tag { margin-left: 4px; }
+
+/* ── 自选勾选删除 ── */
+/* 用 .paper-table 前缀提升权重：`.paper-table th/td` 的 padding 会盖掉裸类选择器 */
+.paper-table .sel-col { width: 32px; padding-right: 0; }
+.pool-check {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--rust);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.pool-check:disabled { cursor: not-allowed; opacity: 0.45; }
+.paper-table tbody tr.row-checked td { background: var(--apricot-wash); }
+.pool-del { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.pool-sel-count { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.pool-sel-cancel { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.pool-sel-cancel:hover { color: var(--rust); }
 .ledger-textarea {
   width: 100%;
   resize: vertical;

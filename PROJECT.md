@@ -16,8 +16,8 @@ stock-analysis/
 │   ├── composables/            34 个（§3.1）
 │   ├── skills/                 12 skill / 17 工具（§3.2）
 │   ├── prompts/                system-prompt.md（AI 提示词模板，§3.4）
-│   └── utils/                  format（数值/涨跌色/千分位统一入口）/ market（市场与代码判定唯一入口 isHKCode·isBJCode·inferMarket）/ marketTime（交易日历+连续竞价时段+盘后固定价格交易 15:05-15:30，§7.35）/ limit（涨跌停按板块，ST 与所属板块一致、无需名称）/ refreshInterval（轮询降频唯一入口，§7.29）/ indicators（EMA 等指标统一预热口径）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）/ paperFees（模拟盘费用：佣金万2.5、最低5元、印花税卖出0.05%、过户费双向）/ paperRules（模拟盘交易规则：最小下单单位按板块、涨跌停价、可成交判定、连续竞价成交价=最新价±滑点、盘后固定收盘价）/ paperEngine（手动模拟盘引擎：下单预校验+即时成交+记账，费用/手数/T+1/涨跌停/停牌/净值/盘后固定价 session，FIFO 批次与平仓配对，账户 v1→v2 迁移，§7.35）/ paperReview（复盘统计：FIFO 归因按持有期·战法·参考分，隔夜缺口）/ fuyao（前端侧同花顺 Key 取值：`getFuyaoKey` / `withFuyaoKey`，命令需 Key 时统一从这里取，禁止各调用点自己读 localStorage） / scoreMath（打分体系共用 clamp/round1/分段插值/ATR，避免 paperScore 与 paperPatterns 各写一份）/ paperScore（模拟盘选股打分：趋势/位置/动量/量能/MACD/RSI 六因子满分 100，因子用分段线性连续计分；另叠加追高·波动·放量滞涨·长上影风险扣分（≤30），K 线不足 60 根不打分，§7.35）/ paperPatterns（模拟盘战法识别：趋势跟随·一进二·突破缩量·低吸放量，日线可判、纯逻辑，命中 ≥2 个给共振加成，§7.35）
-├── scripts/                    本地诊断与 node:test 用例（diagnose-intraday / indicator-tightness.test / trap-signals.test / paper-engine.test / paper-score.test / paper-patterns.test / paper-review.test / market-time.test，`pnpm test`）
+│   └── utils/                  format（数值/涨跌色/千分位统一入口）/ market（市场与代码判定唯一入口 isHKCode·isBJCode·inferMarket）/ marketTime（交易日历+连续竞价时段+盘后固定价格交易 15:05-15:30，§7.35）/ limit（涨跌停按板块，ST 与所属板块一致、无需名称）/ refreshInterval（轮询降频唯一入口，§7.29）/ indicators（EMA 等指标统一预热口径）/ hkHolidays（港股公众假期表）/ notify / klineCache / klinePeriod（K线周期口径唯一真源）/ history（本地历史库落库）/ paperFees（模拟盘费用：佣金万2.5、最低5元、印花税卖出0.05%、过户费双向）/ paperRules（模拟盘交易规则：最小下单单位按板块、涨跌停价、可成交判定、连续竞价成交价=最新价±滑点、盘后固定收盘价）/ paperEngine（手动模拟盘引擎：下单预校验+即时成交+记账，费用/手数/T+1/涨跌停/停牌/净值/盘后固定价 session，FIFO 批次与平仓配对，账户 v1→v2 迁移，§7.35）/ paperReview（复盘统计：FIFO 归因按持有期·战法·参考分，隔夜缺口）/ fuyao（前端侧同花顺 Key 取值：`getFuyaoKey` / `withFuyaoKey`，命令需 Key 时统一从这里取，禁止各调用点自己读 localStorage） / scoreMath（打分体系共用 clamp/round1/分段插值/ATR，避免 paperScore 与 paperPatterns 各写一份）/ marketSentiment（短线情绪与题材：封板率/涨跌停/连板高度→0-100 情绪分 + 环境系数 0.90-1.10；个股所属板块最强涨幅→题材加成 0-8；通用概念黑名单，§7.35）/ paperScore（模拟盘选股打分：趋势/位置/动量/量能/MACD/RSI 六因子满分 100，因子用分段线性连续计分（动量优先用相对强度：传 `context.benchRet20Pct` 时按「20 日涨幅 − 基准同期涨幅」计分，缺省回退绝对涨幅）；另叠加追高（偏离 MA20 >8% 或 5 日涨幅 >5% 起扣，上限 16）·波动·放量滞涨·长上影风险扣分（合计 ≤30），K 线不足 60 根不打分，§7.35）/ paperPatterns（模拟盘战法识别：趋势跟随·一进二·突破缩量·低吸放量，日线可判、纯逻辑，命中 ≥2 个给共振加成，§7.35） / paperCalibration（打分校准：用本地日 K 做 walk-forward，把 0-100 分数映射成同档样本数·收正率·扣费后中位收益；非重叠采样、防前视，§7.35） / eventSignals（短线事件：连板晋级率（分母只算有次日结果的样本）与竞价异动归组，§7.35）
+├── scripts/                    本地诊断与 node:test 用例（diagnose-intraday / indicator-tightness.test / trap-signals.test / paper-engine.test / paper-score.test / paper-patterns.test / paper-review.test / market-time.test / iwencai-pool.test / market-sentiment.test / paper-calibration.test / event-signals.test，`pnpm test`）
 ├── .github/
 │   ├── workflows/ci.yml         CI：pnpm build + pnpm test + cargo test（PR/push 自动跑）
 │   └── copilot-instructions.md  Copilot 摘要（细节以本文档为准）
@@ -25,7 +25,7 @@ stock-analysis/
 │   ├── .cargo/config.toml      USTC sparse 镜像（勿删）
 │   ├── capabilities/           default.json 窗口权限：main/mini/iwencai
 │   └── src/
-│       ├── commands.rs         27 个命令（§4.1）
+│       ├── commands.rs         32 个命令（§4.1）
 │       ├── db.rs               本地历史库（SQLite / rusqlite，§4.4）
 │       ├── types.rs / helpers.rs（代码转换 §4.3）
 │       └── api/                tencent / eastmoney / hotlist / calendar / llm / web / iwencai
@@ -84,7 +84,7 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `StockPicks` | `render_stock_picks`（选股结果卡片，`PICKS_MARKER` 前缀 → `msg.picks` 渲染） |
 | `UserContext` | `read/save_user_profile` / `get_fx_rate` |
 
-> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`（AI 自身管道）、`get_trading_calendar`（前端时段判断内部使用）、`get_app_version` / `check_for_update`（应用级）。
+> 未开放为 AI 工具的命令：`call_llm` / `call_llm_stream`（AI 自身管道）、`get_trading_calendar`（前端时段判断内部使用）、`get_market_sentiment` / `get_sector_strength`（模拟盘自选打分内部使用）、`get_app_version` / `check_for_update`（应用级）。
 
 ### 3.3 核心子系统（一行一系统）
 
@@ -97,13 +97,13 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 - **本地历史库**: `db.rs`（rusqlite bundled，WAL，`app_data_dir/stock-analysis.db`）——落库全部走旁路（§7.18）；表结构 / 保留期 / 日期口径见 §4.4
 - **历史信号胜率面板**: `SignalHistoryModal.vue` + `useSignalHistory.js` — 消费此前只写不读的 `signal_event`：把**真实落库过的**信号与之后真实走出的日 K 对照，给 1/3/5/10 日持有期的胜率 / 平均收益 / 盈亏比，并按信号名与股票分组。**胜负按信号方向判定**（看涨信号涨了算胜、看跌信号跌了算胜），方向未知的不计入胜率并单独披露；缺价格 / 缺日 K / 持有期超出 K 线长度的样本一律排除并展示覆盖度。口径与标注要求见 §7.26
 - **信号回测面板**: `BacktestModal.vue` + `useSignalBacktest.js` — 8 条日线规则（MA5×MA10 金叉、多头排列首次成立、MACD 金叉、KDJ 低位金叉、RSI 上穿 30、突破前 60 根最近阻力、放量上涨、逼近涨停）× 4 持有期（1/3/5/10 日），非重叠交易统计胜率 / 平均收益 / 盈亏比 / 最大回撤；样本 <10 笔标「样本不足」；顶部另有**当前状态**区（截至 `asOf` 末根 K 线，按「现在成立 / 近 10 日内出现过 / 未触发」分组，只含上述 8 条可回测规则），口径与标注要求见 §7.19
-- **模拟盘（手动交易）**: `PaperTradingModal.vue` + `usePaperAccount.js` + `utils/paperEngine.js` / `paperRules.js` / `paperFees.js` / `paperScore.js` / `paperPatterns.js` — 你在「总览」输入代码（或从持仓/自选点买卖）→ 连续竞价按**下单那一刻的最新价 ± 滑点**即时成交、盘后固定价格交易按**当日收盘价**（固定、无滑点）成交 → 记账（现金/持仓/成交/净值快照）。**没有自动选股、没有委托队列、没有定时任务、没有自动止盈止损**。校验：只在连续竞价（9:30-11:30 / 13:00-15:00）或盘后固定价格交易（15:05-15:30，2026-07-06 新规；沪深全部 A 股适用，北交所实施时间待通知、港股不适用）可下单、涨停不买跌停不卖、最小下单单位按板块、A 股 T+1（当日买入锁定）、全额费用（佣金万2.5 最低 5 元 + 印花税卖出 0.05% + 过户费双向 0.001%）。6 因子打分 + 风险扣分 + 5 战法识别（趋势跟随 / 一进二 / 突破缩量 / 低吸放量 / 一夜持股）保留为**参考信息**，不参与任何成交判定。另有：自选页按天批量打分（串行、当天缓存、可一键重算、可按分排序）、复盘页（FIFO 归因按持有期/战法/参考分 + 隔夜缺口）、账本 JSON 导出导入、持仓「今日盈亏」列、大额买入二次确认、按金额下单。账户与自选池是 localStorage 单例。引擎是纯函数（可单测），口径见 §7.35
+- **模拟盘（手动交易）**: `PaperTradingModal.vue` + `usePaperAccount.js` + `utils/paperEngine.js` / `paperRules.js` / `paperFees.js` / `paperScore.js` / `paperPatterns.js` — 你在「总览」输入代码（或从持仓/自选点买卖）→ 连续竞价按**下单那一刻的最新价 ± 滑点**即时成交、盘后固定价格交易按**当日收盘价**（固定、无滑点）成交 → 记账（现金/持仓/成交/净值快照）。**没有自动选股、没有委托队列、没有定时任务、没有自动止盈止损**。校验：只在连续竞价（9:30-11:30 / 13:00-15:00）或盘后固定价格交易（15:05-15:30，2026-07-06 新规；沪深全部 A 股适用，北交所实施时间待通知、港股不适用）可下单、涨停不买跌停不卖、最小下单单位按板块、A 股 T+1（当日买入锁定）、全额费用（佣金万2.5 最低 5 元 + 印花税卖出 0.05% + 过户费双向 0.001%）。6 因子打分 + 风险扣分 + 5 战法识别（趋势跟随 / 一进二 / 突破缩量 / 低吸放量 / 一夜持股）保留为**参考信息**，不参与任何成交判定。另有：自选页按天批量打分（串行、当天缓存、可一键重算、可按分排序；分数 = 6 因子 − 风险扣分 + 战法共振 + 题材加成，最后乘市场情绪系数）、市场情绪卡（封板率 / 涨停 / 跌停 / 最高连板 / 炸板率 + 涨停题材 Top6，§7.35 情绪口径）、自选勾选批量移出（表头全选/半选态、两段式确认、`removeFromPoolBatch` 一次持久化）、复盘页（FIFO 归因按持有期/战法/参考分 + 隔夜缺口）、账本 JSON 导出导入、持仓「今日盈亏」列、大额买入二次确认、按金额下单。账户与自选池是 localStorage 单例。引擎是纯函数（可单测），口径见 §7.35
 
 - **分时量价信号/陷阱**: `useTrapSignals`（诱多?/诱空? 疑似定性 + 强度分级）+ `useVolumeSignals`（前瞻预警⚠/突破破位/顶底背离）并入 T+0 链路；量能基准 i-30..i-11 滞后滚动中位数、同类型去重；**数据门槛 10 根**（早盘前瞻预警实时可用，突破/破位、背离由内部预热 i>=30/i>=15 控制）；细节见文件注释
 - **K线周期口径**: `utils/klinePeriod.js` 是周期标签 / 均线口径 / 非日K提示的唯一真源（§7.21）；技术分析、AI 分析、筹码弹窗均按当前周期标注口径，T+0 趋势与 MACD 背离只吃日K
 - **全局设置**: 5 标签页实时生效
 - **AI 双入口**: 个股 AI（注入行情/K线/资金/行业/筹码/持仓 + 预计算指标）；全局 AI（注入指数/持仓，@代码 引用，热榜选股）
-- **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）；短线买入清单带**贴线硬性条件**（现价须在 MA5 之上且偏离 ≤3% 优先、>5% 剔除，用 `get_stock_kline` 的 `ma.MA5`/`vsMA5Pct` 核验）
+- **AI 选股**: 问财窗口「AI 分析这批股票」→ `iwencai-ai-analyze` → 全局 AI `injectContextMessage` 注入结果表（`_injected` 不持久化）；`render_stock_picks` 渲染选股卡片（加自选/查看详情）；短线买入清单带**贴线硬性条件**（现价须在 MA5 之上且偏离 ≤3% 优先、>5% 剔除，用 `get_stock_kline` 的 `ma.MA5`/`vsMA5Pct` 核验）。结果区另有两条入池通道：**本页加入**（`addToPool`，不清空已有池）与**覆盖模拟盘自选**（`replacePool`，用本次全部结果替换整池、需两次点击确认），候选统一由 `pickPaperPoolCandidates`（`useIwencaiRobot.js`，纯函数）提取——只保留 6 位沪深北代码并去重，港股不入池
 - **联网搜索**: 开关全局生效；完整流程只维护在 `WebSearch.js`
 - **交易日历 / 市场状态**: A 股由 `useTradingCalendar` 拉 `get_trading_calendar` 注入 `marketTime.js` 模块级 Set；港股用静态假期表 `utils/hkHolidays.js`（2024–2027，每年随 GovHK 公告追加翌年；未收录年份退回周一~周五判定）。两者统一由 `getMarketStatus(code, at)` 输出 `pre/open/break/post/holiday` + `minutesToClose`（轮询守卫与 UI 口径同源，§7.15）+ `afterHours` 附加字段（15:05-15:30 盘后窗口，`state` 仍为 `post`、不改轮询口径；适用板块与原因走 `getAfterHoursStatus`，§7.35）；港股仅当自选/持仓含 5 位代码时才纳入 `isMarketSession`（否则 A 股休市日完全零轮询）；A 股接口窗口固定 `[今日-1年, 今日]` → 日缓存 + 跨日自动刷新；无 Key / 请求失败静默降级；不含港股八号风球/黑雨临场停市
 - **顶部指数栏 / 全局操作区**: `MarketHeader.vue` — 左指数（`.market-indices` 可横向滚动、永不推动右侧按钮）+ 右操作区。操作区按**语义分段**：`[持仓 组合 信号 模拟盘]`（账户与交易）、`[选股 画像]`（分析工具）各为一个 `--fog` 底的无缝分段控件（`.tool-group`），`AI` 是唯一强调色（apricot 底 + rust 字，hover 反白），`设置` 为 28px 方形描边图标按钮，`刷新` 是唯一描边文字按钮（＝主要动作，refreshing 时文案「刷新中…」+ 图标旋转 + `aria-busy` + `disabled`）。分组只做视觉与信息层级，**emit 名与顺序不变**（父组件 `App.vue` 零改动）。窄窗口（≤1180px）先隐藏 `.label` 只留图标（aria-label + title 保证可达，按钮本身仍可聚焦），≤860px 再隐藏指数涨跌幅与 `.tool-sep`
@@ -136,6 +136,11 @@ App.vue → composables/useXxx.js → invoke → commands.rs → api/（tencent 
 | `get_stock_kline` | Fuyao（有 Key，日/周/月）→ Tencent（分钟 K 与降级） | 前复权日 K 最长 10 年；周/月由日 K 本地聚合（周标签=该周最后一个交易日）；分钟 K 官方不提供，恒走腾讯 |
 | `search_stocks` / `get_hot_list` | Fuyao（有 Key）→ Tencent / 10jqka | 检索返回规范 thscode+交易所（沪深北可区分）；热榜走官方日榜并用批量快照补涨跌幅，失败回退抓 10jqka |
 | `get_trading_calendar` | 同花顺 Fuyao | A 股交易日历（近一年，`yyyy-MM-dd` 升序；需 `X-api-key`，无 Key 报 `[NO_API_KEY]`） |
+| `get_market_sentiment` | 同花顺 Fuyao | 短线情绪：涨停统计（封板率/涨停/打开家数/连板档位）+ 涨停池（最高连板 + `limit_up_reason` 题材词频）+ 跌停池家数；跌停拉取失败给 `None` 而非 0 |
+| `get_sector_strength` | 同花顺 Fuyao | 题材强度：`ths-index-list-by-stock` 批量反查个股所属行业/概念（每票 1 行业 + 最多 5 概念）+ 板块快照涨幅（20 个/批，单批失败只丢强度） |
+| `get_kline_codes` | 本地库 | 列出已缓存日 K 的代码（只返回 ≥60 根，按根数降序；打分校准取样用） |
+| `get_limit_up_ladder` | 同花顺 Fuyao | 近 30 交易日连板梯队（六档），每只票带 `seal_nextday`（次日是否继续封板）；最近交易日该字段为 null，统计时必须排除 |
+| `get_auction_opportunities` | 同花顺 Fuyao | 集合竞价异动（可按 ≤50 个 thscode 过滤、每页 ≤20 条）；`bid_change_ratio` 是小数比例，Rust 侧已 ×100 成百分数 |
 | `call_llm` / `call_llm_stream` | DeepSeek | 非流式 / SSE 流式（§4.2）；可选 `max_tokens`（前端 invoke 传 camelCase `maxTokens`；缺省 393216，>393216 夹到 393216） |
 | `read/save_user_profile` / `web_search` / `web_fetch` / `get_fx_rate` | 本地 / 东财 / URL / Frankfurter | 画像 / 新闻搜索 / 正文抓取（SSRF 防护 §4.2）/ 汇率 |
 | `get_iwencai_robot` | 问财 | 选股（Cookie v + 浏览器头；page 忽略，perpage ≤100） |
@@ -297,9 +302,20 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
     - **账本必须可导出**：`exportLedger()` 输出 `{app,type,version,exportedAt,account,pool}`；`importLedger()` 只接受 `migrateAccount` 认得出且持仓/成交为数组的结构，**整份拒绝**、不做部分导入（半套数据比没有数据更危险），覆盖前要两次点击确认
     - **净值补点只记账、不下单**：`maybeRecordNav()` 5 分钟节流，只在盘中或收盘后 1 小时窗口内记点；非交易日、盘外、持仓缺价一律不写点。禁止借它做任何交易动作（手动交易的前提不能被「自动记账」偷偷扩大）
     - **存储边界**：账户与自选只存 localStorage（`stock-analysis-paper-account` / `-paper-pool`），**不落 SQLite、不注入 AI 上下文**；跨窗口（问财独立窗口）共享只能靠打开面板时 `reloadPool()` 重读，禁止假设跨窗口响应式同步
+    - **自选批量移出必须一次落盘且不误删**：删除走 `removeFromPoolBatch(codes)`（一次 `persistPool` + `persist`，不要循环调 `removeFromPool` 触发 N 次写盘）；勾选态以 code 数组保存，切 tab / 关闭面板 / 排序变化都要处理——切页与关闭面板**清空勾选**（避免「看不见的选中」被下次删除带走），排序不清空但按当前展示行全选；`pool` 被外部改动后要剔除已失效的 code。删除是**两段式确认**（5 秒不点自动退回），移出自选**不影响持仓与成交记录**，确认文案必须点明其中有几只仍持仓
+    - **整体覆盖池只能写 `POOL_KEY`**：问财「覆盖模拟盘自选」走 `replacePool(items)`，一次赋新数组（禁止「先 clearPool 再 addToPool」写两次盘，中途失败会留半套池）。它与 `addToPool` 的关键差别是**不调 `persist()`**——问财是独立窗口，其 `account` 是打开窗口那一刻的快照，整份回写会把主窗口期间的成交/净值点回滚成旧值；账户内 `pool` 副本只是内存镜像，下次初始化由 `POOL_KEY` 覆盖。覆盖是删用户既有自选的破坏性操作，必须两段式确认（5 秒退回）、点第一次时 `reloadPool()` 重读真实旧只数并写进提示，覆盖后提示要说明「主窗口下次打开面板可见」（跨窗口无响应式同步，§7.12）
     - **日期口径**：一律 `marketTime.getToday()` 的本地日期字符串，禁止 `toISOString()`（§7.13）；`trades`/`nav` 只增不改，重置账户必须显式确认（两次点击）
     - **账户版本迁移必须保留数据**：`ACCOUNT_VERSION = 2`；`migrateAccount` 读到 v1 账户要保留资金/持仓/成交/净值/自选，丢弃 `pending`/`runs`/`lastRunDate` 并置 `migratedFrom` 供 UI 提示一次。**禁止**遇到版本不符就静默新建账户（那是直接丢用户数据）
     - **打分与战法只做参考，不得参与成交**：`paperScore` / `paperPatterns` 保留 6 因子、风险扣分与 5 战法识别，仅在下单票据与自选列表展示（自选由 `loadPoolScores` 逐只串行计算、**按天缓存**，禁止并发打接口、也禁止用缓存值跨日展示）；**禁止**用它拦截或触发下单。打分的连续计分、扣分上限、战法硬条件仍受本节各条约束，改动需同步 `scripts/paper-score.test.mjs` / `paper-patterns.test.mjs`
+    - **情绪与题材只做温和调节，缺失即中性**：`scoreBars(bars, code, context)` 的 `context` 为 `{ regimeFactor, sectorBoost }`，总分 = `clamp((base − 风险 + 共振 + 题材) × 情绪系数, 0, 100)`，**顺序固定为先加题材再乘情绪**（环境系数是整体温度，不能被题材加成放大）。`regimeFactor` 由 `marketSentiment.sentimentOf()` 给出，0.90–1.10、50 分锚定 1.00，**保留 2 位小数**（用 `round1` 会把它压成 0.9/1.0/1.1 三档，调节等于失效）；`sectorBoost` 0–8。两者缺省即 1 与 0——**没有同花顺 Key 时打分必须与旧口径逐位一致**；拉取失败要清空情绪数据，禁止拿过期情绪调节当天的分
+    - **情绪数据缺失必须说缺失**：跌停家数拿不到时 Rust 返 `None`、前端按中性给分并在 UI 标「缺 limit_down」，**禁止当 0 家跌停算满分**（那等于把「没数据」伪装成「情绪极好」）；封板率缺失同理。涨停原因里的占位词（其它/其他/无/未知/--）不计入题材榜——实测 2026-11-05 盘中大量记录是「其它」，不挡掉的话 Top1 永远是「其它」；全为占位词时 `themes` 为空并如实显示「题材归因暂未就绪」
+    - **通用概念不算题材**：`marketSentiment.GENERIC_SECTOR_KEYWORDS`（融资融券/沪股通/深股通/同花顺漂亮100/MSCI/机构重仓等）几乎每只票都有，涨幅代表宽基或通道而非题材（实测 600519 的 8 个概念里 5 个属此类）。题材加成只取**非通用板块中当日最强的一条**，不做负加成（板块走弱已由追高/长上影等风险项表达，重复扣分是双罚）。情绪缓存按交易日 + 5 分钟（盘中涨停家数会变），跨日必重算；板块映射批量拉取后单票打分只做 `merge` 补充，**不得整体替换**（会把自选池的全池映射冲掉）
+    - **打分校准只统计不预测，结论为负也必须如实展示**：`paperCalibration` 用本地日 K 做 walk-forward（第 i 根只用 `bars[0..=i]` 的最近 200 根算分，与 `loadScore` 同口径，**防前视**），成交假设固定为「信号日收盘出分 → **次日开盘买** → 第 H 个交易日收盘卖」；**非重叠采样**（步长 H+1，重叠样本会把同一段行情反复计数、让置信度虚高）；同时给「扣费后中位」（默认往返 0.16%，模拟盘全额费用下不扣费的胜率没有可比性）。`n < 30` 的档位标灰并置 `reliable:false`，**禁止**据此下结论；`isMonotonic` 返回 false（胜率未随分数递增）或 null（可信档不足 3 个）时，UI 必须显示对应警示，不得继续用「高分更靠谱」暗示用户。`basis` 口径文案随结果返回并原样展示。结果按「日期 + 持有期 + 代码清单」签名缓存（`stock-analysis-paper-calibration`），换自选池等于换样本，不得沿用旧结果
+    - **校准的实测结论（2026-11-05，8 只票 / 近 3 年 / 2588 个非重叠样本 / 持有 1 日）：这套 6 因子分与短期收益几乎无关，且调参无效**。旧口径：≥70 档收正 46.3%、<60 档 50.8%（**-4.5pp**）、≥80 档 45.8%；改为「动量用相对强度（20 日涨幅 − 上证同期）+ 追高收紧到偏离 8%/5 日涨 5% 起扣、上限 16」后：≥70 档 47.6%、<60 档 51.2%（**-3.6pp**）、≥80 档 43.7%。改善 0.9pp 在噪声范围内，**没有统计意义**。根因不是权重没调好：`IC(score, 次日收益)` Pearson -0.020 / Spearman -0.038，5 日涨幅、偏离 MA20、RSI 的单因子 IC 也都在 -0.045 附近——因子方向（追强度）与 A 股 1 日收益结构（短期反转）相反，换权重只是在桶间挪票，信息量不变
+    - **唯一有实测信号的量是「5 日涨幅」，方向是负的**：5~10% 档次日收正仅 41.1%（均值 -0.26%）、>10% 档 43.8%（-0.55%），而 0~5% 与 -10~-5% 都在 52% 左右。所以 UI 对 5 日涨幅 ≥8% 的标的打一个「过热」红点（`hot-dot`，纯提示不参与打分）。**禁止**再把参考分描述成「短线选股信号」或「上涨概率」；要真正做短线选股，必须换假设（短期反转 / 事件驱动 / 情绪周期），并且改完必须用 `paperCalibration` 重跑对照，不能只看分数外观
+    - **短线事件的定位：描述情绪，不是买卖信号**。`eventSignals.promotionStats` 统计连板晋级率：**分母只包含 `seal_nextday != null` 的样本**（最近交易日还没有次日结果，混进去会把晋级率系统性压低估），样本 <10 标 `weak` 并置 `reliable:false`；今日在板数（`todayCount`）单独统计、含未定次日的票，两者语义不同不得混用。实测（2026-11-05，30 个交易日 / 352 样本）：2 板 35%（76/217）、3 板 44.2%（34/77）、4 板 40.6%（13/32）、5 板+ 42.3%（11/26）——量级符合 A 股常识，说明口径可用。但**这是情绪高度的描述指标，没有做过「按晋级率买入」的收益验证**，禁止在 UI/文案里把它说成选股信号
+    - **竞价异动的文案必须带「竞价」限定**：`describeAuction` 固定输出「异动名（竞价 X%，时间）」。实测存在「急速下跌 +1.78%」这种组合（异动类型描述分时走势、竞价涨幅是另一个量），不加限定会被读成自相矛盾的「跌了 +1.78%」。涨幅缺失显示 `--`，禁止写 0.00%；一只票多条异动取涨幅绝对值最大的那条做摘要，其余保留在 `all` 里
+
     - **「一夜持股」只识别形态，不产生委托**：手动盘里「尾盘买、次日开盘卖」由用户自己下单，战法层只判断当日收盘形态是否适合持股过夜（硬条件：收阳 + 收盘在当日振幅 ≥65% 处 + 未涨停；涨停尾盘买不进，次日溢价日线无法判断）。它**不计入共振加成**（`countsForResonance: false`）——它描述持有节奏而非选股强度，计入会让每个「趋势里的强势收盘」无差别 +3，加成失去区分度；UI 命中时要提示「尾盘买、次日开盘卖」，且必须写明是形态识别、不是买卖建议
     - **不得与回测面板混比**：回测面板是「信号日收盘买 / 持有 N 日收盘卖 / 不计费用」；模拟盘是「实时价 + 滑点 + 全额费用 + T+1」。两处数字**不可直接比较**，UI 必须并列披露
 36. **所有 HTTP JSON 响应必须经 `api::read_json` 读，禁止裸 `resp.json()`**:
@@ -308,7 +324,7 @@ cargo check        # 需 Rust ≥ 1.85（time-core 0.1.8 要求 edition2024）
     - 已接入：`tencent.rs`（港股实时行情 / K 线 / 分时 / 汇率）、`eastmoney.rs`（行业分析）、`hotlist.rs`（热榜）、`fuyao.rs`（检索 / 日 K / 热榜 / 日历）。**新增数据源必须走同一入口**，并在 `what` 里写清是哪个数据（错误信息要能定位到接口）
     - 例外：`calendar.rs` 需要自己区分 401/403/429 业务语义（`[INVALID_KEY]`/`[RATE_LIMITED]`），保留自带的状态码分支；`llm.rs` 走流式响应，不适用
 37. **外部数据源「官方 API 优先、腾讯兜底」，同一份数据禁止两套口径**:
-    - **分工固定**（改动必须同时更新本节与 §4.2 / 命令表）：同花顺 Fuyao（需 `X-api-key`）—— 标的检索、日/周/月 K、热榜、交易日历；腾讯 —— 实时行情（含名称/换手率/PE/振幅）、分时、分钟 K、指数，以及 Fuyao 不可用时的**全部**兜底；东财 —— 行业与资金流备选；问财 —— 选股
+    - **分工固定**（改动必须同时更新本节与 §4.2 / 命令表）：同花顺 Fuyao（需 `X-api-key`）—— 标的检索、日/周/月 K、热榜、交易日历，以及**短线情绪与题材**（special-data 的涨跌停池/炸板/连板天梯/涨停统计、a-share-index 的板块清单·成分股·个股反查·板块快照）；腾讯 —— 实时行情（含名称/换手率/PE/振幅）、分时、分钟 K、指数，以及 Fuyao 不可用时的**全部**兜底；东财 —— 行业与资金流备选；问财 —— 选股
     - **有 Key 才走 Fuyao，失败必须降级**：`commands.rs` 用 `fuyao_key()` 判空，调用失败打印 `[fuyao] … 降级到腾讯` 后回退；**禁止**让「无 Key / 接口挂了」表现为图表空白或热榜为空
     - **实时行情不许换 Fuyao**：官方快照不返回 `name` / 换手率 / PE / 振幅，替换会让行情卡与 AI 上下文缺字段——那是降级，不是标准化
     - **单位只认一套**：Fuyao `volume` 是**股**，进入 `KlineItem` 前 ÷100 转手；`KlineItem.turnover` 恒 0（腾讯日 K 无该字段，全项目按 `volume×close` 兜底），**禁止**在 Fuyao 支路单独改成元

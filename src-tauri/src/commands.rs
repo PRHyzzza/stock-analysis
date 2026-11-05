@@ -6,9 +6,9 @@ use crate::api::{
 };
 use crate::db;
 use crate::types::{
-    AlertEventInput, DbStats, HotListData, IndustryData, IntradayData, KlineItem, MarketIndex,
-    MoneyFlow, MoneyFlowHistoryItem, SearchResult, SignalEventInput, SignalEventRow, StockQuote,
-    UpdateInfo,
+    AlertEventInput, AuctionOpportunities, DbStats, HotListData, IndustryData, IntradayData,
+    KlineItem, LimitUpLadder, MarketIndex, MarketSentiment, MoneyFlow, MoneyFlowHistoryItem,
+    SearchResult, SectorStrength, SignalEventInput, SignalEventRow, StockQuote, UpdateInfo,
 };
 use std::fs;
 use tauri::Manager;
@@ -378,6 +378,54 @@ pub async fn get_hot_list(api_key: Option<String>) -> Result<HotListData, String
     fetch_hot_list().await
 }
 
+/// 获取当日市场情绪（涨停统计 + 连板高度 + 涨停题材热度 + 跌停家数）
+///
+/// 短线/超短线的「环境温度」：日 K 只说明个股最近强不强，这里说明今天的钱往哪儿走。
+/// 无 Key 时直接报错由前端降级——**不要**返回一份全 0 的空情绪，那会被当成「今天没有涨停」。
+#[tauri::command]
+pub async fn get_market_sentiment(
+    date: Option<String>,
+    api_key: Option<String>,
+) -> Result<MarketSentiment, String> {
+    let key = fuyao_key(&api_key)
+        .ok_or_else(|| "[NO_API_KEY] 未配置同花顺 API Key，情绪与题材数据不可用".to_string())?;
+    fuyao::fetch_market_sentiment(date.as_deref(), key).await
+}
+
+/// 获取个股所属板块（概念/行业）+ 板块当日涨幅
+///
+/// 返回 `by_stock`（每只票的板块清单）与 `quotes`（板块涨幅）；
+/// 板块涨幅缺失时 `change_pct` 为 null，前端必须显示「--」而不是 0.00%。
+#[tauri::command]
+pub async fn get_sector_strength(
+    codes: Vec<String>,
+    api_key: Option<String>,
+) -> Result<SectorStrength, String> {
+    let key = fuyao_key(&api_key)
+        .ok_or_else(|| "[NO_API_KEY] 未配置同花顺 API Key，题材强度不可用".to_string())?;
+    fuyao::fetch_sector_strength(&codes, key).await
+}
+
+/// 获取近 30 个交易日的连板梯队（含「次日是否继续封板」，用于算晋级率）
+#[tauri::command]
+pub async fn get_limit_up_ladder(api_key: Option<String>) -> Result<LimitUpLadder, String> {
+    let key = fuyao_key(&api_key)
+        .ok_or_else(|| "[NO_API_KEY] 未配置同花顺 API Key，连板梯队不可用".to_string())?;
+    fuyao::fetch_limit_up_ladder(key).await
+}
+
+/// 查询一批股票的集合竞价异动（接口单次最多 50 个代码、每页最多 20 条）
+#[tauri::command]
+pub async fn get_auction_opportunities(
+    codes: Vec<String>,
+    date: Option<String>,
+    api_key: Option<String>,
+) -> Result<AuctionOpportunities, String> {
+    let key = fuyao_key(&api_key)
+        .ok_or_else(|| "[NO_API_KEY] 未配置同花顺 API Key，竞价异动不可用".to_string())?;
+    fuyao::fetch_auction_opportunities(&codes, date.as_deref(), key).await
+}
+
 /// 获取 A 股交易日历（同花顺 Fuyao，近一年，yyyy-MM-dd 升序）
 /// 用于替代前端的"周一~周五"硬编码，识别法定节假日与调休
 #[tauri::command]
@@ -566,6 +614,16 @@ pub async fn get_kline_history(
 ) -> Result<Vec<KlineItem>, String> {
     blocking("读取历史 K 线", move || {
         db::query_kline(&code, &period, limit.unwrap_or(500))
+    })
+    .await
+}
+
+/// 列出本地已缓存日 K 的代码（打分校准用；只返回 ≥60 根的标的）
+#[tauri::command]
+pub async fn get_kline_codes(period: Option<String>, limit: Option<u32>) -> Result<Vec<String>, String> {
+    let period = period.unwrap_or_else(|| "day".to_string());
+    blocking("列出 K 线代码", move || {
+        db::list_kline_codes(&period, limit.unwrap_or(120))
     })
     .await
 }

@@ -157,6 +157,72 @@ pub struct HotListData {
     pub stock_list: Vec<HotStockItem>,
 }
 
+// ── 短线情绪 / 题材（同花顺 special-data + 同花顺指数）──────
+
+/// 市场情绪温度计（涨停强度）
+///
+/// 只做**短线环境描述**：封板率 / 涨跌停家数 / 连板高度 / 题材热度。
+/// 全部来自同花顺当日数据，字段缺失一律保留 `None`，不用 0 冒充（0 跌停与「没拿到」是两件事）。
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct MarketSentiment {
+    pub trade_date: String,          // 归属交易日 YYYY-MM-DD
+    pub fetched_at: i64,             // 数据就绪时间（毫秒）
+    pub seal_rate: Option<f64>,      // 封板率（0-1 小数）
+    pub limit_up: i64,               // 封板家数
+    pub touched: i64,                // 触板家数（封板率的基数）
+    pub open_count: i64,             // 炸板家数
+    pub limit_down: Option<i64>,     // 跌停家数（拉取失败时为 None，不写 0）
+    pub max_board: i64,              // 当日最高连板数
+    pub boards: Vec<BoardLevelItem>, // 连板档位分布
+    pub themes: Vec<ThemeItem>,      // 涨停原因题材热度（Top N）
+}
+
+/// 连板档位（一板/二板/…/五板以上）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BoardLevelItem {
+    pub level: String,                // one / two / three / four / five_plus
+    pub count: i64,                   // 家数
+    pub promotion_rate: Option<f64>,  // 晋级率（0-1；one 档为 None）
+}
+
+/// 题材热度项（涨停原因分组计数）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ThemeItem {
+    pub name: String,
+    pub count: i64,
+}
+
+/// 个股所属的板块（同花顺概念 / 行业）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StockSectors {
+    pub code: String,        // 6 位裸码
+    pub sectors: Vec<SectorRef>,
+}
+
+/// 板块引用
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SectorRef {
+    pub thscode: String, // 如 886042.TI
+    pub name: String,
+    pub kind: String,    // cn_concept / industry / region / tzs
+}
+
+/// 板块当日强度（快照涨幅）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SectorQuote {
+    pub thscode: String,
+    /// 当日涨跌幅（百分数原值，如 3.21）；快照缺该字段时为 None，不写 0
+    pub change_pct: Option<f64>,
+}
+
+/// 板块强度组合结果：板块涨幅 + 个股→板块映射
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SectorStrength {
+    pub fetched_at: i64,
+    pub quotes: Vec<SectorQuote>,
+    pub by_stock: Vec<StockSectors>,
+}
+
 /// 写入本地历史库的信号事件（前端 signals 计算完成后回传）
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -239,3 +305,58 @@ pub struct DbStats {
     pub alert_last_date: String,
 }
 
+
+// ── 短线事件（连板天梯 / 集合竞价异动）──────────────
+
+/// 连板梯队（近 30 个交易日）
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct LimitUpLadder {
+    pub fetched_at: i64,
+    /// 窗口内交易日，按接口返回顺序（新 → 旧）
+    pub dates: Vec<String>,
+    pub days: Vec<LadderDay>,
+}
+
+/// 某个交易日的连板矩阵
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LadderDay {
+    pub date: String,
+    pub stocks: Vec<LadderStock>,
+}
+
+/// 连板矩阵里的单只票
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LadderStock {
+    pub code: String,
+    pub name: String,
+    /// 连板数（2 板及以上）
+    pub board_num: i64,
+    /// 次一交易日是否继续封板（晋级）；最近交易日没有次日参考，为 None
+    pub seal_nextday: Option<bool>,
+}
+
+/// 集合竞价异动（按代码批量查询）
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AuctionOpportunities {
+    pub fetched_at: i64,
+    pub trade_date: String,
+    pub items: Vec<AuctionItem>,
+}
+
+/// 单条竞价异动
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuctionItem {
+    pub code: String,
+    pub name: String,
+    /// 异动名称，如「涨停试盘」
+    pub warn_name: String,
+    /// 原始类型码（68710 等），上游新增类型时名称可能为 null
+    pub warn_type: String,
+    pub bid_price: Option<f64>,
+    /// 竞价涨幅（百分数，已从上游的小数比例 ×100）
+    pub bid_change_pct: Option<f64>,
+    pub bid_amount: Option<f64>,
+    pub prev_amount: Option<f64>,
+    /// 异动时间 HH:mm（上海时区）
+    pub at: Option<String>,
+}

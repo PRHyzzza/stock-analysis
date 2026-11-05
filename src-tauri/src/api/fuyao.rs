@@ -6,6 +6,10 @@
 /// - 历史日 K `/api/a-share/prices/historical`：前复权、最长 10 年、带真实成交额；
 ///   周/月 K 由日 K 本地聚合（官方仅提供 `1d`）
 /// - 热榜 `/api/a-share/special-data/hot-stock-list`：官方榜单，替代抓 10jqka 页面
+/// - 短线情绪 `/api/a-share/special-data/limit-up-statistics` + `limit-up-pool` + `limit-down-pool`：
+///   封板率 / 涨跌停家数 / 连板高度 / 涨停原因题材词频（超短线唯一可用的「环境温度」）
+/// - 题材强度 `/api/a-share-index/constituents/ths-index-list-by-stock` + 板块快照：
+///   个股所属概念/行业 + 板块当日涨幅
 /// - 交易日历见 `calendar.rs`（同一个 Key）
 ///
 /// 刻意**不做**的（官方能力不足或明确不对外，替换会降级）：
@@ -18,7 +22,11 @@
 /// - `KlineItem.volume`：手（Fuyao 返回股，÷100）
 /// - `KlineItem.turnover`：恒为 0（腾讯日 K 无该字段，全项目按 `volume×close` 兜底，不在此处悄悄改成元）
 /// - 失败一律返回可读中文错误，调用方负责降级到腾讯
-use crate::types::{HotListData, HotStockItem, KlineItem, SearchResult};
+use crate::types::{
+    AuctionItem, AuctionOpportunities, BoardLevelItem, HotListData, HotStockItem, KlineItem,
+    LadderDay, LadderStock, LimitUpLadder, MarketSentiment, SearchResult, SectorQuote, SectorRef,
+    SectorStrength, StockSectors, ThemeItem,
+};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -417,6 +425,419 @@ pub async fn fetch_hot_list(api_key: &str, limit: u32) -> Result<HotListData, St
     Ok(HotListData { stock_list: items })
 }
 
+// ── 短线情绪 / 题材（special-data + 同花顺指数）────────
+//
+// 这几条接口是**短线/超短线**的核心输入，与日 K 打分互补：
+// 日 K 说明「这票最近强不强」，情绪与题材说明「今天的钱往哪儿走」。
+// 全部需要 Key；任何一条失败都只降级自己，不影响其它字段（缺失一律保留 None，不写 0）。
+
+/// `YYYY-MM-DD` → 该日上海时区零点的毫秒戳（special-data 的 `date_ms` 要的就是这个）
+fn date_to_ms(date: &str) -> Option<i64> {
+    parse_date(date).map(|d| d * MS_DAY - 8 * 3_600_000)
+}
+
+/// 涨停原因 → 题材词（按常见分隔符拆开）
+///
+/// 上游 `limit_up_reason` 形如「存储芯片」「AI算力+液冷」「机器人、减速器」，
+/// 直接按整串计数会把「同一题材的不同写法」拆散，所以先拆再统计。
+/// 超过 12 个字的片段大概率是整句话而非题材名，直接丢弃（宁可少数，不要噪音）。
+///
+/// **实测（2026-11-05 盘中）**：涨停池里大量记录的 `limit_up_reason` 是「其它」——
+/// 上游归因尚未完成时就用这个词占位。把它当题材统计会让 Top1 永远是「其它」，
+/// 因此这里是硬过滤：占位词一律不计数，全天都对不齐时 `themes` 返回空，
+/// 由前端如实显示「题材归因暂未就绪」，而不是编一个榜首出来。
+fn split_themes(reason: &str) -> Vec<String> {
+    const PLACEHOLDERS: [&str; 6] = ["其它", "其他", "无", "未知", "--", "暂未归因"];
+    reason
+        .split(|c: char| {
+            matches!(
+                c,
+                '+' | '＋' | '、' | '/' | '，' | ',' | ';' | '；' | ' ' | '　' | '|' | '｜'
+            )
+        })
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && s.chars().count() <= 12)
+        .filter(|s| !PLACEHOLDERS.contains(s))
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// 涨停池 → 题材热度 Top N（纯函数，便于单测）
+///
+/// 同一只票里重复出现的同一题材只计一次（避免一条 reason 写两遍把计数刷高）。
+fn theme_heat(items: &[Value], top: usize) -> Vec<ThemeItem> {
+    use std::collections::{HashMap, HashSet};
+    let mut count: HashMap<String, i64> = HashMap::new();
+    for it in items {
+        let reason = it["limit_up_reason"].as_str().unwrap_or("").trim();
+        if reason.is_empty() {
+            continue;
+        }
+        let mut seen: HashSet<String> = HashSet::new();
+        for theme in split_themes(reason) {
+            if !seen.insert(theme.clone()) {
+                continue;
+            }
+            *count.entry(theme).or_insert(0) += 1;
+        }
+    }
+    let mut list: Vec<ThemeItem> = count
+        .into_iter()
+        .map(|(name, count)| ThemeItem { name, count })
+        .collect();
+    // 计数降序；同分按名称升序，保证同样输入永远同样顺序（前端缓存与快照对比才不会抖）
+    list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+    list.truncate(top);
+    list
+}
+
+/// 涨停统计 + 涨停池 → MarketSentiment（纯函数）
+fn parse_sentiment(
+    stats: &Value,
+    pool_items: &[Value],
+    limit_down: Option<i64>,
+) -> MarketSentiment {
+    let boards = stats["page_boards"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|b| {
+                    Some(BoardLevelItem {
+                        level: b["board_level"].as_str()?.to_string(),
+                        count: b["stock_count"].as_i64().unwrap_or(0),
+                        promotion_rate: b["promotion_rate"].as_f64(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // 最高连板取池内 continue_day_cnt 的最大值；池按连板倒序返回，但这里不依赖排序
+    let max_board = pool_items
+        .iter()
+        .map(|it| it["continue_day_cnt"].as_i64().unwrap_or(0))
+        .max()
+        .unwrap_or(0);
+
+    MarketSentiment {
+        trade_date: stats["trade_date"].as_str().unwrap_or("").to_string(),
+        fetched_at: stats["timestamp"].as_i64().unwrap_or_else(now_ms),
+        seal_rate: stats["seal_rate"].as_f64(),
+        limit_up: stats["limit_up_stock_count"].as_i64().unwrap_or(0),
+        touched: stats["touched_limit_up_stock_count"].as_i64().unwrap_or(0),
+        open_count: stats["open_stock_count"].as_i64().unwrap_or(0),
+        limit_down,
+        max_board,
+        boards,
+        themes: theme_heat(pool_items, 8),
+    }
+}
+
+/// 拉取当日市场情绪（涨停统计 + 涨停池题材 + 跌停家数）
+///
+/// 三次请求都是轻量的；前端按交易日 + 5 分钟缓存，不会每次打分都打接口。
+pub async fn fetch_market_sentiment(
+    date: Option<&str>,
+    api_key: &str,
+) -> Result<MarketSentiment, String> {
+    let date = date
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| date_from_ms(now_ms()));
+    let ms = date_to_ms(&date).ok_or_else(|| format!("非法交易日: {}", date))?;
+
+    let stats = fetch_data(
+        &format!("/api/a-share/special-data/limit-up-statistics?date={}", date),
+        api_key,
+        "涨停统计",
+    )
+    .await?;
+
+    // 涨停池：200 条上限覆盖绝大多数交易日，用来取最高连板与题材词频
+    let pool = fetch_data(
+        &format!(
+            "/api/a-share/special-data/limit-up-pool?date_ms={}&page=1&size=200&sort_field=continue_day_cnt&sort_dir=desc",
+            ms
+        ),
+        api_key,
+        "涨停池",
+    )
+    .await?;
+    let pool_items = pool["item"].as_array().cloned().unwrap_or_default();
+
+    // 跌停家数：拿不到就保持 None——0 跌停和「没拿到」在情绪判断里是两回事
+    let limit_down = match fetch_data(
+        &format!(
+            "/api/a-share/special-data/limit-down-pool?date_ms={}&page=1&size=1",
+            ms
+        ),
+        api_key,
+        "跌停池",
+    )
+    .await
+    {
+        Ok(v) => v["pagination"]["total"].as_i64(),
+        Err(e) => {
+            eprintln!("[fuyao] 跌停池降级（情绪仍可用）: {e}");
+            None
+        }
+    };
+
+    Ok(parse_sentiment(&stats, &pool_items, limit_down))
+}
+
+/// 拉取「个股 → 所属板块」+ 板块当日涨幅
+///
+/// 短线看的是**题材**：同样一根阳线，来自当日最强的概念还是来自没人看的行业，含义完全不同。
+/// 板块涨幅拿不到时只丢 quotes，个股映射照样返回（前端据此仍能显示所属题材，只是没有强度）。
+pub async fn fetch_sector_strength(
+    codes: &[String],
+    api_key: &str,
+) -> Result<SectorStrength, String> {
+    let mut thscodes: Vec<String> = Vec::new();
+    for code in codes.iter().take(100) {
+        if let Some(t) = to_thscode(code) {
+            thscodes.push(t);
+        }
+    }
+    if thscodes.is_empty() {
+        return Ok(SectorStrength {
+            fetched_at: now_ms(),
+            ..Default::default()
+        });
+    }
+
+    // thscode 只含数字与点，逗号是接口约定分隔符，不做百分号编码
+    let data = fetch_data(
+        &format!(
+            "/api/a-share-index/constituents/ths-index-list-by-stock?thscode={}",
+            thscodes.join(",")
+        ),
+        api_key,
+        "个股板块",
+    )
+    .await?;
+
+    let mut by_stock: Vec<StockSectors> = Vec::new();
+    for it in data["item"].as_array().cloned().unwrap_or_default() {
+        let thscode = it["thscode"].as_str().unwrap_or("");
+        if thscode.is_empty() {
+            continue;
+        }
+        // 接口不传 type 时返回全部四类（概念/行业/地域/特色）。地域与特色指数对短线判断没意义，
+        // 只留行业 + 概念。行业通常 1 个、概念可达十来个，所以两者分开截断，
+        // 否则按返回顺序 take(N) 会把排在后面的行业整个截掉。
+        let all: Vec<SectorRef> = it["index_list"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|s| {
+                        Some(SectorRef {
+                            thscode: s["thscode"].as_str()?.to_string(),
+                            name: s["name"].as_str().unwrap_or("").to_string(),
+                            kind: s["type"].as_str().unwrap_or("").to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut picked: Vec<SectorRef> = all
+            .iter()
+            .filter(|s| s.kind == "industry")
+            .cloned()
+            .collect();
+        let mut concept_n = 0usize;
+        for s in all.iter().filter(|s| s.kind == "cn_concept") {
+            if concept_n >= 5 {
+                break;
+            }
+            picked.push(s.clone());
+            concept_n += 1;
+        }
+
+        by_stock.push(StockSectors {
+            code: ticker_of(thscode).to_string(),
+            sectors: picked,
+        });
+    }
+
+    // 板块去重后分批查快照：URL 长度有限，且单批失败不影响其它批
+    let mut uniq: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for s in by_stock.iter().flat_map(|x| x.sectors.iter()) {
+        if seen.insert(s.thscode.clone()) {
+            uniq.push(s.thscode.clone());
+        }
+    }
+    // 自选池通常 10–20 只，80 个板块足够覆盖；超出的部分只丢「强度」不丢映射
+    uniq.truncate(80);
+
+    let mut quotes: Vec<SectorQuote> = Vec::new();
+    for chunk in uniq.chunks(20) {
+        let path = format!(
+            "/api/a-share-index/prices/snapshot?thscodes={}",
+            chunk.join(",")
+        );
+        match fetch_data(&path, api_key, "板块快照").await {
+            Ok(d) => {
+                for it in d["item"].as_array().cloned().unwrap_or_default() {
+                    if let Some(ts) = it["thscode"].as_str() {
+                        quotes.push(SectorQuote {
+                            thscode: ts.to_string(),
+                            change_pct: it["price_change_ratio_pct"].as_f64(),
+                        });
+                    }
+                }
+            }
+            // 单批失败不影响其余批次，也不影响个股映射
+            Err(e) => eprintln!("[fuyao] 板块快照降级: {e}"),
+        }
+    }
+
+    Ok(SectorStrength {
+        fetched_at: now_ms(),
+        quotes,
+        by_stock,
+    })
+}
+
+// ── 短线事件：连板天梯 / 集合竞价异动 ──────────────────
+//
+// 为什么补这两个：日 K 因子与短期收益基本无关（IC ≈ -0.04，见 §7.35 实测），
+// 真正带信息量的是**事件**——连板晋级和二板接力是短线情绪最直接的可观察量。
+
+/// 毫秒戳 → 上海时区 `HH:mm`
+fn hhmm_from_ms(ms: i64) -> String {
+    let secs = (ms + 8 * 3_600_000).div_euclid(1000);
+    let day = secs.rem_euclid(86_400);
+    format!("{:02}:{:02}", day / 3600, (day % 3600) / 60)
+}
+
+/// 连板天梯的固定六档（上游缺档会补空数组）
+const LADDER_KEYS: [&str; 6] = [
+    "two_board",
+    "three_board",
+    "four_board",
+    "five_board",
+    "six_board",
+    "seven_over",
+];
+
+/// 解析连板天梯（纯函数）
+///
+/// `seal_nextday` 是**次一交易日是否继续封板**，也是唯一能直接算晋级率的口径；
+/// 最近一个交易日没有次日参考，该字段为 null——调用方统计时必须把 null 排除，
+/// 否则会把「还没发生」当成「没晋级」，把晋级率系统性压低估。
+fn parse_ladder(data: &Value) -> LimitUpLadder {
+    let dates = data["window"]["date_list"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|d| d.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut days: Vec<LadderDay> = Vec::new();
+    for day in data["item"].as_array().cloned().unwrap_or_default() {
+        let date = day["date"].as_str().unwrap_or("").to_string();
+        if date.is_empty() {
+            continue;
+        }
+        let mut stocks: Vec<LadderStock> = Vec::new();
+        for key in LADDER_KEYS {
+            for s in day["boards"][key].as_array().cloned().unwrap_or_default() {
+                let code = s["ticker"].as_str().unwrap_or("");
+                if code.is_empty() {
+                    continue;
+                }
+                stocks.push(LadderStock {
+                    code: code.to_string(),
+                    name: s["name"].as_str().unwrap_or("").to_string(),
+                    board_num: s["board_num"].as_i64().unwrap_or(0),
+                    seal_nextday: s["seal_nextday"].as_bool(),
+                });
+            }
+        }
+        days.push(LadderDay { date, stocks });
+    }
+
+    LimitUpLadder {
+        fetched_at: data["timestamp"].as_i64().unwrap_or_else(now_ms),
+        dates,
+        days,
+    }
+}
+
+/// 拉取近 30 个交易日的连板梯队（一次请求返回整批，适合算晋级率）
+pub async fn fetch_limit_up_ladder(api_key: &str) -> Result<LimitUpLadder, String> {
+    let data = fetch_data(
+        "/api/a-share/special-data/limit-up-ladder",
+        api_key,
+        "连板天梯",
+    )
+    .await?;
+    Ok(parse_ladder(&data))
+}
+
+/// 解析集合竞价异动（纯函数）
+///
+/// 上游 `bid_change_ratio` 是**小数比例**（0.03 = 3%），这里统一 ×100 成百分数，
+/// 避免下游一半地方乘 100、一半地方不乘。
+fn parse_auction(data: &Value) -> AuctionOpportunities {
+    let items = data["item"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|it| {
+                    let ticker = it["ticker"].as_str()?.trim();
+                    if ticker.len() != 6 {
+                        return None;
+                    }
+                    Some(AuctionItem {
+                        code: ticker.to_string(),
+                        name: it["name"].as_str().unwrap_or("").to_string(),
+                        warn_name: it["warn_name"].as_str().unwrap_or("").to_string(),
+                        warn_type: it["warn_type"].as_str().unwrap_or("").to_string(),
+                        bid_price: it["bid_price"].as_f64(),
+                        bid_change_pct: it["bid_change_ratio"].as_f64().map(|v| v * 100.0),
+                        bid_amount: it["bid_amount"].as_f64(),
+                        prev_amount: it["previous_amount"].as_f64(),
+                        at: it["warn_timestamp"].as_i64().map(hhmm_from_ms),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    AuctionOpportunities {
+        fetched_at: data["timestamp"].as_i64().unwrap_or_else(now_ms),
+        trade_date: data["trade_date"].as_str().unwrap_or("").to_string(),
+        items,
+    }
+}
+
+/// 查询一批股票的集合竞价异动（接口单次最多 50 个代码、每页最多 20 条）
+pub async fn fetch_auction_opportunities(
+    codes: &[String],
+    date: Option<&str>,
+    api_key: &str,
+) -> Result<AuctionOpportunities, String> {
+    let thscodes: Vec<String> = codes.iter().take(50).filter_map(|c| to_thscode(c)).collect();
+    let mut path = String::from(
+        "/api/a-share/special-data/auction-stock-opportunities?market=a_share&page=1&size=20&sort_by=warn_time&sort_order=desc",
+    );
+    if let Some(d) = date.map(str::trim).filter(|d| !d.is_empty()) {
+        path.push_str(&format!("&date={}", d));
+    }
+    if !thscodes.is_empty() {
+        path.push_str(&format!("&thscodes={}", thscodes.join(",")));
+    }
+    let data = fetch_data(&path, api_key, "竞价异动").await?;
+    Ok(parse_auction(&data))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,5 +969,164 @@ mod tests {
         assert_eq!(items[0].market, 17);
         assert_eq!(items[1].market, 33);
         assert_eq!(items[1].hot_rank_chg, -3);
+    }
+
+    #[test]
+    fn 日期转当日零点毫秒按东八区() {
+        // 2024-05-20 00:00:00 +08:00 = 1716134400000
+        assert_eq!(date_to_ms("2024-05-20"), Some(1_716_134_400_000));
+        assert_eq!(date_to_ms("2024-13-01"), None);
+        assert_eq!(date_to_ms("20240520"), None);
+    }
+
+    #[test]
+    fn 题材按分隔符拆开并丢掉整句() {
+        assert_eq!(
+            split_themes("存储芯片+AI算力"),
+            vec!["存储芯片".to_string(), "AI算力".to_string()]
+        );
+        assert_eq!(
+            split_themes("机器人、减速器"),
+            vec!["机器人".to_string(), "减速器".to_string()]
+        );
+        assert_eq!(split_themes("  "), Vec::<String>::new());
+        // 超过 12 字的多半是整句描述，不当题材名
+        assert!(split_themes("公司公告称拟收购某标的百分之五十一股权").is_empty());
+        // 实测上游盘中常用「其它」占位，不能进题材榜
+        assert!(split_themes("其它").is_empty());
+        assert_eq!(
+            split_themes("其它+存储芯片"),
+            vec!["存储芯片".to_string()]
+        );
+    }
+
+    #[test]
+    fn 题材热度按只数计数且同票不重复() {
+        let items = vec![
+            json!({"limit_up_reason": "存储芯片+AI算力"}),
+            json!({"limit_up_reason": "存储芯片"}),
+            // 同一只票重复写同一题材，只算一次
+            json!({"limit_up_reason": "存储芯片+存储芯片"}),
+            json!({"limit_up_reason": null}),
+            json!({"limit_up_reason": ""}),
+        ];
+        let heat = theme_heat(&items, 8);
+        assert_eq!(heat.len(), 2);
+        assert_eq!(heat[0].name, "存储芯片");
+        assert_eq!(heat[0].count, 3);
+        assert_eq!(heat[1].name, "AI算力");
+        assert_eq!(heat[1].count, 1);
+    }
+
+    #[test]
+    fn 解析情绪含缺失跌停家数() {
+        let stats = json!({
+            "trade_date": "2026-11-05",
+            "timestamp": 1791957420015i64,
+            "seal_rate": 0.647887323943662,
+            "open_stock_count": 25,
+            "limit_up_stock_count": 46,
+            "touched_limit_up_stock_count": 71,
+            "page_boards": [
+                {"board_level": "one", "stock_count": 28, "promotion_rate": null},
+                {"board_level": "two", "stock_count": 14, "promotion_rate": 0.25}
+            ]
+        });
+        let pool = vec![
+            json!({"continue_day_cnt": 2, "limit_up_reason": "存储芯片"}),
+            json!({"continue_day_cnt": 5, "limit_up_reason": "存储芯片"}),
+        ];
+        let s = parse_sentiment(&stats, &pool, Some(9));
+        assert_eq!(s.trade_date, "2026-11-05");
+        assert_eq!(s.limit_up, 46);
+        assert_eq!(s.touched, 71);
+        assert_eq!(s.open_count, 25);
+        assert_eq!(s.limit_down, Some(9));
+        assert_eq!(s.max_board, 5);
+        assert_eq!(s.boards.len(), 2);
+        assert_eq!(s.boards[0].promotion_rate, None);
+        assert_eq!(s.themes.len(), 1);
+        assert_eq!(s.themes[0].count, 2);
+
+        // 跌停数据没拉到 → None，不能当成「今天 0 跌停」
+        let s2 = parse_sentiment(&stats, &[], None);
+        assert_eq!(s2.limit_down, None);
+        assert_eq!(s2.max_board, 0);
+        assert!(s2.themes.is_empty());
+    }
+
+    #[test]
+    fn 毫秒转时分按东八区() {
+        // 2026-11-05 09:25:00 +08:00
+        assert_eq!(hhmm_from_ms(1_793_841_900_000), "09:25");
+        // 同一天 14:56
+        assert_eq!(hhmm_from_ms(1_793_841_900_000 + 5 * 3_600_000 + 31 * 60_000), "14:56");
+        // 跨日边界：UTC 16:00 = 东八区次日 00:00
+        assert_eq!(hhmm_from_ms(1_793_808_000_000), "00:00");
+    }
+
+    #[test]
+    fn 解析连板天梯保留空板位与未定次日() {
+        let data = json!({
+            "timestamp": 1793848495963i64,
+            "window": {"length": 2, "date_list": ["2026-11-05", "2026-11-04"]},
+            "item": [
+                {"date": "2026-11-05", "boards": {
+                    "two_board": [
+                        {"ticker": "002309", "name": "中利集团", "board_num": 2, "seal_nextday": null}
+                    ],
+                    "three_board": [], "four_board": [], "five_board": [], "six_board": [], "seven_over": []
+                }},
+                {"date": "2026-11-04", "boards": {
+                    "two_board": [
+                        {"ticker": "600641", "name": "先导基电", "board_num": 2, "seal_nextday": true},
+                        {"ticker": "001360", "name": "南矿集团", "board_num": 2, "seal_nextday": false}
+                    ],
+                    "seven_over": [
+                        {"ticker": "603598", "name": "引力传媒", "board_num": 8, "seal_nextday": true}
+                    ]
+                }}
+            ]
+        });
+        let l = parse_ladder(&data);
+        assert_eq!(l.dates.len(), 2);
+        assert_eq!(l.days.len(), 2);
+        assert_eq!(l.days[0].date, "2026-11-05");
+        assert_eq!(l.days[0].stocks.len(), 1);
+        // 最近交易日没有次日结果 → None，不能当成 false
+        assert_eq!(l.days[0].stocks[0].seal_nextday, None);
+        assert_eq!(l.days[1].stocks.len(), 3);
+        assert_eq!(l.days[1].stocks[1].seal_nextday, Some(false));
+        // 七板以上也要收集进来
+        let top = l.days[1].stocks.iter().find(|s| s.board_num == 8).unwrap();
+        assert_eq!(top.code, "603598");
+    }
+
+    #[test]
+    fn 解析竞价异动把小数比例转成百分数() {
+        let data = json!({
+            "timestamp": 1791957420099i64,
+            "trade_date": "2026-10-12",
+            "item": [
+                {
+                    "thscode": "603190.SH", "ticker": "603190", "name": "亚通精工",
+                    "warn_type": "68710", "warn_name": "涨停试盘",
+                    "warn_timestamp": 1791767895000i64,
+                    "bid_price": 16.03, "bid_change_ratio": 0.032, "bid_amount": 137858,
+                    "previous_amount": 29087826
+                },
+                {"ticker": "abc", "name": "非法代码"},
+                {"ticker": "000001", "name": "平安银行", "warn_type": "68711", "warn_name": null, "bid_change_ratio": null}
+            ]
+        });
+        let a = parse_auction(&data);
+        assert_eq!(a.trade_date, "2026-10-12");
+        assert_eq!(a.items.len(), 2, "非法代码要丢掉");
+        assert_eq!(a.items[0].bid_change_pct, Some(3.2));
+        assert_eq!(a.items[0].warn_name, "涨停试盘");
+        assert!(a.items[0].at.is_some());
+        // 缺失的涨幅保留 None，不写 0
+        assert_eq!(a.items[1].bid_change_pct, None);
+        assert_eq!(a.items[1].warn_name, "");
     }
 }

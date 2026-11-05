@@ -37,11 +37,21 @@ import {
 } from "../utils/paperEngine.js";
 import { overnightGaps, summarizeMatches } from "../utils/paperReview.js";
 import { describeScore, scoreBars } from "../utils/paperScore.js";
+import { sentimentOf, sectorBoostOf } from "../utils/marketSentiment.js";
+import {
+  DEFAULT_FEE_PCT,
+  buildSamples,
+  calibrateScore,
+  summarizeCalibration,
+} from "../utils/paperCalibration.js";
+import { auctionFlagsOf, promotionStats } from "../utils/eventSignals.js";
 
 /** 账户与自选池的持久化键（与项目其它 key 保持一致） */
 const ACCOUNT_KEY = "stock-analysis-paper-account";
 /** 池单独存一份：问财窗口与主窗口共用，账户重置时不应连带清空自选池 */
 const POOL_KEY = "stock-analysis-paper-pool";
+/** 打分校准结果缓存（按日期 + 参数 + 代码清单签名，避免每次开面板都跑几十秒） */
+const CALIBRATION_KEY = "stock-analysis-paper-calibration";
 
 /** 单票最少 K 线根数（与 scoreBars 一致；不足则不给参考分） */
 const MIN_BARS = 60;
@@ -131,8 +141,46 @@ export function usePaperAccount() {
   const poolScoreBusy = ref(false);
   /** 打分进度（UI 显示「打分中 3/12」） */
   const poolScoreProgress = ref({ done: 0, total: 0 });
+  /** 当日市场情绪（原始数据 + 计算后的分/标签/系数）；无 Key 时为 null */
+  const sentiment = ref(null);
+  const sentimentInfo = computed(() => sentimentOf(sentiment.value));
+  const sentimentError = ref("");
+  const sentimentLoading = ref(false);
+  /** 情绪缓存：交易日 + 拉取时间（盘中 5 分钟过期，盘后沿用当日） */
+  let sentimentDate = "";
+  let sentimentFetchedAt = 0;
+  /** 自选池个股→板块映射与板块涨幅（题材强度用） */
+  const sectorStrength = ref({ quotes: [], by_stock: [] });
+  const sectorError = ref("");
+  const sectorLoading = ref(false);
+  /** thscode → 当日涨跌幅（板块快照），由 sectorStrength 派生 */
+  const sectorQuoteMap = computed(() => {
+    const map = new Map();
+    for (const q of sectorStrength.value?.quotes || []) {
+      map.set(q.thscode, q.change_pct);
+    }
+    return map;
+  });
   /** 上次记录净值的时间戳（节流用） */
   let lastNavAt = 0;
+
+  /** 连板天梯（近 30 交易日）与晋级率 */
+  const ladder = ref(null);
+  const ladderError = ref("");
+  const ladderLoading = ref(false);
+  const ladderInfo = computed(() => promotionStats(ladder.value?.days || []));
+  let ladderFetchedAt = 0;
+  /** 竞价异动：code → { all, primary } */
+  const auctionFlags = ref(new Map());
+  const auctionError = ref("");
+  const auctionLoading = ref(false);
+  let auctionFetchedAt = 0;
+
+  /** 打分校准结果（summarizeCalibration 的输出；null = 还没算过） */
+  const calibration = ref(null);
+  const calibrationBusy = ref(false);
+  const calibrationProgress = ref({ done: 0, total: 0 });
+  const calibrationError = ref("");
 
   function nzShares(v) {
     const n = Number(v);
@@ -255,6 +303,64 @@ export function usePaperAccount() {
     account.value = { ...account.value, pool: pool.value };
     persist();
     return true;
+  }
+
+  /**
+   * 批量移出自选池（一次持久化，供列表勾选删除用）
+   * @param {Array<string>} codes
+   * @returns {number} 实际移除的只数（不存在的代码直接忽略，不报错）
+   */
+  function removeFromPoolBatch(codes) {
+    const list = (Array.isArray(codes) ? codes : [codes]).map((c) => String(c ?? "").trim());
+    const drop = new Set(list.filter(Boolean));
+    if (!drop.size) return 0;
+    const next = pool.value.filter((p) => !drop.has(String(p.code)));
+    const removed = pool.value.length - next.length;
+    if (!removed) return 0;
+    pool.value = next;
+    persistPool();
+    account.value = { ...account.value, pool: next };
+    persist();
+    return removed;
+  }
+
+  /**
+   * 用一批标的**整体覆盖**自选池（问财选股「覆盖模拟盘自选」用）
+   *
+   * 直接赋新数组而不是「先 clearPool 再 addToPool」：那样会写两次盘，
+   * 中途异常就会留下半套池（用户以为覆盖成功，其实只剩一半）。
+   *
+   * @param {Array|object} items { code, name }
+   * @returns {{ total: number, before: number, dropped: number }} 覆盖后只数 / 覆盖前只数 / 被过滤掉的非法项数
+   */
+  function replacePool(items) {
+    const list = Array.isArray(items) ? items : [items];
+    const seen = new Set();
+    const next = [];
+    let dropped = 0;
+    for (const item of list) {
+      const code = String(item?.code ?? "").trim();
+      // 模拟盘只做 A 股 6 位裸码，与 addToPool 同一口径
+      if (!/^\d{6}$/.test(code) || seen.has(code)) {
+        dropped += 1;
+        continue;
+      }
+      seen.add(code);
+      next.push({
+        code,
+        name: String(item?.name ?? "").trim(),
+        addedAt: getToday(),
+        source: item?.source || "manual",
+      });
+    }
+    const before = pool.value.length;
+    pool.value = next;
+    persistPool();
+    // 只落池、不落账户：问财是独立窗口，本窗口的 account 是打开时的快照，
+    // 若此时 persist() 整份账户，会把主窗口期间成交/净值补点回滚成旧值。
+    // 账户里的 pool 副本只是内存镜像，下次初始化会用 POOL_KEY 覆盖（见 usePaperAccount 开头）。
+    account.value = { ...account.value, pool: next };
+    return { total: next.length, before, dropped };
   }
 
   function clearPool() {
@@ -450,13 +556,153 @@ export function usePaperAccount() {
     }
   }
 
+  // ── 情绪与题材（短线环境；没有 Key 就不参与打分）──────
+  /** 情绪缓存有效期：盘中涨停家数会变，5 分钟后重拉；盘后同一交易日基本不再变 */
+  const SENTIMENT_TTL_MS = 5 * 60 * 1000;
+
+  /**
+   * 拉当日市场情绪（涨停统计 + 连板高度 + 涨停题材热度 + 跌停家数）
+   *
+   * 失败不抛：写 `sentimentError` 并让情绪**不参与**打分（factor=1）。
+   * 宁可分数退回旧口径，也不要拿昨天的或过期的情绪去调节今天的分。
+   */
+  async function loadSentiment(force = false) {
+    const key = getFuyaoKey();
+    if (!key) {
+      sentiment.value = null;
+      sentimentDate = "";
+      sentimentError.value = "未配置同花顺 API Key，情绪与题材不参与打分";
+      return sentimentInfo.value;
+    }
+    const today = getToday();
+    const fresh =
+      !force &&
+      sentimentDate === today &&
+      !!sentiment.value &&
+      Date.now() - sentimentFetchedAt < SENTIMENT_TTL_MS;
+    if (fresh) return sentimentInfo.value;
+    if (sentimentLoading.value) return sentimentInfo.value;
+
+    sentimentLoading.value = true;
+    try {
+      const data = await invoke("get_market_sentiment", { date: today, apiKey: key });
+      sentiment.value = data || null;
+      sentimentDate = data ? today : "";
+      sentimentFetchedAt = Date.now();
+      sentimentError.value = data ? "" : "情绪接口返回空数据";
+    } catch (e) {
+      // 明确失败：清空数据，避免用过期情绪调节今天的分
+      sentiment.value = null;
+      sentimentDate = "";
+      sentimentError.value = String(e?.message || e);
+    } finally {
+      sentimentLoading.value = false;
+    }
+    return sentimentInfo.value;
+  }
+
+  /**
+   * 拉个股所属板块 + 板块当日涨幅（题材强度）
+   *
+   * `merge`：单票打分时只补自己那一只，**不能整体替换**——否则会把自选池刚批量拉好的
+   * 全池映射冲掉，自选页的题材加成会突然集体消失（且下次重算才恢复）。
+   *
+   * @param {string[]} codes 6 位 A 股代码
+   * @param {{ merge?: boolean }} [opts]
+   */
+  async function loadSectorStrength(codes, opts = {}) {
+    const merge = !!opts.merge;
+    const list = (Array.isArray(codes) ? codes : [])
+      .map((c) => String(c ?? "").trim())
+      .filter((c) => /^\d{6}$/.test(c));
+    if (!list.length) return null;
+    const key = getFuyaoKey();
+    if (!key) {
+      sectorStrength.value = { quotes: [], by_stock: [] };
+      sectorError.value = "未配置同花顺 API Key，题材强度不可用";
+      return null;
+    }
+    sectorLoading.value = true;
+    try {
+      const data = await invoke("get_sector_strength", { codes: list, apiKey: key });
+      const prev = sectorStrength.value || { quotes: [], by_stock: [] };
+      const byMap = new Map((merge ? prev.by_stock || [] : []).map((x) => [x.code, x]));
+      for (const x of data?.by_stock || []) byMap.set(x.code, x);
+      const quoteMap = new Map(
+        (merge ? prev.quotes || [] : []).map((q) => [q.thscode, q.change_pct])
+      );
+      for (const q of data?.quotes || []) quoteMap.set(q.thscode, q.change_pct);
+      sectorStrength.value = {
+        quotes: [...quoteMap.entries()].map(([thscode, change_pct]) => ({ thscode, change_pct })),
+        by_stock: [...byMap.values()],
+      };
+      sectorError.value = "";
+      return data;
+    } catch (e) {
+      if (!merge) sectorStrength.value = { quotes: [], by_stock: [] };
+      sectorError.value = String(e?.message || e);
+      return null;
+    } finally {
+      sectorLoading.value = false;
+    }
+  }
+
+  /**
+   * 某只票的题材加成
+   * @returns {{ available: boolean, boost: number, best: object|null, reason: string }}
+   */
+  function sectorBoostFor(code) {
+    const c = String(code ?? "");
+    const hit = (sectorStrength.value?.by_stock || []).find((x) => x.code === c);
+    if (!hit) return { available: false, boost: 0, best: null, reason: "无板块数据" };
+    return sectorBoostOf(hit.sectors, sectorQuoteMap.value);
+  }
+
+  /**
+   * 基准指数日 K（上证综指）—— 相对强度用
+   *
+   * 只有 21 根以上才能算 20 日涨幅；拿不到就返回空数组，打分自动回退绝对涨幅。
+   * 按交易日缓存：指数日 K 一天只变一次，没必要每次打分都打接口。
+   */
+  const benchBars = ref([]);
+  let benchDate = "";
+  async function loadBench() {
+    const today = getToday();
+    if (benchDate === today && benchBars.value.length >= 21) return benchBars.value;
+    try {
+      const bars = await invoke("get_stock_kline", {
+        code: "sh000001",
+        period: "day",
+        apiKey: getFuyaoKey(),
+      });
+      if (Array.isArray(bars) && bars.length >= 21) {
+        benchBars.value = bars;
+        benchDate = today;
+      }
+    } catch (e) {
+      // 基准缺失不是错误：动量因子退回绝对涨幅，其余照常打分
+      console.warn("[paper] 基准指数获取失败，动量回退绝对涨幅:", e);
+    }
+    return benchBars.value;
+  }
+
+  /** 基准近 20 日涨幅（%）；不足 21 根返回 null */
+  function benchRet20PctNow() {
+    const bars = benchBars.value;
+    if (!Array.isArray(bars) || bars.length < 21) return null;
+    const last = Number(bars[bars.length - 1]?.close);
+    const prev = Number(bars[bars.length - 21]?.close);
+    if (!(prev > 0) || !(last > 0)) return null;
+    return (last / prev - 1) * 100;
+  }
+
   /**
    * 计算参考打分（6 因子 + 风险扣分 + 战法），**仅供参考**
    * 明确不影响买卖：用户点「买入」就成交，不看分数。
    */
   async function loadScore(code) {
     const c = String(code ?? "").trim();
-    scoreInfo.value = { code: c, loading: true, res: null, text: "", error: "" };
+    scoreInfo.value = { code: c, loading: true, res: null, text: "", error: "", sector: null };
     if (!/^\d{6}$/.test(c)) {
       scoreInfo.value = { ...scoreInfo.value, loading: false, error: "代码不合法" };
       return null;
@@ -466,13 +712,23 @@ export function usePaperAccount() {
       scoreInfo.value = { ...scoreInfo.value, loading: false, error: "没有日 K 数据，无法打分" };
       return null;
     }
-    const res = scoreBars(bars.slice(-200), c);
+    // 情绪与题材是可选增益：拿不到就按中性算，日 K 打分本身照常出分
+    await loadSentiment();
+    await loadSectorStrength([c], { merge: true });
+    await loadBench();
+    const boost = sectorBoostFor(c);
+    const res = scoreBars(bars.slice(-200), c, {
+      regimeFactor: sentimentInfo.value?.factor ?? 1,
+      sectorBoost: boost.boost,
+      benchRet20Pct: benchRet20PctNow(),
+    });
     scoreInfo.value = {
       code: c,
       loading: false,
       res,
       text: describeScore(res),
       error: res.enough ? "" : `日 K 仅 ${res.bars} 根（不足 60 根），无法打分`,
+      sector: boost,
     };
     return res;
   }
@@ -490,6 +746,9 @@ export function usePaperAccount() {
     const codes = pool.value.map((p) => p.code);
     if (!codes.length) {
       poolScores.value = {};
+      // 池空也要显示市场情绪与连板晋级：它们都是全市场的，与有没有自选无关
+      loadSentiment(force).catch(() => {});
+      loadLadder(force).catch(() => {});
       return;
     }
     const today = getToday();
@@ -506,19 +765,33 @@ export function usePaperAccount() {
     poolScoreBusy.value = true;
     poolScoreProgress.value = { done: 0, total: todo.length };
     try {
+      // 情绪与题材各拉一次就够：情绪是全市场的，板块一次批量反查（100 只上限）
+      await loadSentiment(force);
+      await loadSectorStrength(codes);
+      await loadBench();
+      await loadLadder(force);
+      await loadAuction(codes, force);
+      const regime = sentimentInfo.value?.factor ?? 1;
+      const benchRet = benchRet20PctNow();
       for (let i = 0; i < todo.length; i++) {
         const code = todo[i];
         const bars = await fetchBars(code);
         let entry;
         if (!bars.length) {
-          entry = { res: null, text: "", error: "没有日 K 数据，无法打分", at: today };
+          entry = { res: null, text: "", error: "没有日 K 数据，无法打分", at: today, sector: null };
         } else {
-          const res = scoreBars(bars.slice(-200), code);
+          const boost = sectorBoostFor(code);
+          const res = scoreBars(bars.slice(-200), code, {
+            regimeFactor: regime,
+            sectorBoost: boost.boost,
+            benchRet20Pct: benchRet,
+          });
           entry = {
             res,
             text: describeScore(res),
             error: res.enough ? "" : `日 K 仅 ${res.bars} 根（不足 60 根）`,
             at: today,
+            sector: boost,
           };
         }
         poolScores.value = { ...poolScores.value, [code]: entry };
@@ -527,6 +800,194 @@ export function usePaperAccount() {
     } finally {
       poolScoreBusy.value = false;
     }
+  }
+
+  // ── 短线事件（连板晋级率 / 竞价异动）──────────────────
+  /** 连板天梯缓存：30 日窗口日内基本不变，10 分钟足够 */
+  const LADDER_TTL_MS = 10 * 60 * 1000;
+  /** 竞价异动缓存：盘中会新增，5 分钟刷新 */
+  const AUCTION_TTL_MS = 5 * 60 * 1000;
+
+  /**
+   * 拉连板天梯并算晋级率
+   *
+   * 晋级率的分母只包含「已有次日结果」的样本（`seal_nextday != null`），
+   * 最近交易日的票还没有次日，混进去会把晋级率系统性压低估。
+   */
+  async function loadLadder(force = false) {
+    const key = getFuyaoKey();
+    if (!key) {
+      ladder.value = null;
+      ladderError.value = "未配置同花顺 API Key，连板晋级不可用";
+      return ladderInfo.value;
+    }
+    if (!force && ladder.value && Date.now() - ladderFetchedAt < LADDER_TTL_MS) {
+      return ladderInfo.value;
+    }
+    if (ladderLoading.value) return ladderInfo.value;
+    ladderLoading.value = true;
+    try {
+      const data = await invoke("get_limit_up_ladder", { apiKey: key });
+      ladder.value = data || null;
+      ladderFetchedAt = Date.now();
+      ladderError.value = data?.days?.length ? "" : "连板天梯返回空数据";
+    } catch (e) {
+      ladder.value = null;
+      ladderError.value = String(e?.message || e);
+    } finally {
+      ladderLoading.value = false;
+    }
+    return ladderInfo.value;
+  }
+
+  /**
+   * 拉一批股票当日的集合竞价异动
+   * @param {string[]} codes 6 位代码
+   */
+  async function loadAuction(codes, force = false) {
+    const list = (Array.isArray(codes) ? codes : [])
+      .map((c) => String(c ?? "").trim())
+      .filter((c) => /^\d{6}$/.test(c));
+    if (!list.length) {
+      auctionFlags.value = new Map();
+      return null;
+    }
+    const key = getFuyaoKey();
+    if (!key) {
+      auctionFlags.value = new Map();
+      auctionError.value = "未配置同花顺 API Key，竞价异动不可用";
+      return null;
+    }
+    if (!force && auctionFetchedAt && Date.now() - auctionFetchedAt < AUCTION_TTL_MS) {
+      return auctionFlags.value;
+    }
+    if (auctionLoading.value) return auctionFlags.value;
+    auctionLoading.value = true;
+    try {
+      const data = await invoke("get_auction_opportunities", {
+        codes: list,
+        date: getToday(),
+        apiKey: key,
+      });
+      auctionFlags.value = auctionFlagsOf(data?.items || []);
+      auctionFetchedAt = Date.now();
+      auctionError.value = "";
+      return auctionFlags.value;
+    } catch (e) {
+      auctionFlags.value = new Map();
+      auctionError.value = String(e?.message || e);
+      return null;
+    } finally {
+      auctionLoading.value = false;
+    }
+  }
+
+  /** 某只票的竞价异动（没有则 null） */
+  function auctionOf(code) {
+    return auctionFlags.value.get(String(code ?? "")) || null;
+  }
+
+  // ── 打分校准（把 0-100 的分数换成历史同档表现）──────
+  /**
+   * 用**本地历史日 K** 做 walk-forward，把参考分校准成「同档样本数 / 收正比例 / 中位收益」
+   *
+   * 只读本地库（`get_kline_history`），不联网、不打行情接口——所以可以放心跑几十只票。
+   * 代码清单以自选池优先，不够再用库里其它已缓存标的补足（库为空时只算自选池）。
+   *
+   * 为什么必须点按钮才算：单票 2000 根要滚约 1000 次打分，20 只票是秒级到十秒级，
+   * 打开面板就自动跑会让面板「卡住但不知道在干嘛」。
+   *
+   * @param {{ horizon?: number, maxCodes?: number, force?: boolean }} [opts]
+   */
+  async function loadCalibration(opts = {}) {
+    if (calibrationBusy.value) return calibration.value;
+    const horizon = Math.max(1, Math.round(Number(opts.horizon) || 1));
+    const maxCodes = Math.max(1, Math.min(60, Math.round(Number(opts.maxCodes) || 20)));
+
+    let codes = pool.value.map((p) => p.code).filter((c) => /^\d{6}$/.test(c));
+    if (codes.length < maxCodes) {
+      try {
+        const more = await invoke("get_kline_codes", { period: "day", limit: maxCodes * 3 });
+        for (const c of more || []) {
+          if (codes.length >= maxCodes) break;
+          if (!codes.includes(c)) codes.push(c);
+        }
+      } catch {
+        /* 库未初始化：只用自选池 */
+      }
+    }
+    codes = codes.slice(0, maxCodes);
+    if (!codes.length) {
+      calibration.value = null;
+      calibrationError.value = "没有可用的历史 K 线：先打开几只股票，让本地库缓存日 K";
+      return null;
+    }
+
+    // 校准必须与线上打分同口径：线上动量用相对强度，回放也要传基准，
+    // 否则校准出来的分布和面板上的分数不是一回事
+    const bench = await loadBench();
+    const benchOk = Array.isArray(bench) && bench.length >= 21;
+    const sig = `${getToday()}|${horizon}|${benchOk ? "bench" : "abs"}|${codes.join(",")}`;
+    if (!opts.force) {
+      const cached = readJson(CALIBRATION_KEY, null);
+      if (cached?.sig === sig && cached.result) {
+        calibration.value = cached.result;
+        calibrationError.value = "";
+        return cached.result;
+      }
+    }
+
+    calibrationBusy.value = true;
+    calibrationProgress.value = { done: 0, total: codes.length };
+    calibrationError.value = "";
+    const all = [];
+    try {
+      for (let i = 0; i < codes.length; i++) {
+        const code = codes[i];
+        let bars = [];
+        try {
+          bars = await invoke("get_kline_history", { code, period: "day", limit: 2000 });
+        } catch {
+          bars = [];
+        }
+        // 80 根起：60 根预热 + 至少能凑出几个非重叠样本，太短只会污染统计
+        if (Array.isArray(bars) && bars.length >= 80) {
+          all.push(
+            ...buildSamples(bars, {
+              horizon,
+              feePct: DEFAULT_FEE_PCT,
+              code,
+              benchBars: benchOk ? bench : null,
+            })
+          );
+        }
+        calibrationProgress.value = { done: i + 1, total: codes.length };
+      }
+      const result = summarizeCalibration(all, {
+        horizon,
+        feePct: DEFAULT_FEE_PCT,
+        codes: codes.length,
+      });
+      result.at = getToday();
+      result.sig = sig;
+      calibration.value = result;
+      writeJson(CALIBRATION_KEY, { sig, result });
+      if (!result.total) {
+        calibrationError.value = "本地样本不足：多打开一些股票（每只至少 80 根日 K）再算";
+      }
+      return result;
+    } finally {
+      calibrationBusy.value = false;
+    }
+  }
+
+  /**
+   * 某只票的分数对应的历史同档表现
+   * @returns {object|null} `calibrateScore` 的结果（含 verdict 文案）
+   */
+  function calibrationFor(score) {
+    if (!calibration.value || score == null) return null;
+    return calibrateScore(score, calibration.value.buckets);
   }
 
   // ── 下单 ──────────────────────────────────────────────
@@ -752,6 +1213,8 @@ export function usePaperAccount() {
     // 自选池
     addToPool,
     removeFromPool,
+    removeFromPoolBatch,
+    replacePool,
     clearPool,
     reloadPool,
     // 行情
@@ -771,6 +1234,35 @@ export function usePaperAccount() {
     poolScores,
     poolScoreBusy,
     poolScoreProgress,
+    // 情绪与题材（短线环境；无 Key 时不参与打分）
+    sentiment,
+    sentimentInfo,
+    sentimentError,
+    sentimentLoading,
+    loadSentiment,
+    sectorStrength,
+    sectorError,
+    sectorLoading,
+    loadSectorStrength,
+    sectorBoostFor,
+    // 打分校准（本地历史 walk-forward，把分数换成同档表现）
+    calibration,
+    calibrationBusy,
+    calibrationProgress,
+    calibrationError,
+    loadCalibration,
+    calibrationFor,
+    // 短线事件（连板晋级率 / 竞价异动）
+    ladder,
+    ladderInfo,
+    ladderError,
+    ladderLoading,
+    loadLadder,
+    auctionFlags,
+    auctionError,
+    auctionLoading,
+    loadAuction,
+    auctionOf,
     loadPoolScores,
     // 交易
     loadTicket,
