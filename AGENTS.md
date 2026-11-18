@@ -22,7 +22,7 @@
 - **刷新失败保留旧数据**：不清空已有数据（仅换标的/换周期时清空），置 `stale=true` 交 `src/components/DataFreshness.vue` 标注
 - **窗口不可见必降频**：隐藏信号 = `document.visibilitychange` + Rust `main-window-hidden`/`main-window-shown`；新增轮询一律走 `src/utils/refreshInterval.js`（`effectiveInterval` / `onIntervalModeChange`）
 - **本地历史库是旁路**：`db.rs` 的 `record_*` 只 eprintln，绝不向命令层返错；新埋点写 `db.rs` + 命令转发，前端走 `src/utils/history.js`；Rust 命令碰 DB/本地文件必须走 `commands.rs` 的 `blocking()`（`spawn_blocking`），不得在 async 体里直接锁 DB
-- **回测口径**：`useSignalBacktest` 只回测日线级规则（T+0/量价陷阱等日内信号依赖分时，无法用日 K 回测）；UI/文档必须标注「非重叠交易 + 固定持有期 + 样本 <10 笔仅供参考」
+- **回测口径**：`useSignalBacktest` 只回测日线级规则（T+0/量价陷阱等日内信号依赖分时，无法用日 K 回测）；UI/文档必须标注「非重叠交易 + 固定持有期 + 样本 <10 笔仅供参考」；持有期 1/3/5/10/20/30 日，排序与阅读一律用**超额（相对买入持有基准）**和 **Wilson 95% 下界**，禁止只拿裸胜率下结论（§7.19）
 - **K 线周期口径**：`klineData` 为全应用共享且可切周期（m5/m15/m30/m60/day/week/month），消费它的计算与提示词必须带上周期、标签口径取自 `src/utils/klinePeriod.js`，禁止硬编码「日K / 5 日均线」；只吃日K的逻辑（T+0 趋势、MACD 背离）走 `src/utils/klineCache.js` 取日K，取不到就跳过并披露
 - **筹码口径**：筹码分布是成交量按价格分布的估算，换手率衰减**仅日K + 取到换手率**时启用（`chipOptionsFromQuote`，衰减系数默认 1）；未启用时 UI（`ChipDistribution.vue`）与 AI 注入（`aiContext.js`）必须按 `chipData.decayed` 标「未做换手率衰减」，禁止无标注展示筹码峰/获利比例
 

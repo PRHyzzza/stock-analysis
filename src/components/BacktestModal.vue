@@ -4,9 +4,19 @@
  *
  * 数据源：本地历史库（Rust db.rs）沉淀的日 K；本地不足时自动补拉远端一次（落库为旁路）。
  * 口径：日线级规则 + 固定持有期 + 非重叠交易；日内信号（T+0/量价陷阱）需分时数据，暂不参与回测。
+ *
+ * 防误读的三条设计（PROJECT.md §7.19）：
+ *   - 「超额」列 = 规则平均收益 − 同期「不看信号、买入并持有 N 日」基准，回答「有没有真 edge」
+ *   - 胜率下方的小字是 Wilson 95% 置信下界，小样本下会明显低于点估计，避免 3 笔全胜被当优势
+ *   - 「均浮盈 / 均浮亏」= 入场后持有窗口内的平均最大浮盈 / 平均最大浮亏，与最终收益相互独立
  */
 import { ref, computed, watch } from "vue";
-import { useSignalBacktest, HOLD_PERIODS, MIN_SAMPLE } from "../composables/useSignalBacktest.js";
+import {
+  useSignalBacktest,
+  HOLD_PERIODS,
+  MIN_SAMPLE,
+  RULE_GROUPS,
+} from "../composables/useSignalBacktest.js";
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -20,19 +30,53 @@ const { loading, syncing, error, data, stats, load, loadStats } = useSignalBackt
 /** 当前选中的持有期（交易日） */
 const hold = ref(HOLD_PERIODS[1]);
 
-/** 按当前持有期展开的规则统计（数据不足时为空数组） */
+/** 规则类别筛选：all / ultra / trend / volume */
+const groupFilter = ref("all");
+
+/** 按当前持有期展开的规则统计（先按类别筛选，数据不足时为空数组） */
 const rows = computed(() => {
   const res = data.value;
   if (!res?.rules?.length) return [];
-  return res.rules.map((rule) => ({ ...rule, stat: rule.byPeriod[hold.value] || null }));
+  const list =
+    groupFilter.value === "all"
+      ? res.rules
+      : res.rules.filter((r) => r.group === groupFilter.value);
+  return list.map((rule) => ({ ...rule, stat: rule.byPeriod[hold.value] || null }));
 });
 
-/** 按胜率降序的排序视图（样本不足的排后面，避免误导） */
+/** 当前持有期的基准（不看信号、逐日买入持有 N 日） */
+const benchmark = computed(() => data.value?.benchmark?.[hold.value] || null);
+
+/** 各分组规则条数（筛选按钮上用，缺数据时显示 0） */
+const groupCounts = computed(() => {
+  const out = { all: 0, ultra: 0, trend: 0, volume: 0 };
+  for (const r of data.value?.rules || []) {
+    out.all += 1;
+    if (r.group in out) out[r.group] += 1;
+  }
+  return out;
+});
+
+/**
+ * 按「超额 → 胜率下界 → 样本数」降序排序。
+ * 样本不足的行统一沉到后面，且排序主键用超额而不是裸胜率：
+ * 裸胜率在 2~3 笔样本下毫无意义，超额才回答「比无脑持有强多少」。
+ */
 const sortedRows = computed(() => {
+  const key = (row) => {
+    const st = row.stat;
+    if (!st || !(st.trades >= MIN_SAMPLE)) return null;
+    return st.excess != null ? st.excess : st.winRateLower != null ? st.winRateLower : -1;
+  };
   return [...rows.value].sort((a, b) => {
-    const av = a.stat?.trades >= MIN_SAMPLE ? (a.stat.winRate ?? -1) : -1;
-    const bv = b.stat?.trades >= MIN_SAMPLE ? (b.stat.winRate ?? -1) : -1;
-    if (bv !== av) return bv - av;
+    const av = key(a);
+    const bv = key(b);
+    if (av == null && bv != null) return 1;
+    if (av != null && bv == null) return -1;
+    if (av != null && bv != null && bv !== av) return bv - av;
+    const aw = a.stat?.winRateLower ?? -1;
+    const bw = b.stat?.winRateLower ?? -1;
+    if (bw !== aw) return bw - aw;
     return (b.stat?.trades || 0) - (a.stat?.trades || 0);
   });
 });
@@ -79,6 +123,27 @@ function agoText(barsAgo) {
   if (barsAgo == null) return "区间内未出现";
   if (barsAgo === 0) return "今日";
   return `${barsAgo} 个交易日前`;
+}
+
+/** 分组中文名（规则名后的类别标签） */
+const GROUP_NAME = Object.fromEntries(RULE_GROUPS.map((g) => [g.id, g.name]));
+const GROUP_HINT = Object.fromEntries(RULE_GROUPS.map((g) => [g.id, g.hint]));
+function groupName(id) {
+  return GROUP_NAME[id] || "";
+}
+
+/** 超额（百分点）配色：正超额才有意义，0 附近保持中性 */
+function excessColor(v) {
+  if (v == null || !Number.isFinite(v)) return "var(--text-muted)";
+  if (v >= 0.5) return "var(--red)";
+  if (v <= -0.5) return "var(--green)";
+  return "var(--text-secondary)";
+}
+
+/** 超额文案：带正负号，保留两位 */
+function excessText(v) {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v > 0 ? "+" : ""}${v.toFixed(2)}`;
 }
 
 /** 该规则在回测区间内是否出现过（用于区分「很久前有过」与「从未出现」） */
@@ -210,6 +275,32 @@ function switchHold(h) {
             </button>
           </div>
 
+          <!-- 类别筛选 + 基准对照 -->
+          <div class="bt-filters">
+            <div class="bt-filter-group">
+              <span class="bt-toolbar-label">类别</span>
+              <button
+                class="bt-filter"
+                :class="{ active: groupFilter === 'all' }"
+                @click="groupFilter = 'all'"
+              >全部 {{ groupCounts.all }}</button>
+              <button
+                v-for="g in RULE_GROUPS"
+                :key="g.id"
+                class="bt-filter"
+                :class="{ active: groupFilter === g.id }"
+                :title="g.hint"
+                @click="groupFilter = g.id"
+              >{{ g.name }} {{ groupCounts[g.id] }}</button>
+            </div>
+            <div class="bt-bench" v-if="benchmark && benchmark.samples > 0">
+              基准（不看信号、逐日买入持有 {{ hold }} 日）：平均
+              <b :style="{ color: pctColor(benchmark.avgRet) }">{{ pctText(benchmark.avgRet) }}</b>
+              · 胜率 <b>{{ benchmark.winRate == null ? "—" : `${benchmark.winRate.toFixed(1)}%` }}</b>
+              · 样本 {{ benchmark.samples }} 笔 —— 「超额」列 = 规则平均收益 − 基准
+            </div>
+          </div>
+
           <div v-if="error" class="bt-error">{{ error }}</div>
 
           <!-- 当前信号状态（「现在」；与下方历史统计相互独立，不代表未来收益） -->
@@ -245,8 +336,9 @@ function switchHold(h) {
                 <th class="col-name">规则</th>
                 <th>信号</th>
                 <th>样本</th>
-                <th>胜率</th>
-                <th>平均收益</th>
+                <th class="col-rate">胜率</th>
+                <th class="col-ret">平均收益</th>
+                <th class="col-excess">超额</th>
                 <th>盈亏比</th>
                 <th>最大回撤</th>
               </tr>
@@ -254,7 +346,10 @@ function switchHold(h) {
             <tbody>
               <tr v-for="row in sortedRows" :key="row.id">
                 <td class="col-name">
-                  <div class="bt-rule-name">{{ row.name }}</div>
+                  <div class="bt-rule-name">
+                    <span class="bt-tag" :class="`tag-${row.group}`">{{ groupName(row.group) }}</span>
+                    {{ row.name }}
+                  </div>
                   <div class="bt-rule-hint">{{ row.hint }}</div>
                 </td>
                 <td class="num">{{ row.signalCount }}</td>
@@ -269,6 +364,11 @@ function switchHold(h) {
                         <span class="bt-bar-fill" :style="{ width: `${Math.min(100, row.stat.winRate)}%` }"></span>
                       </span>
                     </div>
+                    <div
+                      class="bt-sub"
+                      v-if="row.stat.winRateLower != null"
+                      title="Wilson 95% 置信下界：样本越少越低，避免小样本高胜率被误读"
+                    >下界 {{ row.stat.winRateLower.toFixed(1) }}%</div>
                     <div class="bt-low" v-if="row.stat.trades < MIN_SAMPLE">样本不足</div>
                     <div class="bt-low" v-if="row.stat.flats > 0">{{ row.stat.flats }} 笔平盘未计入</div>
                   </template>
@@ -277,6 +377,14 @@ function switchHold(h) {
                 </td>
                 <td class="num" :style="{ color: pctColor(row.stat?.avgRet) }">
                   {{ pctText(row.stat?.avgRet) }}
+                  <div class="bt-sub" v-if="row.stat?.avgMfe != null">浮盈 {{ pctText(row.stat.avgMfe) }}</div>
+                  <div class="bt-sub" v-if="row.stat?.avgMae != null">浮亏 {{ pctText(row.stat.avgMae) }}</div>
+                </td>
+                <td class="num bt-strong" :style="{ color: excessColor(row.stat?.excess) }">
+                  {{ excessText(row.stat?.excess) }}
+                  <div class="bt-sub" v-if="row.stat?.excessWin != null">
+                    胜率 {{ excessText(row.stat.excessWin) }}pp
+                  </div>
                 </td>
                 <td class="num bt-strong">
                   {{ payoffText(row.stat) }}
@@ -292,11 +400,23 @@ function switchHold(h) {
             本地与远端均未取到历史日 K 数据
           </div>
 
+          <div
+            v-else-if="!loading && !error && data?.enough && !sortedRows.length"
+            class="bt-empty"
+          >
+            该类别下暂无规则或统计
+          </div>
+
           <p class="bt-note">
             口径：信号日收盘买入、持有 N 个交易日后收盘卖出，<b>持有期内不重复开仓</b>（非重叠交易）；
             胜率 = 盈利笔数 /（盈利 + 亏损笔数），平盘（收益恰为 0）不进退分母，
             平均收益 = 单笔平均涨跌幅，盈亏比 = 平均盈利 / 平均亏损（等权、未计手续费与滑点）。
-            样本少于 {{ MIN_SAMPLE }} 笔的结果仅供参考。
+            <b>超额</b> = 规则平均收益 − 同区间「不看信号、逐日买入持有 N 日」的基准平均收益，
+            为正才说明该信号跑赢了无脑持有；胜率下方的<b>下界</b>是 Wilson 95% 置信下界，
+            样本越少越低，3 笔全胜的下界也只有 40% 出头；<b>浮盈 / 浮亏</b>是入场后持有窗口内的
+            平均最大浮盈 / 平均最大浮亏，与最终收益相互独立，用来判断超短线有没有止盈空间、回撤有多深。
+            样本少于 {{ MIN_SAMPLE }} 笔的结果仅供参考；<b>持有期越长，非重叠交易笔数越少</b>
+            （上限约等于回测根数 ÷ 持有期），20 / 30 日尤其容易出现样本不足。
             当前版本仅回测<b>日线级</b>规则——T+0 / 量价陷阱等日内信号依赖分时数据，不在本表范围内。
             顶部「当前状态」只表示<b>最后一根日 K</b> 上各规则是否触发，与下方持有期胜率相互独立，
             不代表该信号未来会上涨；历史表现不代表未来收益，本面板不构成投资建议。
@@ -313,7 +433,8 @@ function switchHold(h) {
 
 <style scoped>
 .modal-container {
-  width: 860px;
+  width: 980px;
+  max-width: 96vw;
 }
 
 .modal-title-row {
@@ -448,6 +569,89 @@ function switchHold(h) {
 .bt-sync:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ---- 类别筛选 + 基准 ---- */
+.bt-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: -6px 0 14px;
+}
+
+.bt-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bt-filter {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.bt-filter:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.bt-filter.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--white);
+}
+
+.bt-bench {
+  flex: 1 1 100%;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.bt-bench b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ---- 规则类别标签 ---- */
+.bt-tag {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: 1px;
+  background: var(--fog);
+  color: var(--text-muted);
+}
+
+.bt-tag.tag-ultra {
+  background: var(--apricot-wash);
+  color: var(--rust);
+}
+
+.bt-tag.tag-trend {
+  background: var(--sky-wash);
+  color: var(--ink);
+}
+
+/* ---- 单元格副文本（胜率下界 / 浮盈浮亏） ---- */
+.bt-sub {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-top: 2px;
+  white-space: nowrap;
 }
 
 .bt-error {

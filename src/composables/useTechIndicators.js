@@ -5,7 +5,7 @@
  * 所有函数为纯函数，可在组件外独立使用。
  */
 // ---- 纯函数（可独立导出使用） ----
-import { emaFilled } from "../utils/indicators";
+import { emaFilled } from "../utils/indicators.js";
 
 /**
  * MACD: 返回 [{ dif, dea, macd }, ...]
